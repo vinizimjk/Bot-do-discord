@@ -271,11 +271,13 @@ async def on_command_error(ctx: commands.Context, erro):
 # INICIAR O BOT
 # ==========================================================
 
-token = os.getenv("TOKEN")
+token = os.environ.get("TOKEN")
+
+print("Variável TOKEN encontrada:", bool(token))
 
 if not token:
     raise ValueError(
-        "O token não foi encontrado. Confira o arquivo .env."
+        "O token não foi encontrado nas variáveis da Railway."
     )
 
 bot.run(token)
