@@ -5,7 +5,7 @@ from pathlib import Path
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
-
+from discord import app_commands
 
 # ==========================================================
 # CAMINHOS DOS ARQUIVOS
@@ -75,7 +75,9 @@ bot = commands.Bot(
     intents=intents,
     help_command=None
 )
-
+@bot.event
+async def setup_hook():
+    await bot.tree.sync()
 
 # ==========================================================
 # MENU DE SELEÇÃO
@@ -164,7 +166,130 @@ class MenuView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(MenuSubCivil())
 
+class EnqueteModal(discord.ui.Modal, title="Criar enquete"):
+    pergunta = discord.ui.TextInput(
+        label="Pergunta da enquete",
+        placeholder="Ex: Qual evento vocês preferem?",
+        max_length=200
+    )
 
+    opcao1 = discord.ui.TextInput(
+        label="Opção 1",
+        placeholder="Ex: Evento de corrida",
+        max_length=100
+    )
+
+    opcao2 = discord.ui.TextInput(
+        label="Opção 2",
+        placeholder="Ex: Evento de tiro",
+        max_length=100
+    )
+
+    opcao3 = discord.ui.TextInput(
+        label="Opção 3 (opcional)",
+        placeholder="Pode deixar vazio",
+        required=False,
+        max_length=100
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        opcoes = [
+            self.opcao1.value,
+            self.opcao2.value
+        ]
+
+        if self.opcao3.value:
+            opcoes.append(self.opcao3.value)
+
+        embed = discord.Embed(
+            title="📊 Enquete",
+            description=f"## {self.pergunta.value}",
+            color=discord.Color.blurple()
+        )
+
+        emojis = ["1️⃣", "2️⃣", "3️⃣"]
+
+        for i, opcao in enumerate(opcoes):
+            embed.add_field(
+                name=f"{emojis[i]} {opcao}",
+                value="0 votos",
+                inline=False
+            )
+
+        view = EnqueteView(
+            pergunta=self.pergunta.value,
+            opcoes=opcoes
+        )
+
+        await interaction.response.send_message(
+            "✅ Enquete criada!",
+            ephemeral=True
+        )
+
+        await interaction.channel.send(
+            embed=embed,
+            view=view
+        )
+
+
+class EnqueteView(discord.ui.View):
+    def __init__(self, pergunta, opcoes):
+        super().__init__(timeout=None)
+
+        self.pergunta = pergunta
+        self.opcoes = opcoes
+        self.votos = {}
+
+        emojis = ["1️⃣", "2️⃣", "3️⃣"]
+
+        for i, opcao in enumerate(opcoes):
+            botao = discord.ui.Button(
+                label=opcao,
+                emoji=emojis[i],
+                style=discord.ButtonStyle.primary,
+                custom_id=f"enquete_{i}"
+            )
+
+            async def callback(interaction, indice=i):
+                usuario_id = interaction.user.id
+
+                # remove voto anterior
+                self.votos[usuario_id] = indice
+
+                contagem = [0] * len(self.opcoes)
+
+                for voto in self.votos.values():
+                    contagem[voto] += 1
+
+                embed = discord.Embed(
+                    title="📊 Enquete",
+                    description=f"## {self.pergunta}",
+                    color=discord.Color.blurple()
+                )
+
+                for j, texto in enumerate(self.opcoes):
+                    embed.add_field(
+                        name=f"{emojis[j]} {texto}",
+                        value=f"{contagem[j]} voto(s)",
+                        inline=False
+                    )
+
+                await interaction.response.edit_message(
+                    embed=embed,
+                    view=self
+                )
+
+            botao.callback = callback
+            self.add_item(botao)
+
+
+@bot.tree.command(
+    name="enquete",
+    description="Cria uma enquete no canal atual"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def enquete(interaction: discord.Interaction):
+    await interaction.response.send_modal(EnqueteModal())
 # ==========================================================
 # BOT ONLINE
 # ==========================================================
