@@ -1,11 +1,9 @@
 import json
 import os
-import re
 import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
 
 import discord
 from discord import app_commands
@@ -17,24 +15,21 @@ from dotenv import load_dotenv
 # CONFIGURAÇÕES PRINCIPAIS
 # ==========================================================
 
-# Somente este usuário pode aprovar/negar solicitações.
 DONO_ID = 1455937306400653344
 
-# Canal onde chegam as solicitações.
 CANAL_APROVACAO_ID = 1536073451633254420
 
-# COLOQUE AQUI O ID DO CARGO "BAN".
 CARGO_BAN_ID = 1536734408277491863
 
-# O Discord permite timeout de até 28 dias.
 CASTIGO_DIAS = 28
 
 
 # ==========================================================
-# PASTAS E ARQUIVOS
+# PASTAS
 # ==========================================================
 
 PASTA_BOT = Path(__file__).parent
+
 PASTA_VOLUME = Path("/data")
 
 if PASTA_VOLUME.exists():
@@ -43,19 +38,26 @@ else:
     PASTA_DADOS = PASTA_BOT
 
 ARQUIVO_ENV = PASTA_BOT / ".env"
+
 ARQUIVO_CONFIG = PASTA_DADOS / "config.json"
 
 BANCO_NOVO = PASTA_DADOS / "bot.db"
+
 BANCO_ANTIGO = PASTA_DADOS / "enquetes.db"
 
 if BANCO_NOVO.exists():
     ARQUIVO_BANCO = BANCO_NOVO
+
 elif BANCO_ANTIGO.exists():
     ARQUIVO_BANCO = BANCO_ANTIGO
+
 else:
     ARQUIVO_BANCO = BANCO_NOVO
 
-load_dotenv(dotenv_path=ARQUIVO_ENV)
+
+load_dotenv(
+    dotenv_path=ARQUIVO_ENV
+)
 
 
 # ==========================================================
@@ -72,11 +74,13 @@ CONFIG_PADRAO = {
 
 
 def salvar_config(configuracao):
+
     with open(
         ARQUIVO_CONFIG,
         "w",
         encoding="utf-8"
     ) as arquivo:
+
         json.dump(
             configuracao,
             arquivo,
@@ -86,31 +90,53 @@ def salvar_config(configuracao):
 
 
 def carregar_config():
+
     if not ARQUIVO_CONFIG.exists():
-        salvar_config(CONFIG_PADRAO.copy())
+
+        salvar_config(
+            CONFIG_PADRAO.copy()
+        )
+
         return CONFIG_PADRAO.copy()
 
     try:
+
         with open(
             ARQUIVO_CONFIG,
             "r",
             encoding="utf-8"
         ) as arquivo:
-            configuracao = json.load(arquivo)
 
-    except (json.JSONDecodeError, OSError):
-        salvar_config(CONFIG_PADRAO.copy())
+            configuracao = json.load(
+                arquivo
+            )
+
+    except (
+        json.JSONDecodeError,
+        OSError
+    ):
+
+        salvar_config(
+            CONFIG_PADRAO.copy()
+        )
+
         return CONFIG_PADRAO.copy()
 
     mudou = False
 
     for chave, valor in CONFIG_PADRAO.items():
+
         if chave not in configuracao:
+
             configuracao[chave] = valor
+
             mudou = True
 
     if mudou:
-        salvar_config(configuracao)
+
+        salvar_config(
+            configuracao
+        )
 
     return configuracao
 
@@ -119,20 +145,27 @@ carregar_config()
 
 
 # ==========================================================
-# BANCO DE DADOS
+# BANCO
 # ==========================================================
 
 def conectar_banco():
+
     banco = sqlite3.connect(
         ARQUIVO_BANCO,
         timeout=10
     )
 
     banco.row_factory = sqlite3.Row
+
     return banco
 
 
-def coluna_existe(cursor, tabela, coluna):
+def coluna_existe(
+    cursor,
+    tabela,
+    coluna
+):
+
     cursor.execute(
         f"PRAGMA table_info({tabela})"
     )
@@ -144,12 +177,14 @@ def coluna_existe(cursor, tabela, coluna):
 
 
 def criar_banco():
+
     with conectar_banco() as banco:
+
         cursor = banco.cursor()
 
-        # --------------------------------------------------
+        # ==================================================
         # ENQUETES
-        # --------------------------------------------------
+        # ==================================================
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS enquetes_v2 (
@@ -177,9 +212,9 @@ def criar_banco():
             )
         """)
 
-        # --------------------------------------------------
+        # ==================================================
         # BAN / HACKBAN
-        # --------------------------------------------------
+        # ==================================================
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS solicitacoes_ban (
@@ -197,7 +232,6 @@ def criar_banco():
             )
         """)
 
-        # Atualiza banco de versões anteriores sem apagar nada.
         novas_colunas = {
             "tipo": "TEXT DEFAULT 'ban'",
             "usuario_nome": "TEXT",
@@ -207,17 +241,18 @@ def criar_banco():
         }
 
         for coluna, definicao in novas_colunas.items():
+
             if not coluna_existe(
                 cursor,
                 "solicitacoes_ban",
                 coluna
             ):
+
                 cursor.execute(
                     "ALTER TABLE solicitacoes_ban "
                     f"ADD COLUMN {coluna} {definicao}"
                 )
 
-        # Se o bot caiu no meio de uma decisão.
         cursor.execute("""
             UPDATE solicitacoes_ban
             SET status = 'pendente'
@@ -231,7 +266,7 @@ criar_banco()
 
 
 # ==========================================================
-# BANCO - ENQUETES
+# ENQUETES - BANCO
 # ==========================================================
 
 def salvar_enquete(
@@ -239,6 +274,7 @@ def salvar_enquete(
     pergunta,
     opcoes
 ):
+
     opcao3 = (
         opcoes[2]
         if len(opcoes) >= 3
@@ -246,6 +282,7 @@ def salvar_enquete(
     )
 
     with conectar_banco() as banco:
+
         banco.execute(
             """
             INSERT INTO enquetes_v2 (
@@ -256,6 +293,7 @@ def salvar_enquete(
                 opcao3,
                 ativa
             )
+
             VALUES (?, ?, ?, ?, ?, 1)
             """,
             (
@@ -275,11 +313,17 @@ def atualizar_mensagem_enquete(
     canal_id,
     mensagem_id
 ):
+
     with conectar_banco() as banco:
+
         banco.execute(
             """
             UPDATE enquetes_v2
-            SET canal_id = ?, mensagem_id = ?
+
+            SET
+                canal_id = ?,
+                mensagem_id = ?
+
             WHERE id = ?
             """,
             (
@@ -297,7 +341,9 @@ def registrar_voto(
     usuario_id,
     opcao
 ):
+
     with conectar_banco() as banco:
+
         banco.execute(
             """
             INSERT INTO votos_v2 (
@@ -305,12 +351,14 @@ def registrar_voto(
                 usuario_id,
                 opcao
             )
+
             VALUES (?, ?, ?)
 
-            ON CONFLICT(
+            ON CONFLICT (
                 enquete_id,
                 usuario_id
             )
+
             DO UPDATE SET
                 opcao = excluded.opcao
             """,
@@ -328,12 +376,16 @@ def remover_voto(
     enquete_id,
     usuario_id
 ):
+
     with conectar_banco() as banco:
+
         cursor = banco.execute(
             """
             DELETE FROM votos_v2
-            WHERE enquete_id = ?
-            AND usuario_id = ?
+
+            WHERE
+                enquete_id = ?
+                AND usuario_id = ?
             """,
             (
                 enquete_id,
@@ -342,6 +394,7 @@ def remover_voto(
         )
 
         banco.commit()
+
         return cursor.rowcount > 0
 
 
@@ -349,47 +402,73 @@ def contar_votos(
     enquete_id,
     quantidade_opcoes
 ):
-    contagem = [0] * quantidade_opcoes
+
+    contagem = [
+        0
+    ] * quantidade_opcoes
 
     with conectar_banco() as banco:
+
         resultados = banco.execute(
             """
             SELECT
                 opcao,
                 COUNT(*) AS quantidade
+
             FROM votos_v2
+
             WHERE enquete_id = ?
+
             GROUP BY opcao
             """,
-            (enquete_id,)
+            (
+                enquete_id,
+            )
         ).fetchall()
 
     for linha in resultados:
+
         opcao = linha["opcao"]
 
         if 0 <= opcao < quantidade_opcoes:
-            contagem[opcao] = linha["quantidade"]
+
+            contagem[opcao] = (
+                linha["quantidade"]
+            )
 
     return contagem
 
 
-def buscar_votos(enquete_id):
+def buscar_votos(
+    enquete_id
+):
+
     with conectar_banco() as banco:
+
         return banco.execute(
             """
             SELECT
                 usuario_id,
                 opcao
+
             FROM votos_v2
+
             WHERE enquete_id = ?
-            ORDER BY opcao, usuario_id
+
+            ORDER BY
+                opcao,
+                usuario_id
             """,
-            (enquete_id,)
+            (
+                enquete_id,
+            )
         ).fetchall()
 
 
 def buscar_enquetes_ativas():
+
     with conectar_banco() as banco:
+
         return banco.execute(
             """
             SELECT
@@ -400,15 +479,18 @@ def buscar_enquetes_ativas():
                 opcao3,
                 canal_id,
                 mensagem_id
+
             FROM enquetes_v2
-            WHERE ativa = 1
-            AND mensagem_id IS NOT NULL
+
+            WHERE
+                ativa = 1
+                AND mensagem_id IS NOT NULL
             """
         ).fetchall()
 
 
 # ==========================================================
-# EMBED DA ENQUETE
+# ENQUETE - EMBED
 # ==========================================================
 
 def gerar_embed_enquete(
@@ -416,6 +498,7 @@ def gerar_embed_enquete(
     pergunta,
     opcoes
 ):
+
     emojis = [
         "1️⃣",
         "2️⃣",
@@ -427,7 +510,9 @@ def gerar_embed_enquete(
         len(opcoes)
     )
 
-    total = sum(contagem)
+    total = sum(
+        contagem
+    )
 
     embed = discord.Embed(
         title="📊 Enquete",
@@ -435,7 +520,10 @@ def gerar_embed_enquete(
         color=discord.Color.blurple()
     )
 
-    for indice, texto in enumerate(opcoes):
+    for indice, texto in enumerate(
+        opcoes
+    ):
+
         votos = contagem[indice]
 
         porcentagem = (
@@ -445,7 +533,10 @@ def gerar_embed_enquete(
         )
 
         embed.add_field(
-            name=f"{emojis[indice]} {texto}",
+            name=(
+                f"{emojis[indice]} "
+                f"{texto}"
+            ),
             value=(
                 f"**{votos} voto(s)** "
                 f"— {porcentagem:.1f}%"
@@ -454,7 +545,9 @@ def gerar_embed_enquete(
         )
 
     embed.set_footer(
-        text=f"Total de votos: {total}"
+        text=(
+            f"Total de votos: {total}"
+        )
     )
 
     return embed
@@ -464,9 +557,12 @@ def gerar_embed_enquete(
 # MENU SUB CIVIL
 # ==========================================================
 
-class MenuSubCivil(discord.ui.Select):
+class MenuSubCivil(
+    discord.ui.Select
+):
 
     def __init__(self):
+
         configuracao = carregar_config()
 
         opcoes = [
@@ -476,7 +572,8 @@ class MenuSubCivil(discord.ui.Select):
                     "de ter Sub Civil?"
                 ),
                 description=(
-                    "Veja todos os benefícios do cargo."
+                    "Veja todos os benefícios "
+                    "do cargo."
                 ),
                 emoji="⭐",
                 value="vantagens"
@@ -507,7 +604,11 @@ class MenuSubCivil(discord.ui.Select):
         ]
 
         super().__init__(
-            placeholder=configuracao["texto_selecao"],
+            placeholder=(
+                configuracao[
+                    "texto_selecao"
+                ]
+            ),
             custom_id="menu_sub_civil",
             min_values=1,
             max_values=1,
@@ -518,39 +619,44 @@ class MenuSubCivil(discord.ui.Select):
         self,
         interaction: discord.Interaction
     ):
+
         opcao = self.values[0]
 
         if opcao == "vantagens":
+
             mensagem = (
-                "## ⭐ Quais são as vantagens "
-                "de ter Sub Civil?\n\n"
+                "## ⭐ Vantagens de ter Sub Civil\n\n"
+
                 "• 🎵 Utilizar efeitos sonoros.\n"
                 "• 📹 Abrir câmera.\n"
                 "• 🖥️ Transmitir tela.\n"
                 "• 🚀 Ignorar modo lento.\n"
                 "• 🎨 Cor exclusiva no nome.\n"
-                "• ⭐ Cargo destacado na lista de membros.\n"
+                "• ⭐ Cargo destacado na lista.\n"
                 "• 🔊 Prioridade em canais de voz.\n"
                 "• 💬 Acesso a um chat exclusivo."
             )
 
         elif opcao == "interagir":
+
             mensagem = (
                 "## 💬 Por onde interagir?\n\n"
-                "A interação deve ser feita através "
-                "de conversas por chat para a "
-                "Loritta poder reconhecer."
+
+                "A interação deve ser feita "
+                "através de conversas por chat "
+                "para a Loritta reconhecer."
             )
 
         else:
+
             mensagem = (
-                "## 🏆 Como iremos saber quem mais "
-                "interagiu pela Loritta?\n\n"
+                "## 🏆 Como saberemos quem mais interagiu?\n\n"
+
                 "5 minutos antes do prazo iremos "
-                "reiniciar os XP de todo mundo.\n\n"
-                "Ao finalizar o prazo iremos ver o "
-                "ranking e quem estiver no topo irá "
-                "ganhar o **Sub Civil**."
+                "reiniciar os XP de todos.\n\n"
+
+                "Ao finalizar o prazo iremos ver "
+                "o ranking da Loritta."
             )
 
         await interaction.response.send_message(
@@ -559,9 +665,12 @@ class MenuSubCivil(discord.ui.Select):
         )
 
 
-class MenuView(discord.ui.View):
+class MenuView(
+    discord.ui.View
+):
 
     def __init__(self):
+
         super().__init__(
             timeout=None
         )
@@ -572,10 +681,12 @@ class MenuView(discord.ui.View):
 
 
 # ==========================================================
-# ENQUETE
+# ENQUETE - VIEW
 # ==========================================================
 
-class EnqueteView(discord.ui.View):
+class EnqueteView(
+    discord.ui.View
+):
 
     def __init__(
         self,
@@ -583,12 +694,15 @@ class EnqueteView(discord.ui.View):
         pergunta,
         opcoes
     ):
+
         super().__init__(
             timeout=None
         )
 
         self.enquete_id = enquete_id
+
         self.pergunta = pergunta
+
         self.opcoes = opcoes
 
         emojis = [
@@ -597,13 +711,22 @@ class EnqueteView(discord.ui.View):
             "3️⃣"
         ]
 
-        for indice, opcao in enumerate(opcoes):
+        # ==================================================
+        # BOTÕES DE VOTO
+        # ==================================================
+
+        for indice, opcao in enumerate(
+            opcoes
+        ):
+
             botao = discord.ui.Button(
                 label=opcao,
                 emoji=emojis[indice],
                 style=discord.ButtonStyle.primary,
                 custom_id=(
-                    f"voto_{enquete_id}_{indice}"
+                    f"voto_"
+                    f"{enquete_id}_"
+                    f"{indice}"
                 )
             )
 
@@ -611,6 +734,7 @@ class EnqueteView(discord.ui.View):
                 interaction: discord.Interaction,
                 indice_opcao=indice
             ):
+
                 registrar_voto(
                     self.enquete_id,
                     interaction.user.id,
@@ -635,29 +759,36 @@ class EnqueteView(discord.ui.View):
 
             botao.callback = votar
 
-            self.add_item(botao)
+            self.add_item(
+                botao
+            )
 
-        # --------------------------------------------------
+        # ==================================================
         # REMOVER VOTO
-        # --------------------------------------------------
+        # ==================================================
 
         remover = discord.ui.Button(
             label="Remover meu voto",
             emoji="🗑️",
             style=discord.ButtonStyle.danger,
-            custom_id=f"remover_{enquete_id}"
+            custom_id=(
+                f"remover_{enquete_id}"
+            )
         )
 
         async def remover_callback(
             interaction: discord.Interaction
         ):
-            if not remover_voto(
+
+            removido = remover_voto(
                 self.enquete_id,
                 interaction.user.id
-            ):
+            )
+
+            if not removido:
+
                 await interaction.response.send_message(
-                    "❌ Você ainda não votou "
-                    "nesta enquete.",
+                    "❌ Você ainda não votou.",
                     ephemeral=True
                 )
 
@@ -679,28 +810,41 @@ class EnqueteView(discord.ui.View):
                 ephemeral=True
             )
 
-        remover.callback = remover_callback
-        self.add_item(remover)
+        remover.callback = (
+            remover_callback
+        )
 
-        # --------------------------------------------------
+        self.add_item(
+            remover
+        )
+
+        # ==================================================
         # VER VOTOS
-        # --------------------------------------------------
+        # ==================================================
 
         ver = discord.ui.Button(
             label="Ver votos",
             emoji="👁️",
             style=discord.ButtonStyle.secondary,
-            custom_id=f"ver_{enquete_id}"
+            custom_id=(
+                f"ver_{enquete_id}"
+            )
         )
 
         async def ver_callback(
             interaction: discord.Interaction
         ):
+
             if not (
-                interaction.user
+                isinstance(
+                    interaction.user,
+                    discord.Member
+                )
+                and interaction.user
                 .guild_permissions
                 .administrator
             ):
+
                 await interaction.response.send_message(
                     "❌ Apenas administradores "
                     "podem ver os votos.",
@@ -714,6 +858,7 @@ class EnqueteView(discord.ui.View):
             )
 
             if not votos:
+
                 await interaction.response.send_message(
                     "📭 Ninguém votou ainda.",
                     ephemeral=True
@@ -724,13 +869,19 @@ class EnqueteView(discord.ui.View):
             linhas = []
 
             for linha in votos:
+
                 opcao = linha["opcao"]
 
-                if 0 <= opcao < len(self.opcoes):
+                if (
+                    0
+                    <= opcao
+                    < len(self.opcoes)
+                ):
+
                     linhas.append(
                         f"{emojis[opcao]} "
-                        f"<@{linha['usuario_id']}> → "
-                        f"**{self.opcoes[opcao]}**"
+                        f"<@{linha['usuario_id']}> "
+                        f"→ **{self.opcoes[opcao]}**"
                     )
 
             texto = "\n".join(
@@ -738,16 +889,25 @@ class EnqueteView(discord.ui.View):
             )
 
             if len(texto) > 1900:
-                texto = texto[:1900] + "\n..."
+
+                texto = (
+                    texto[:1900]
+                    + "\n..."
+                )
 
             await interaction.response.send_message(
-                "## 👁️ Votos da enquete\n\n"
+                "## 👁️ Votos\n\n"
                 + texto,
                 ephemeral=True
             )
 
-        ver.callback = ver_callback
-        self.add_item(ver)
+        ver.callback = (
+            ver_callback
+        )
+
+        self.add_item(
+            ver
+        )
 
 
 class EnqueteModal(
@@ -757,27 +917,21 @@ class EnqueteModal(
 
     pergunta = discord.ui.TextInput(
         label="Pergunta da enquete",
-        placeholder=(
-            "Ex: Qual evento vocês preferem?"
-        ),
         max_length=200
     )
 
     opcao1 = discord.ui.TextInput(
         label="Opção 1",
-        placeholder="Ex: Evento de corrida",
         max_length=80
     )
 
     opcao2 = discord.ui.TextInput(
         label="Opção 2",
-        placeholder="Ex: Evento de tiro",
         max_length=80
     )
 
     opcao3 = discord.ui.TextInput(
         label="Opção 3 (opcional)",
-        placeholder="Pode deixar vazio",
         required=False,
         max_length=80
     )
@@ -786,17 +940,21 @@ class EnqueteModal(
         self,
         interaction: discord.Interaction
     ):
+
         opcoes = [
             self.opcao1.value,
             self.opcao2.value
         ]
 
         if self.opcao3.value:
+
             opcoes.append(
                 self.opcao3.value
             )
 
-        enquete_id = uuid.uuid4().hex[:12]
+        enquete_id = (
+            uuid.uuid4().hex[:12]
+        )
 
         salvar_enquete(
             enquete_id,
@@ -817,7 +975,7 @@ class EnqueteModal(
         )
 
         await interaction.response.send_message(
-            "✅ Enquete criada com sucesso!",
+            "✅ Enquete criada!",
             ephemeral=True
         )
 
@@ -834,7 +992,7 @@ class EnqueteModal(
 
 
 # ==========================================================
-# BANCO - BAN / HACKBAN
+# BAN / HACKBAN - BANCO
 # ==========================================================
 
 def criar_solicitacao_ban(
@@ -850,7 +1008,9 @@ def criar_solicitacao_ban(
     castigo_aplicado,
     timeout_anterior
 ):
+
     with conectar_banco() as banco:
+
         banco.execute(
             """
             INSERT INTO solicitacoes_ban (
@@ -885,7 +1045,9 @@ def criar_solicitacao_ban(
                 motivo,
                 modo_motivo,
                 data_solicitacao,
-                int(castigo_aplicado),
+                int(
+                    castigo_aplicado
+                ),
                 timeout_anterior
             )
         )
@@ -898,11 +1060,17 @@ def salvar_mensagem_solicitacao(
     canal_id,
     mensagem_id
 ):
+
     with conectar_banco() as banco:
+
         banco.execute(
             """
             UPDATE solicitacoes_ban
-            SET canal_id = ?, mensagem_id = ?
+
+            SET
+                canal_id = ?,
+                mensagem_id = ?
+
             WHERE id = ?
             """,
             (
@@ -919,11 +1087,15 @@ def atualizar_motivo_solicitacao(
     solicitacao_id,
     motivo
 ):
+
     with conectar_banco() as banco:
+
         banco.execute(
             """
             UPDATE solicitacoes_ban
+
             SET motivo = ?
+
             WHERE id = ?
             """,
             (
@@ -938,7 +1110,9 @@ def atualizar_motivo_solicitacao(
 def buscar_solicitacao_ban(
     solicitacao_id
 ):
+
     with conectar_banco() as banco:
+
         return banco.execute(
             """
             SELECT
@@ -963,12 +1137,16 @@ def buscar_solicitacao_ban(
 
             WHERE id = ?
             """,
-            (solicitacao_id,)
+            (
+                solicitacao_id,
+            )
         ).fetchone()
 
 
 def buscar_solicitacoes_pendentes():
+
     with conectar_banco() as banco:
+
         return banco.execute(
             """
             SELECT
@@ -985,7 +1163,9 @@ def buscar_solicitacoes_pendentes():
 
 
 def buscar_castigos_pendentes():
+
     with conectar_banco() as banco:
+
         return banco.execute(
             """
             SELECT
@@ -1006,10 +1186,13 @@ def buscar_pendente_para_usuario(
     guild_id,
     usuario_id
 ):
+
     with conectar_banco() as banco:
+
         return banco.execute(
             """
             SELECT id
+
             FROM solicitacoes_ban
 
             WHERE
@@ -1030,6 +1213,7 @@ def existe_solicitacao_pendente(
     guild_id,
     usuario_id
 ):
+
     return (
         buscar_pendente_para_usuario(
             guild_id,
@@ -1043,11 +1227,15 @@ def marcar_castigo(
     solicitacao_id,
     aplicado
 ):
+
     with conectar_banco() as banco:
+
         banco.execute(
             """
             UPDATE solicitacoes_ban
+
             SET castigo_aplicado = ?
+
             WHERE id = ?
             """,
             (
@@ -1062,20 +1250,26 @@ def marcar_castigo(
 def iniciar_decisao_ban(
     solicitacao_id
 ):
+
     with conectar_banco() as banco:
+
         cursor = banco.execute(
             """
             UPDATE solicitacoes_ban
+
             SET status = 'processando'
 
             WHERE
                 id = ?
                 AND status = 'pendente'
             """,
-            (solicitacao_id,)
+            (
+                solicitacao_id,
+            )
         )
 
         banco.commit()
+
         return cursor.rowcount == 1
 
 
@@ -1084,14 +1278,17 @@ def finalizar_solicitacao_ban(
     status,
     decisor_id
 ):
+
     agora = datetime.now(
         timezone.utc
     ).isoformat()
 
     with conectar_banco() as banco:
+
         banco.execute(
             """
             UPDATE solicitacoes_ban
+
             SET
                 status = ?,
                 decisor_id = ?,
@@ -1113,36 +1310,40 @@ def finalizar_solicitacao_ban(
 def voltar_solicitacao_para_pendente(
     solicitacao_id
 ):
+
     with conectar_banco() as banco:
+
         banco.execute(
             """
             UPDATE solicitacoes_ban
+
             SET status = 'pendente'
 
             WHERE
                 id = ?
                 AND status = 'processando'
             """,
-            (solicitacao_id,)
+            (
+                solicitacao_id,
+            )
         )
 
         banco.commit()
 
 
 # ==========================================================
-# UTILIDADES DO SISTEMA DE BAN
+# BAN - UTILIDADES
 # ==========================================================
 
 def possui_cargo_ban(
     membro
 ):
-    if CARGO_BAN_ID == 0:
-        return False
 
     if not isinstance(
         membro,
         discord.Member
     ):
+
         return False
 
     return any(
@@ -1151,48 +1352,21 @@ def possui_cargo_ban(
     )
 
 
-def analisar_alvo(
-    texto
-):
-    texto = texto.strip()
-
-    # @usuário = Ban
-    resultado = re.fullmatch(
-        r"<@!?(\d+)>",
-        texto
-    )
-
-    if resultado:
-        return (
-            int(resultado.group(1)),
-            "ban"
-        )
-
-    # ID puro = Hackban
-    if texto.isdigit():
-        return (
-            int(texto),
-            "hackban"
-        )
-
-    return (
-        None,
-        None
-    )
-
-
 async def obter_membro(
     guild,
     usuario_id
 ):
+
     membro = guild.get_member(
         usuario_id
     )
 
-    if membro:
+    if membro is not None:
+
         return membro
 
     try:
+
         return await guild.fetch_member(
             usuario_id
         )
@@ -1202,6 +1376,7 @@ async def obter_membro(
         discord.Forbidden,
         discord.HTTPException
     ):
+
         return None
 
 
@@ -1209,7 +1384,9 @@ async def usuario_ja_banido(
     guild,
     usuario_id
 ):
+
     try:
+
         await guild.fetch_ban(
             discord.Object(
                 id=usuario_id
@@ -1219,23 +1396,31 @@ async def usuario_ja_banido(
         return True
 
     except discord.NotFound:
+
         return False
 
     except discord.HTTPException:
+
         return False
 
 
 def timeout_anterior_do_membro(
     membro
 ):
-    valor = membro.timed_out_until
+
+    valor = (
+        membro.timed_out_until
+    )
 
     if valor is None:
+
         return None
 
     return (
         valor
-        .astimezone(timezone.utc)
+        .astimezone(
+            timezone.utc
+        )
         .isoformat()
     )
 
@@ -1245,14 +1430,17 @@ async def aplicar_castigo(
     solicitante_id,
     motivo
 ):
+
     guild = membro.guild
+
     bot_member = guild.me
 
     if membro.id == guild.owner_id:
+
         return (
             False,
-            "O dono do servidor não pode "
-            "receber castigo."
+            "O dono do servidor "
+            "não pode receber castigo."
         )
 
     if (
@@ -1261,26 +1449,37 @@ async def aplicar_castigo(
         .guild_permissions
         .moderate_members
     ):
+
         return (
             False,
-            "O bot não possui **Moderar membros**."
+            "O bot não possui "
+            "**Moderar membros**."
         )
 
     if (
         bot_member.top_role
         <= membro.top_role
     ):
+
         return (
             False,
-            "O cargo do usuário é igual ou "
-            "superior ao cargo do bot."
+            "Hierarquia de cargos impede "
+            "o castigo."
         )
 
     try:
-        await membro.timeout(
-            timedelta(
+
+        ate = (
+            datetime.now(
+                timezone.utc
+            )
+            + timedelta(
                 days=CASTIGO_DIAS
-            ),
+            )
+        )
+
+        await membro.timeout(
+            ate,
             reason=(
                 "Solicitação de ban pendente. "
                 f"Solicitante: {solicitante_id}. "
@@ -1294,16 +1493,18 @@ async def aplicar_castigo(
         )
 
     except discord.Forbidden:
+
         return (
             False,
-            "O Discord recusou o castigo "
-            "por permissão/hierarquia."
+            "O Discord recusou "
+            "o castigo."
         )
 
     except discord.HTTPException as erro:
+
         return (
             False,
-            f"Erro ao aplicar castigo: `{erro}`"
+            f"Erro: `{erro}`"
         )
 
 
@@ -1312,32 +1513,43 @@ async def restaurar_timeout_anterior(
     timeout_anterior,
     decisor_id
 ):
+
     data_anterior = None
 
     if timeout_anterior:
+
         try:
-            data_anterior = datetime.fromisoformat(
-                timeout_anterior
+
+            data_anterior = (
+                datetime.fromisoformat(
+                    timeout_anterior
+                )
             )
 
         except ValueError:
+
             data_anterior = None
 
     if (
         data_anterior is not None
         and data_anterior
-        > datetime.now(timezone.utc)
+        > datetime.now(
+            timezone.utc
+        )
     ):
+
         novo_timeout = data_anterior
 
     else:
+
         novo_timeout = None
 
     try:
+
         await membro.timeout(
             novo_timeout,
             reason=(
-                "Solicitação de ban negada. "
+                "Solicitação negada. "
                 f"Decisor: {decisor_id}"
             )
         )
@@ -1348,28 +1560,66 @@ async def restaurar_timeout_anterior(
         )
 
     except discord.Forbidden:
+
         return (
             False,
-            "Não consegui remover/restaurar "
+            "Não consegui remover "
             "o castigo."
         )
 
     except discord.HTTPException as erro:
+
         return (
             False,
-            f"Erro ao alterar timeout: `{erro}`"
+            f"Erro: `{erro}`"
         )
 
 
-# ==========================================================
-# EMBED DA SOLICITAÇÃO
-# ==========================================================
+async def localizar_canal_aprovacao(
+    guild
+):
 
-def timestamp_iso(valor):
+    canal = guild.get_channel(
+        CANAL_APROVACAO_ID
+    )
+
+    if canal is None:
+
+        try:
+
+            canal = await guild.fetch_channel(
+                CANAL_APROVACAO_ID
+            )
+
+        except (
+            discord.NotFound,
+            discord.Forbidden,
+            discord.HTTPException
+        ):
+
+            canal = None
+
+    if not isinstance(
+        canal,
+        discord.TextChannel
+    ):
+
+        return None
+
+    return canal
+
+
+def timestamp_iso(
+    valor
+):
+
     try:
+
         return int(
             datetime
-            .fromisoformat(valor)
+            .fromisoformat(
+                valor
+            )
             .timestamp()
         )
 
@@ -1377,6 +1627,7 @@ def timestamp_iso(valor):
         TypeError,
         ValueError
     ):
+
         return int(
             datetime.now(
                 timezone.utc
@@ -1390,6 +1641,7 @@ def criar_embed_solicitacao(
         "🟡 **Aguardando decisão**"
     )
 ):
+
     tipo_texto = (
         "Ban"
         if linha["tipo"] == "ban"
@@ -1404,23 +1656,30 @@ def criar_embed_solicitacao(
 
     embed = discord.Embed(
         title=(
-            f"⚠️ Solicitação de {tipo_texto}"
+            f"⚠️ Solicitação de "
+            f"{tipo_texto}"
         ),
-        color=discord.Color.orange()
+        color=(
+            discord.Color.orange()
+        )
     )
 
     embed.add_field(
         name="👤 Usuário",
         value=(
             f"<@{linha['usuario_id']}>\n"
-            f"`{linha['usuario_nome'] or 'Nome indisponível'}`"
+            f"`"
+            f"{linha['usuario_nome'] or 'Nome indisponível'}"
+            f"`"
         ),
         inline=False
     )
 
     embed.add_field(
         name="🆔 ID",
-        value=f"`{linha['usuario_id']}`",
+        value=(
+            f"`{linha['usuario_id']}`"
+        ),
         inline=False
     )
 
@@ -1435,9 +1694,11 @@ def criar_embed_solicitacao(
 
     embed.add_field(
         name="📝 Forma do motivo",
-        value=modos.get(
-            linha["modo_motivo"],
-            linha["modo_motivo"]
+        value=(
+            modos.get(
+                linha["modo_motivo"],
+                linha["modo_motivo"]
+            )
         ),
         inline=False
     )
@@ -1475,27 +1736,33 @@ def criar_embed_solicitacao(
     )
 
     embed.set_footer(
-        text=f"Solicitação: {linha['id']}"
+        text=(
+            f"Solicitação: "
+            f"{linha['id']}"
+        )
     )
 
     return embed
 
 
 # ==========================================================
-# ENVIA UMA NOVA SOLICITAÇÃO
+# PREPARAR SOLICITAÇÃO
 # ==========================================================
 
-async def criar_solicitacao_por_painel(
+async def preparar_e_enviar_solicitacao(
     interaction,
-    alvo_texto,
+    usuario_id,
+    tipo,
     modo_motivo,
     motivo
 ):
+
     guild = interaction.guild
 
     if guild is None:
+
         await interaction.response.send_message(
-            "❌ Isso só funciona em servidor.",
+            "❌ Só funciona em servidor.",
             ephemeral=True
         )
 
@@ -1504,6 +1771,7 @@ async def criar_solicitacao_por_painel(
     if not possui_cargo_ban(
         interaction.user
     ):
+
         await interaction.response.send_message(
             "❌ Você não possui o cargo "
             "da equipe de Ban.",
@@ -1512,44 +1780,30 @@ async def criar_solicitacao_por_painel(
 
         return
 
-    await interaction.response.defer(
-        ephemeral=True,
-        thinking=True
-    )
+    if not interaction.response.is_done():
 
-    usuario_id, tipo = analisar_alvo(
-        alvo_texto
-    )
-
-    if usuario_id is None:
-        await interaction.followup.send(
-            "❌ Alvo inválido.\n\n"
-            "Para **Ban**, informe uma menção como `@Usuário`.\n"
-            "Para **Hackban**, informe somente o ID.",
-            ephemeral=True
+        await interaction.response.defer(
+            ephemeral=True,
+            thinking=True
         )
 
-        return
+    membro_alvo = await obter_membro(
+        guild,
+        usuario_id
+    )
 
-    membro_alvo = None
-    usuario_nome = "Nome indisponível"
-
-    # ------------------------------------------------------
-    # BAN - MENÇÃO
-    # ------------------------------------------------------
+    usuario_nome = (
+        "Nome indisponível"
+    )
 
     if tipo == "ban":
-        membro_alvo = await obter_membro(
-            guild,
-            usuario_id
-        )
 
         if membro_alvo is None:
+
             await interaction.followup.send(
-                "❌ Você usou uma menção, mas esse "
-                "usuário não foi encontrado no servidor.\n"
-                "Se ele já saiu, use somente o **ID** "
-                "para fazer Hackban.",
+                "❌ Esse usuário não está "
+                "no servidor.\n"
+                "Use Hackban pelo ID.",
                 ephemeral=True
             )
 
@@ -1559,14 +1813,14 @@ async def criar_solicitacao_por_painel(
             membro_alvo
         )
 
-    # ------------------------------------------------------
-    # HACKBAN - ID
-    # ------------------------------------------------------
-
     else:
+
         try:
-            usuario_global = await interaction.client.fetch_user(
-                usuario_id
+
+            usuario_global = (
+                await interaction.client.fetch_user(
+                    usuario_id
+                )
             )
 
             usuario_nome = str(
@@ -1574,41 +1828,40 @@ async def criar_solicitacao_por_painel(
             )
 
         except discord.NotFound:
+
             await interaction.followup.send(
-                "❌ Não encontrei um usuário "
-                "do Discord com esse ID.",
+                "❌ ID de usuário "
+                "não encontrado.",
                 ephemeral=True
             )
 
             return
 
         except discord.HTTPException:
+
             pass
 
-        # Se ele ainda estiver no servidor,
-        # também pode receber castigo enquanto aguarda.
-        membro_alvo = await obter_membro(
-            guild,
-            usuario_id
-        )
+    if (
+        usuario_id
+        == interaction.user.id
+    ):
 
-    # ------------------------------------------------------
-    # PROTEÇÕES
-    # ------------------------------------------------------
-
-    if usuario_id == interaction.user.id:
         await interaction.followup.send(
             "❌ Você não pode solicitar "
-            "banimento de si mesmo.",
+            "ban de si mesmo.",
             ephemeral=True
         )
 
         return
 
-    if usuario_id == guild.owner_id:
+    if (
+        usuario_id
+        == guild.owner_id
+    ):
+
         await interaction.followup.send(
-            "❌ O dono do servidor não pode "
-            "ser alvo.",
+            "❌ O dono do servidor "
+            "não pode ser alvo.",
             ephemeral=True
         )
 
@@ -1619,6 +1872,7 @@ async def criar_solicitacao_por_painel(
         and usuario_id
         == interaction.client.user.id
     ):
+
         await interaction.followup.send(
             "❌ O bot não pode ser alvo.",
             ephemeral=True
@@ -1630,6 +1884,7 @@ async def criar_solicitacao_por_painel(
         guild,
         usuario_id
     ):
+
         await interaction.followup.send(
             "⚠️ Esse usuário já está banido.",
             ephemeral=True
@@ -1641,6 +1896,7 @@ async def criar_solicitacao_por_painel(
         guild.id,
         usuario_id
     ):
+
         await interaction.followup.send(
             "⚠️ Já existe uma solicitação "
             "pendente para esse usuário.",
@@ -1657,6 +1913,7 @@ async def criar_solicitacao_por_painel(
         .guild_permissions
         .ban_members
     ):
+
         await interaction.followup.send(
             "❌ O bot não possui "
             "**Banir membros**.",
@@ -1670,56 +1927,39 @@ async def criar_solicitacao_por_painel(
         and bot_member.top_role
         <= membro_alvo.top_role
     ):
+
         await interaction.followup.send(
-            "❌ Não posso punir esse usuário "
-            "por causa da hierarquia dos cargos.",
+            "❌ Hierarquia de cargos "
+            "impede a punição.",
             ephemeral=True
         )
 
         return
 
-    # ------------------------------------------------------
-    # CANAL
-    # ------------------------------------------------------
-
-    canal = guild.get_channel(
-        CANAL_APROVACAO_ID
+    canal = await localizar_canal_aprovacao(
+        guild
     )
 
     if canal is None:
-        try:
-            canal = await guild.fetch_channel(
-                CANAL_APROVACAO_ID
-            )
 
-        except (
-            discord.NotFound,
-            discord.Forbidden,
-            discord.HTTPException
-        ):
-            canal = None
-
-    if not isinstance(
-        canal,
-        discord.TextChannel
-    ):
         await interaction.followup.send(
-            "❌ Canal de aprovação não encontrado.",
+            "❌ Canal de aprovação "
+            "não encontrado.",
             ephemeral=True
         )
 
         return
 
-    # ------------------------------------------------------
-    # CASTIGO
-    # ------------------------------------------------------
-
     castigo_aplicado = False
+
     timeout_anterior = None
 
     if membro_alvo is not None:
-        timeout_anterior = timeout_anterior_do_membro(
-            membro_alvo
+
+        timeout_anterior = (
+            timeout_anterior_do_membro(
+                membro_alvo
+            )
         )
 
         motivo_castigo = (
@@ -1735,8 +1975,10 @@ async def criar_solicitacao_por_painel(
         )
 
         if not ok:
+
             await interaction.followup.send(
-                f"❌ Não consegui aplicar o castigo: {erro}",
+                f"❌ Não consegui aplicar "
+                f"castigo: {erro}",
                 ephemeral=True
             )
 
@@ -1744,17 +1986,16 @@ async def criar_solicitacao_por_painel(
 
         castigo_aplicado = True
 
-    # ------------------------------------------------------
-    # CRIA NO BANCO
-    # ------------------------------------------------------
-
     solicitacao_id = (
         uuid.uuid4().hex[:12]
     )
 
-    data_iso = datetime.now(
-        timezone.utc
-    ).isoformat()
+    data_iso = (
+        datetime.now(
+            timezone.utc
+        )
+        .isoformat()
+    )
 
     criar_solicitacao_ban(
         solicitacao_id,
@@ -1783,6 +2024,7 @@ async def criar_solicitacao_por_painel(
     )
 
     try:
+
         mensagem = await canal.send(
             embed=embed,
             view=view
@@ -1792,10 +2034,12 @@ async def criar_solicitacao_por_painel(
         discord.Forbidden,
         discord.HTTPException
     ) as erro:
+
         if (
             castigo_aplicado
             and membro_alvo is not None
         ):
+
             await restaurar_timeout_anterior(
                 membro_alvo,
                 timeout_anterior,
@@ -1809,8 +2053,8 @@ async def criar_solicitacao_por_painel(
         )
 
         await interaction.followup.send(
-            "❌ Não consegui enviar a solicitação: "
-            f"`{erro}`",
+            f"❌ Não consegui enviar "
+            f"a solicitação: `{erro}`",
             ephemeral=True
         )
 
@@ -1829,115 +2073,107 @@ async def criar_solicitacao_por_painel(
     )
 
     await interaction.followup.send(
-        f"✅ Solicitação de **{tipo_nome}** enviada.\n"
-        + (
-            "🔒 O usuário ficou de castigo enquanto aguarda."
-            if castigo_aplicado
-            else "⚪ O usuário não está no servidor, "
-                 "portanto não recebeu castigo."
-        ),
+        f"✅ Solicitação de "
+        f"**{tipo_nome}** enviada.",
         ephemeral=True
     )
 
 
 # ==========================================================
-# PAINEL DA EQUIPE DE BAN
+# MOTIVO ESCRITO
 # ==========================================================
 
-class SolicitacaoBanModal(
-    discord.ui.Modal
+class MotivoEscritoModal(
+    discord.ui.Modal,
+    title="Motivo da solicitação"
 ):
+
+    motivo = discord.ui.TextInput(
+        label="Motivo",
+        placeholder=(
+            "Explique o motivo "
+            "da solicitação"
+        ),
+        style=discord.TextStyle.paragraph,
+        required=True,
+        min_length=1,
+        max_length=1000
+    )
 
     def __init__(
         self,
-        modo_motivo
+        usuario_id,
+        tipo
     ):
-        self.modo_motivo = modo_motivo
 
-        titulos = {
-            "escrito": "Solicitar banimento",
-            "call": "Explicar em call",
-            "informado": "Motivo já informado",
-        }
+        super().__init__()
 
-        super().__init__(
-            title=titulos[modo_motivo]
-        )
+        self.usuario_id = usuario_id
 
-        self.alvo = discord.ui.TextInput(
-            label="Usuário ou ID",
-            placeholder=(
-                "@Usuário para Ban | ID para Hackban"
-            ),
-            max_length=50
-        )
-
-        self.add_item(
-            self.alvo
-        )
-
-        self.motivo_input = None
-
-        if modo_motivo == "escrito":
-            self.motivo_input = discord.ui.TextInput(
-                label="Motivo",
-                placeholder=(
-                    "Explique o motivo da solicitação"
-                ),
-                style=discord.TextStyle.paragraph,
-                required=True,
-                max_length=1000
-            )
-
-            self.add_item(
-                self.motivo_input
-            )
+        self.tipo = tipo
 
     async def on_submit(
         self,
         interaction: discord.Interaction
     ):
-        if self.modo_motivo == "escrito":
-            motivo = (
-                self.motivo_input.value.strip()
+
+        if not possui_cargo_ban(
+            interaction.user
+        ):
+
+            await interaction.response.send_message(
+                "❌ Você não possui o cargo "
+                "da equipe de Ban.",
+                ephemeral=True
             )
 
-            if not motivo:
-                await interaction.response.send_message(
-                    "❌ O motivo é obrigatório.",
-                    ephemeral=True
-                )
+            return
 
-                return
+        motivo = (
+            self.motivo.value.strip()
+        )
 
-        elif self.modo_motivo == "call":
-            motivo = (
-                "Aguardando explicação em call."
+        if not motivo:
+
+            await interaction.response.send_message(
+                "❌ O motivo é obrigatório.",
+                ephemeral=True
             )
 
-        else:
-            motivo = (
-                "Motivo já informado."
-            )
+            return
 
-        await criar_solicitacao_por_painel(
+        await preparar_e_enviar_solicitacao(
             interaction,
-            self.alvo.value,
-            self.modo_motivo,
+            self.usuario_id,
+            self.tipo,
+            "escrito",
             motivo
         )
 
 
-class MotivoSelect(
+# ==========================================================
+# ESCOLHER MOTIVO
+# ==========================================================
+
+class EscolherMotivoSelect(
     discord.ui.Select
 ):
 
-    def __init__(self):
+    def __init__(
+        self,
+        usuario_id,
+        tipo
+    ):
+
+        self.usuario_id = usuario_id
+
+        self.tipo = tipo
+
         opcoes = [
             discord.SelectOption(
                 label="Escrever o motivo",
                 description=(
-                    "Escreva agora o motivo da solicitação."
+                    "Escreva o motivo agora."
                 ),
                 emoji="✍️",
                 value="escrito"
@@ -1955,7 +2191,7 @@ class MotivoSelect(
             discord.SelectOption(
                 label="Motivo já informado",
                 description=(
-                    "O motivo já foi informado anteriormente."
+                    "O motivo já foi explicado."
                 ),
                 emoji="✅",
                 value="informado"
@@ -1966,7 +2202,6 @@ class MotivoSelect(
             placeholder=(
                 "Como será informado o motivo?"
             ),
-            custom_id="painel_ban_motivo",
             min_values=1,
             max_values=1,
             options=opcoes
@@ -1976,18 +2211,292 @@ class MotivoSelect(
         self,
         interaction: discord.Interaction
     ):
-        if CARGO_BAN_ID == 0:
+
+        if not possui_cargo_ban(
+            interaction.user
+        ):
+
             await interaction.response.send_message(
-                "❌ O ID do cargo da equipe de Ban "
-                "ainda não foi configurado.",
+                "❌ Você não possui o cargo "
+                "da equipe de Ban.",
                 ephemeral=True
             )
 
             return
 
+        modo = self.values[0]
+
+        if modo == "escrito":
+
+            await interaction.response.send_modal(
+                MotivoEscritoModal(
+                    self.usuario_id,
+                    self.tipo
+                )
+            )
+
+            return
+
+        if modo == "call":
+
+            await preparar_e_enviar_solicitacao(
+                interaction,
+                self.usuario_id,
+                self.tipo,
+                "call",
+                "Aguardando explicação em call."
+            )
+
+            return
+
+        await preparar_e_enviar_solicitacao(
+            interaction,
+            self.usuario_id,
+            self.tipo,
+            "informado",
+            "Motivo já informado."
+        )
+
+
+class EscolherMotivoView(
+    discord.ui.View
+):
+
+    def __init__(
+        self,
+        usuario_id,
+        tipo
+    ):
+
+        super().__init__(
+            timeout=300
+        )
+
+        self.add_item(
+            EscolherMotivoSelect(
+                usuario_id,
+                tipo
+            )
+        )
+
+
+# ==========================================================
+# BAN - USER SELECT NATIVO
+# ==========================================================
+
+class SelecionarUsuarioBan(
+    discord.ui.UserSelect
+):
+
+    def __init__(self):
+
+        super().__init__(
+            placeholder=(
+                "Clique aqui e escolha o usuário"
+            ),
+            min_values=1,
+            max_values=1
+        )
+
+    async def callback(
+        self,
+        interaction: discord.Interaction
+    ):
+
         if not possui_cargo_ban(
             interaction.user
         ):
+
+            await interaction.response.send_message(
+                "❌ Você não possui o cargo "
+                "da equipe de Ban.",
+                ephemeral=True
+            )
+
+            return
+
+        usuario = self.values[0]
+
+        membro = await obter_membro(
+            interaction.guild,
+            usuario.id
+        )
+
+        if membro is None:
+
+            await interaction.response.send_message(
+                "❌ Esse usuário não está "
+                "no servidor.\n"
+                "Use Hackban pelo ID.",
+                ephemeral=True
+            )
+
+            return
+
+        await interaction.response.edit_message(
+            content=(
+                f"👤 **Usuário selecionado:** "
+                f"{membro.mention}\n\n"
+                "Agora escolha como "
+                "o motivo será informado:"
+            ),
+            view=EscolherMotivoView(
+                membro.id,
+                "ban"
+            )
+        )
+
+
+class SelecionarUsuarioBanView(
+    discord.ui.View
+):
+
+    def __init__(self):
+
+        super().__init__(
+            timeout=300
+        )
+
+        self.add_item(
+            SelecionarUsuarioBan()
+        )
+
+
+# ==========================================================
+# HACKBAN
+# ==========================================================
+
+class HackbanIdModal(
+    discord.ui.Modal,
+    title="Solicitar Hackban"
+):
+
+    usuario_id = discord.ui.TextInput(
+        label="ID do usuário",
+        placeholder=(
+            "123456789012345678"
+        ),
+        required=True,
+        min_length=15,
+        max_length=25
+    )
+
+    async def on_submit(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        if not possui_cargo_ban(
+            interaction.user
+        ):
+
+            await interaction.response.send_message(
+                "❌ Você não possui o cargo "
+                "da equipe de Ban.",
+                ephemeral=True
+            )
+
+            return
+
+        valor = (
+            self.usuario_id
+            .value
+            .strip()
+        )
+
+        if not valor.isdigit():
+
+            await interaction.response.send_message(
+                "❌ O ID deve conter "
+                "somente números.",
+                ephemeral=True
+            )
+
+            return
+
+        usuario_id = int(
+            valor
+        )
+
+        await interaction.response.send_message(
+            content=(
+                f"🆔 **ID informado:** "
+                f"`{usuario_id}`\n\n"
+                "Agora escolha como "
+                "o motivo será informado:"
+            ),
+            view=EscolherMotivoView(
+                usuario_id,
+                "hackban"
+            ),
+            ephemeral=True
+        )
+
+
+# ==========================================================
+# PAINEL
+# ==========================================================
+
+class PainelBanView(
+    discord.ui.View
+):
+
+    def __init__(self):
+
+        super().__init__(
+            timeout=None
+        )
+
+    @discord.ui.button(
+        label="Solicitar Ban",
+        emoji="👤",
+        style=discord.ButtonStyle.danger,
+        custom_id="painel_ban_normal"
+    )
+    async def solicitar_ban(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not possui_cargo_ban(
+            interaction.user
+        ):
+
+            await interaction.response.send_message(
+                "❌ Você não possui o cargo "
+                "da equipe de Ban.",
+                ephemeral=True
+            )
+
+            return
+
+        await interaction.response.send_message(
+            content=(
+                "👤 **Solicitar Ban**\n\n"
+                "Clique no seletor abaixo "
+                "e escolha o membro."
+            ),
+            view=SelecionarUsuarioBanView(),
+            ephemeral=True
+        )
+
+    @discord.ui.button(
+        label="Solicitar Hackban",
+        emoji="🆔",
+        style=discord.ButtonStyle.secondary,
+        custom_id="painel_hackban"
+    )
+    async def solicitar_hackban(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not possui_cargo_ban(
+            interaction.user
+        ):
+
             await interaction.response.send_message(
                 "❌ Você não possui o cargo "
                 "da equipe de Ban.",
@@ -1997,91 +2506,12 @@ class MotivoSelect(
             return
 
         await interaction.response.send_modal(
-            SolicitacaoBanModal(
-                self.values[0]
-            )
-        )
-
-
-class PainelBanView(
-    discord.ui.View
-):
-
-    def __init__(self):
-        super().__init__(
-            timeout=None
-        )
-
-        self.add_item(
-            MotivoSelect()
+            HackbanIdModal()
         )
 
 
 # ==========================================================
-# MOTIVO FINAL OBRIGATÓRIO - EXPLICAR EM CALL
-# ==========================================================
-
-class MotivoFinalBanModal(
-    discord.ui.Modal,
-    title="Motivo final do banimento"
-):
-
-    motivo = discord.ui.TextInput(
-        label="Motivo do banimento",
-        placeholder=(
-            "Informe obrigatoriamente o motivo explicado em call"
-        ),
-        style=discord.TextStyle.paragraph,
-        required=True,
-        min_length=1,
-        max_length=1000
-    )
-
-    def __init__(
-        self,
-        solicitacao_id
-    ):
-        super().__init__()
-
-        self.solicitacao_id = (
-            solicitacao_id
-        )
-
-    async def on_submit(
-        self,
-        interaction: discord.Interaction
-    ):
-        if interaction.user.id != DONO_ID:
-            await interaction.response.send_message(
-                "❌ Você não possui autorização.",
-                ephemeral=True
-            )
-
-            return
-
-        motivo = self.motivo.value.strip()
-
-        if not motivo:
-            await interaction.response.send_message(
-                "❌ O motivo é obrigatório.",
-                ephemeral=True
-            )
-
-            return
-
-        atualizar_motivo_solicitacao(
-            self.solicitacao_id,
-            motivo
-        )
-
-        await processar_aprovacao(
-            interaction,
-            self.solicitacao_id
-        )
-
-
-# ==========================================================
-# EDITAR MENSAGEM DE SOLICITAÇÃO
+# EDITAR MENSAGEM DA SOLICITAÇÃO
 # ==========================================================
 
 async def editar_mensagem_solicitacao(
@@ -2090,12 +2520,15 @@ async def editar_mensagem_solicitacao(
     embed,
     view
 ):
+
     canal = guild.get_channel(
         solicitacao["canal_id"]
     )
 
     if canal is None:
+
         try:
+
             canal = await guild.fetch_channel(
                 solicitacao["canal_id"]
             )
@@ -2105,9 +2538,18 @@ async def editar_mensagem_solicitacao(
             discord.Forbidden,
             discord.HTTPException
         ):
+
             return
 
+    if not isinstance(
+        canal,
+        discord.TextChannel
+    ):
+
+        return
+
     try:
+
         mensagem = await canal.fetch_message(
             solicitacao["mensagem_id"]
         )
@@ -2122,17 +2564,19 @@ async def editar_mensagem_solicitacao(
         discord.Forbidden,
         discord.HTTPException
     ):
+
         pass
 
 
 # ==========================================================
-# APROVAR BAN
+# APROVAR
 # ==========================================================
 
 async def processar_aprovacao(
     interaction,
     solicitacao_id
 ):
+
     solicitacao = buscar_solicitacao_ban(
         solicitacao_id
     )
@@ -2142,15 +2586,18 @@ async def processar_aprovacao(
         or solicitacao["status"]
         != "pendente"
     ):
+
         if interaction.response.is_done():
+
             await interaction.followup.send(
-                "⚠️ Essa solicitação já foi decidida.",
+                "⚠️ Solicitação já decidida.",
                 ephemeral=True
             )
 
         else:
+
             await interaction.response.send_message(
-                "⚠️ Essa solicitação já foi decidida.",
+                "⚠️ Solicitação já decidida.",
                 ephemeral=True
             )
 
@@ -2159,16 +2606,19 @@ async def processar_aprovacao(
     if not iniciar_decisao_ban(
         solicitacao_id
     ):
+
         if interaction.response.is_done():
+
             await interaction.followup.send(
-                "⚠️ Essa solicitação já está "
+                "⚠️ Solicitação já está "
                 "sendo processada.",
                 ephemeral=True
             )
 
         else:
+
             await interaction.response.send_message(
-                "⚠️ Essa solicitação já está "
+                "⚠️ Solicitação já está "
                 "sendo processada.",
                 ephemeral=True
             )
@@ -2176,6 +2626,7 @@ async def processar_aprovacao(
         return
 
     if not interaction.response.is_done():
+
         await interaction.response.defer(
             ephemeral=True,
             thinking=True
@@ -2184,6 +2635,7 @@ async def processar_aprovacao(
     guild = interaction.guild
 
     if guild is None:
+
         voltar_solicitacao_para_pendente(
             solicitacao_id
         )
@@ -2195,15 +2647,19 @@ async def processar_aprovacao(
 
         return
 
-    usuario_id = solicitacao["usuario_id"]
+    usuario_id = (
+        solicitacao["usuario_id"]
+    )
 
     if usuario_id == guild.owner_id:
+
         voltar_solicitacao_para_pendente(
             solicitacao_id
         )
 
         await interaction.followup.send(
-            "❌ O dono do servidor não pode ser banido.",
+            "❌ O dono do servidor "
+            "não pode ser banido.",
             ephemeral=True
         )
 
@@ -2217,12 +2673,14 @@ async def processar_aprovacao(
         .guild_permissions
         .ban_members
     ):
+
         voltar_solicitacao_para_pendente(
             solicitacao_id
         )
 
         await interaction.followup.send(
-            "❌ O bot não possui **Banir membros**.",
+            "❌ O bot não possui "
+            "**Banir membros**.",
             ephemeral=True
         )
 
@@ -2238,49 +2696,58 @@ async def processar_aprovacao(
         and bot_member.top_role
         <= membro.top_role
     ):
+
         voltar_solicitacao_para_pendente(
             solicitacao_id
         )
 
         await interaction.followup.send(
-            "❌ Hierarquia de cargos impede o ban.",
+            "❌ Hierarquia impede "
+            "o banimento.",
             ephemeral=True
         )
 
         return
 
     try:
+
         await guild.ban(
             discord.Object(
                 id=usuario_id
             ),
             reason=(
                 f"{solicitacao['tipo'].upper()} aprovado | "
-                f"Solicitante: {solicitacao['solicitante_id']} | "
-                f"Aprovado por: {interaction.user.id} | "
-                f"Motivo: {solicitacao['motivo']}"
+                f"Solicitado por: "
+                f"{solicitacao['solicitante_id']} | "
+                f"Aprovado por: "
+                f"{interaction.user.id} | "
+                f"Motivo: "
+                f"{solicitacao['motivo']}"
             )
         )
 
     except discord.Forbidden:
+
         voltar_solicitacao_para_pendente(
             solicitacao_id
         )
 
         await interaction.followup.send(
-            "❌ O Discord recusou o banimento.",
+            "❌ Discord recusou "
+            "o banimento.",
             ephemeral=True
         )
 
         return
 
     except discord.HTTPException as erro:
+
         voltar_solicitacao_para_pendente(
             solicitacao_id
         )
 
         await interaction.followup.send(
-            f"❌ Erro ao banir: `{erro}`",
+            f"❌ Erro: `{erro}`",
             ephemeral=True
         )
 
@@ -2314,7 +2781,9 @@ async def processar_aprovacao(
         )
     )
 
-    embed.color = discord.Color.green()
+    embed.color = (
+        discord.Color.green()
+    )
 
     await editar_mensagem_solicitacao(
         guild,
@@ -2327,19 +2796,20 @@ async def processar_aprovacao(
     )
 
     await interaction.followup.send(
-        "✅ Banimento executado com sucesso.",
+        "✅ Banimento executado.",
         ephemeral=True
     )
 
 
 # ==========================================================
-# NEGAR BAN
+# NEGAR
 # ==========================================================
 
 async def processar_negacao(
     interaction,
     solicitacao_id
 ):
+
     solicitacao = buscar_solicitacao_ban(
         solicitacao_id
     )
@@ -2349,8 +2819,9 @@ async def processar_negacao(
         or solicitacao["status"]
         != "pendente"
     ):
+
         await interaction.response.send_message(
-            "⚠️ Essa solicitação já foi decidida.",
+            "⚠️ Solicitação já decidida.",
             ephemeral=True
         )
 
@@ -2359,8 +2830,10 @@ async def processar_negacao(
     if not iniciar_decisao_ban(
         solicitacao_id
     ):
+
         await interaction.response.send_message(
-            "⚠️ Solicitação já está sendo processada.",
+            "⚠️ Solicitação já está "
+            "sendo processada.",
             ephemeral=True
         )
 
@@ -2374,6 +2847,7 @@ async def processar_negacao(
     guild = interaction.guild
 
     if guild is None:
+
         voltar_solicitacao_para_pendente(
             solicitacao_id
         )
@@ -2385,20 +2859,29 @@ async def processar_negacao(
 
         return
 
-    if solicitacao["castigo_aplicado"]:
+    if solicitacao[
+        "castigo_aplicado"
+    ]:
+
         membro = await obter_membro(
             guild,
             solicitacao["usuario_id"]
         )
 
-        if membro:
-            ok, erro = await restaurar_timeout_anterior(
-                membro,
-                solicitacao["timeout_anterior"],
-                interaction.user.id
+        if membro is not None:
+
+            ok, erro = (
+                await restaurar_timeout_anterior(
+                    membro,
+                    solicitacao[
+                        "timeout_anterior"
+                    ],
+                    interaction.user.id
+                )
             )
 
             if not ok:
+
                 voltar_solicitacao_para_pendente(
                     solicitacao_id
                 )
@@ -2443,7 +2926,9 @@ async def processar_negacao(
         )
     )
 
-    embed.color = discord.Color.red()
+    embed.color = (
+        discord.Color.red()
+    )
 
     await editar_mensagem_solicitacao(
         guild,
@@ -2462,7 +2947,77 @@ async def processar_negacao(
 
 
 # ==========================================================
-# BOTÕES APROVAR / NEGAR
+# MOTIVO FINAL DE CALL
+# ==========================================================
+
+class MotivoFinalBanModal(
+    discord.ui.Modal,
+    title="Motivo final do banimento"
+):
+
+    motivo = discord.ui.TextInput(
+        label="Motivo do banimento",
+        placeholder=(
+            "Informe o motivo "
+            "explicado em call"
+        ),
+        style=discord.TextStyle.paragraph,
+        required=True,
+        min_length=1,
+        max_length=1000
+    )
+
+    def __init__(
+        self,
+        solicitacao_id
+    ):
+
+        super().__init__()
+
+        self.solicitacao_id = (
+            solicitacao_id
+        )
+
+    async def on_submit(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        if interaction.user.id != DONO_ID:
+
+            await interaction.response.send_message(
+                "❌ Você não possui autorização.",
+                ephemeral=True
+            )
+
+            return
+
+        motivo = (
+            self.motivo.value.strip()
+        )
+
+        if not motivo:
+
+            await interaction.response.send_message(
+                "❌ O motivo é obrigatório.",
+                ephemeral=True
+            )
+
+            return
+
+        atualizar_motivo_solicitacao(
+            self.solicitacao_id,
+            motivo
+        )
+
+        await processar_aprovacao(
+            interaction,
+            self.solicitacao_id
+        )
+
+
+# ==========================================================
+# APROVAÇÃO VIEW
 # ==========================================================
 
 class BanApprovalView(
@@ -2474,6 +3029,7 @@ class BanApprovalView(
         solicitacao_id,
         desativado=False
     ):
+
         super().__init__(
             timeout=None
         )
@@ -2487,7 +3043,8 @@ class BanApprovalView(
             emoji="✅",
             style=discord.ButtonStyle.success,
             custom_id=(
-                f"ban_aprovar_{solicitacao_id}"
+                f"ban_aprovar_"
+                f"{solicitacao_id}"
             ),
             disabled=desativado
         )
@@ -2497,7 +3054,8 @@ class BanApprovalView(
             emoji="❌",
             style=discord.ButtonStyle.danger,
             custom_id=(
-                f"ban_negar_{solicitacao_id}"
+                f"ban_negar_"
+                f"{solicitacao_id}"
             ),
             disabled=desativado
         )
@@ -2505,7 +3063,9 @@ class BanApprovalView(
         async def aprovar_callback(
             interaction: discord.Interaction
         ):
+
             if interaction.user.id != DONO_ID:
+
                 await interaction.response.send_message(
                     "❌ Você não possui autorização.",
                     ephemeral=True
@@ -2518,6 +3078,7 @@ class BanApprovalView(
             )
 
             if solicitacao is None:
+
                 await interaction.response.send_message(
                     "❌ Solicitação não encontrada.",
                     ephemeral=True
@@ -2525,9 +3086,13 @@ class BanApprovalView(
 
                 return
 
-            # Explicar em call:
-            # motivo final obrigatório.
-            if solicitacao["modo_motivo"] == "call":
+            if (
+                solicitacao[
+                    "modo_motivo"
+                ]
+                == "call"
+            ):
+
                 await interaction.response.send_modal(
                     MotivoFinalBanModal(
                         self.solicitacao_id
@@ -2544,7 +3109,9 @@ class BanApprovalView(
         async def negar_callback(
             interaction: discord.Interaction
         ):
+
             if interaction.user.id != DONO_ID:
+
                 await interaction.response.send_message(
                     "❌ Você não possui autorização.",
                     ephemeral=True
@@ -2557,8 +3124,13 @@ class BanApprovalView(
                 self.solicitacao_id
             )
 
-        aprovar.callback = aprovar_callback
-        negar.callback = negar_callback
+        aprovar.callback = (
+            aprovar_callback
+        )
+
+        negar.callback = (
+            negar_callback
+        )
 
         self.add_item(
             aprovar
@@ -2573,36 +3145,44 @@ class BanApprovalView(
 # INTENTS
 # ==========================================================
 
-intents = discord.Intents.default()
-intents.message_content = True
+intents = (
+    discord.Intents.default()
+)
+
 intents.members = True
+
+intents.message_content = True
 
 
 # ==========================================================
 # BOT
 # ==========================================================
 
-class MeuBot(commands.Bot):
+class MeuBot(
+    commands.Bot
+):
 
-    async def setup_hook(self):
-        # Menu Sub Civil
+    async def setup_hook(
+        self
+    ):
+
         self.add_view(
             MenuView()
         )
 
-        # Painel de Ban
         self.add_view(
             PainelBanView()
         )
 
-        # Enquetes antigas
         for linha in buscar_enquetes_ativas():
+
             opcoes = [
                 linha["opcao1"],
                 linha["opcao2"]
             ]
 
             if linha["opcao3"]:
+
                 opcoes.append(
                     linha["opcao3"]
                 )
@@ -2613,19 +3193,26 @@ class MeuBot(commands.Bot):
                     linha["pergunta"],
                     opcoes
                 ),
-                message_id=linha["mensagem_id"]
+                message_id=(
+                    linha[
+                        "mensagem_id"
+                    ]
+                )
             )
 
-        # Solicitações pendentes
         for linha in buscar_solicitacoes_pendentes():
+
             self.add_view(
                 BanApprovalView(
                     linha["id"]
                 ),
-                message_id=linha["mensagem_id"]
+                message_id=(
+                    linha[
+                        "mensagem_id"
+                    ]
+                )
             )
 
-        # Sincronizar /
         comandos = await self.tree.sync()
 
         print(
@@ -2633,6 +3220,7 @@ class MeuBot(commands.Bot):
         )
 
         for comando in comandos:
+
             print(
                 f"/{comando.name}"
             )
@@ -2646,17 +3234,22 @@ bot = MeuBot(
 
 
 # ==========================================================
-# RENOVA CASTIGOS PENDENTES
+# RENOVAR CASTIGOS
 # ==========================================================
 
-@tasks.loop(hours=168)
+@tasks.loop(
+    hours=168
+)
 async def renovar_castigos_pendentes():
+
     for linha in buscar_castigos_pendentes():
+
         guild = bot.get_guild(
             linha["guild_id"]
         )
 
         if guild is None:
+
             continue
 
         membro = await obter_membro(
@@ -2665,15 +3258,25 @@ async def renovar_castigos_pendentes():
         )
 
         if membro is None:
+
             continue
 
         try:
-            await membro.timeout(
-                timedelta(
+
+            ate = (
+                datetime.now(
+                    timezone.utc
+                )
+                + timedelta(
                     days=CASTIGO_DIAS
-                ),
+                )
+            )
+
+            await membro.timeout(
+                ate,
                 reason=(
-                    "Solicitação de ban ainda pendente."
+                    "Solicitação de ban "
+                    "ainda pendente."
                 )
             )
 
@@ -2681,11 +3284,13 @@ async def renovar_castigos_pendentes():
             discord.Forbidden,
             discord.HTTPException
         ):
+
             pass
 
 
 @renovar_castigos_pendentes.before_loop
 async def antes_de_renovar():
+
     await bot.wait_until_ready()
 
 
@@ -2695,12 +3300,25 @@ async def antes_de_renovar():
 
 @bot.event
 async def on_ready():
-    if not renovar_castigos_pendentes.is_running():
+
+    if not (
+        renovar_castigos_pendentes
+        .is_running()
+    ):
+
         renovar_castigos_pendentes.start()
 
-    print("--------------------------------")
-    print(f"Bot conectado como: {bot.user}")
-    print("--------------------------------")
+    print(
+        "--------------------------------"
+    )
+
+    print(
+        f"Bot conectado como: {bot.user}"
+    )
+
+    print(
+        "--------------------------------"
+    )
 
 
 # ==========================================================
@@ -2714,10 +3332,13 @@ async def on_ready():
 async def menu(
     ctx: commands.Context
 ):
+
     configuracao = carregar_config()
 
     await ctx.send(
-        configuracao["mensagem_principal"],
+        configuracao[
+            "mensagem_principal"
+        ],
         view=MenuView()
     )
 
@@ -2728,7 +3349,9 @@ async def menu(
 
 @bot.tree.command(
     name="menu",
-    description="Envia o menu do Sub Civil"
+    description=(
+        "Envia o menu do Sub Civil"
+    )
 )
 @app_commands.checks.has_permissions(
     administrator=True
@@ -2736,10 +3359,13 @@ async def menu(
 async def menu_slash(
     interaction: discord.Interaction
 ):
+
     configuracao = carregar_config()
 
     await interaction.response.send_message(
-        configuracao["mensagem_principal"],
+        configuracao[
+            "mensagem_principal"
+        ],
         view=MenuView()
     )
 
@@ -2764,6 +3390,7 @@ async def editar_interface(
     interaction: discord.Interaction,
     texto: str
 ):
+
     configuracao = carregar_config()
 
     configuracao[
@@ -2800,7 +3427,9 @@ async def editar_selecao(
     interaction: discord.Interaction,
     texto: str
 ):
+
     if len(texto) > 150:
+
         await interaction.response.send_message(
             "❌ Máximo de 150 caracteres.",
             ephemeral=True
@@ -2819,8 +3448,9 @@ async def editar_selecao(
     )
 
     await interaction.response.send_message(
-        "✅ Texto da seleção alterado.\n"
-        "Use `/menu` para criar um painel novo.",
+        "✅ Texto alterado.\n"
+        "Use `/menu` para enviar "
+        "um painel novo.",
         ephemeral=True
     )
 
@@ -2839,6 +3469,7 @@ async def editar_selecao(
 async def enquete(
     interaction: discord.Interaction
 ):
+
     await interaction.response.send_modal(
         EnqueteModal()
     )
@@ -2860,37 +3491,35 @@ async def enquete(
 async def painelban(
     interaction: discord.Interaction
 ):
-    if CARGO_BAN_ID == 0:
-        await interaction.response.send_message(
-            "❌ Primeiro configure `CARGO_BAN_ID` "
-            "no começo do código.",
-            ephemeral=True
-        )
-
-        return
 
     embed = discord.Embed(
         title="🛡️ Painel da Equipe de Ban",
         description=(
-            "Use a seleção abaixo para abrir "
-            "uma nova solicitação.\n\n"
+            "Escolha abaixo o tipo "
+            "de solicitação.\n\n"
 
-            "**Como informar o alvo:**\n"
-            "👤 `@Usuário` → **Ban**\n"
-            "🆔 `ID do usuário` → **Hackban**\n\n"
+            "### 👤 Solicitar Ban\n"
+            "Abre o seletor nativo de usuários "
+            "do Discord.\n\n"
 
-            "**Motivos disponíveis:**\n"
+            "### 🆔 Solicitar Hackban\n"
+            "Use o ID de quem já saiu "
+            "do servidor.\n\n"
+
+            "### 📝 Motivo\n"
             "✍️ Escrever o motivo\n"
             "🎙️ Explicar em call\n"
             "✅ Motivo já informado"
         ),
-        color=discord.Color.dark_red()
+        color=(
+            discord.Color.dark_red()
+        )
     )
 
     embed.set_footer(
         text=(
-            "Somente membros da equipe "
-            "de Ban podem usar este painel."
+            "Somente membros da Equipe de Ban "
+            "podem utilizar."
         )
     )
 
@@ -2901,33 +3530,29 @@ async def painelban(
 
 
 # ==========================================================
-# /SOLICITARBAN ANTIGO
+# /SOLICITARBAN
 # ==========================================================
-#
-# Mantido para não quebrar o comando que já existia.
-# O painel passa a ser a forma recomendada.
-#
 
 @bot.tree.command(
     name="solicitarban",
     description=(
-        "Solicita um Ban/Hackban manualmente"
+        "Solicita um Ban diretamente"
     )
 )
 @app_commands.describe(
-    alvo=(
-        "@Usuário para Ban ou ID para Hackban"
-    ),
+    usuario="Usuário que será banido",
     motivo="Motivo da solicitação"
 )
 async def solicitarban(
     interaction: discord.Interaction,
-    alvo: str,
+    usuario: discord.Member,
     motivo: str
 ):
+
     if not possui_cargo_ban(
         interaction.user
     ):
+
         await interaction.response.send_message(
             "❌ Você não possui o cargo "
             "da equipe de Ban.",
@@ -2939,6 +3564,7 @@ async def solicitarban(
     motivo = motivo.strip()
 
     if not motivo:
+
         await interaction.response.send_message(
             "❌ O motivo é obrigatório.",
             ephemeral=True
@@ -2946,16 +3572,17 @@ async def solicitarban(
 
         return
 
-    await criar_solicitacao_por_painel(
+    await preparar_e_enviar_solicitacao(
         interaction,
-        alvo,
+        usuario.id,
+        "ban",
         "escrito",
         motivo
     )
 
 
 # ==========================================================
-# ERROS DOS COMANDOS
+# ERROS
 # ==========================================================
 
 @bot.event
@@ -2963,10 +3590,12 @@ async def on_command_error(
     ctx,
     erro
 ):
+
     if isinstance(
         erro,
         commands.CommandNotFound
     ):
+
         return
 
     print(
@@ -2979,22 +3608,36 @@ async def erro_slash(
     interaction,
     erro
 ):
+
     print(
         f"Erro comando /: {erro}"
     )
 
-    mensagem = (
-        "❌ Ocorreu um erro ao executar "
-        "este comando."
-    )
+    if isinstance(
+        erro,
+        app_commands.MissingPermissions
+    ):
+
+        mensagem = (
+            "❌ Você não possui permissão."
+        )
+
+    else:
+
+        mensagem = (
+            "❌ Ocorreu um erro "
+            "ao executar este comando."
+        )
 
     if interaction.response.is_done():
+
         await interaction.followup.send(
             mensagem,
             ephemeral=True
         )
 
     else:
+
         await interaction.response.send_message(
             mensagem,
             ephemeral=True
@@ -3016,6 +3659,7 @@ print(
 )
 
 if not token:
+
     raise ValueError(
         "O token não foi encontrado."
     )
