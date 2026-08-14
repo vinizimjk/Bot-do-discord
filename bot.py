@@ -2761,15 +2761,30 @@ async def avisar_minecraft_online():
 
             enviados += 1
 
-        except (
-            discord.Forbidden,
-            discord.HTTPException
-        ):
+        except discord.Forbidden as erro:
             falharam += 1
 
             print(
-                "Não consegui enviar DM Minecraft para "
-                f"{membro} ({membro.id})"
+                "DM Minecraft BLOQUEADA | "
+                f"usuario={membro} | "
+                f"id={membro.id} | "
+                f"dono={membro.id == DONO_ID} | "
+                f"status={getattr(erro, 'status', 'N/A')} | "
+                f"codigo={getattr(erro, 'code', 'N/A')} | "
+                f"erro={erro}"
+            )
+
+        except discord.HTTPException as erro:
+            falharam += 1
+
+            print(
+                "ERRO DM Minecraft | "
+                f"usuario={membro} | "
+                f"id={membro.id} | "
+                f"dono={membro.id == DONO_ID} | "
+                f"status={getattr(erro, 'status', 'N/A')} | "
+                f"codigo={getattr(erro, 'code', 'N/A')} | "
+                f"erro={erro}"
             )
 
         await asyncio.sleep(0.3)
@@ -3362,9 +3377,19 @@ async def testarminecraft(
             embed=embed
         )
 
-    except discord.Forbidden:
+    except discord.Forbidden as erro:
+        print(
+            "TESTE DM Minecraft BLOQUEADO | "
+            f"usuario={interaction.user} | "
+            f"id={interaction.user.id} | "
+            f"status={getattr(erro, 'status', 'N/A')} | "
+            f"codigo={getattr(erro, 'code', 'N/A')} | "
+            f"erro={erro}"
+        )
+
         await interaction.followup.send(
             "❌ O Discord bloqueou a DM para você.\n\n"
+            f"**Erro:** `{erro}`\n\n"
             "Verifique se você permite mensagens "
             "diretas de membros deste servidor.",
             ephemeral=True
@@ -3372,6 +3397,15 @@ async def testarminecraft(
         return
 
     except discord.HTTPException as erro:
+        print(
+            "TESTE DM Minecraft ERRO | "
+            f"usuario={interaction.user} | "
+            f"id={interaction.user.id} | "
+            f"status={getattr(erro, 'status', 'N/A')} | "
+            f"codigo={getattr(erro, 'code', 'N/A')} | "
+            f"erro={erro}"
+        )
+
         await interaction.followup.send(
             "❌ Houve um erro ao enviar sua DM:\n"
             f"`{erro}`",
