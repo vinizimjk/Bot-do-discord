@@ -12,24 +12,21 @@ from dotenv import load_dotenv
 
 
 # ==========================================================
-# CONFIGURAÇÕES PRINCIPAIS
+# CONFIGURAÇÕES
 # ==========================================================
 
 DONO_ID = 1455937306400653344
-
 CANAL_APROVACAO_ID = 1536073451633254420
-
 CARGO_BAN_ID = 1536734408277491863
 
 CASTIGO_DIAS = 28
 
 
 # ==========================================================
-# PASTAS
+# ARQUIVOS
 # ==========================================================
 
 PASTA_BOT = Path(__file__).parent
-
 PASTA_VOLUME = Path("/data")
 
 if PASTA_VOLUME.exists():
@@ -38,19 +35,15 @@ else:
     PASTA_DADOS = PASTA_BOT
 
 ARQUIVO_ENV = PASTA_BOT / ".env"
-
 ARQUIVO_CONFIG = PASTA_DADOS / "config.json"
 
 BANCO_NOVO = PASTA_DADOS / "bot.db"
-
 BANCO_ANTIGO = PASTA_DADOS / "enquetes.db"
 
 if BANCO_NOVO.exists():
     ARQUIVO_BANCO = BANCO_NOVO
-
 elif BANCO_ANTIGO.exists():
     ARQUIVO_BANCO = BANCO_ANTIGO
-
 else:
     ARQUIVO_BANCO = BANCO_NOVO
 
@@ -61,7 +54,7 @@ load_dotenv(
 
 
 # ==========================================================
-# CONFIGURAÇÃO DO MENU SUB CIVIL
+# CONFIGURAÇÃO DO MENU
 # ==========================================================
 
 CONFIG_PADRAO = {
@@ -129,7 +122,6 @@ def carregar_config():
         if chave not in configuracao:
 
             configuracao[chave] = valor
-
             mudou = True
 
     if mudou:
@@ -145,7 +137,7 @@ carregar_config()
 
 
 # ==========================================================
-# BANCO
+# BANCO DE DADOS
 # ==========================================================
 
 def conectar_banco():
@@ -213,7 +205,7 @@ def criar_banco():
         """)
 
         # ==================================================
-        # BAN / HACKBAN
+        # SOLICITAÇÕES DE BAN
         # ==================================================
 
         cursor.execute("""
@@ -232,7 +224,7 @@ def criar_banco():
             )
         """)
 
-        novas_colunas = {
+        colunas = {
             "tipo": "TEXT DEFAULT 'ban'",
             "usuario_nome": "TEXT",
             "castigo_aplicado": "INTEGER DEFAULT 0",
@@ -240,7 +232,7 @@ def criar_banco():
             "modo_motivo": "TEXT DEFAULT 'escrito'",
         }
 
-        for coluna, definicao in novas_colunas.items():
+        for coluna, definicao in colunas.items():
 
             if not coluna_existe(
                 cursor,
@@ -252,6 +244,9 @@ def criar_banco():
                     "ALTER TABLE solicitacoes_ban "
                     f"ADD COLUMN {coluna} {definicao}"
                 )
+
+        # Se o bot caiu durante uma decisão,
+        # devolve a solicitação para pendente.
 
         cursor.execute("""
             UPDATE solicitacoes_ban
@@ -293,7 +288,6 @@ def salvar_enquete(
                 opcao3,
                 ativa
             )
-
             VALUES (?, ?, ?, ?, ?, 1)
             """,
             (
@@ -490,7 +484,7 @@ def buscar_enquetes_ativas():
 
 
 # ==========================================================
-# ENQUETE - EMBED
+# EMBED DA ENQUETE
 # ==========================================================
 
 def gerar_embed_enquete(
@@ -572,8 +566,7 @@ class MenuSubCivil(
                     "de ter Sub Civil?"
                 ),
                 description=(
-                    "Veja todos os benefícios "
-                    "do cargo."
+                    "Veja todos os benefícios do cargo."
                 ),
                 emoji="⭐",
                 value="vantagens"
@@ -632,7 +625,7 @@ class MenuSubCivil(
                 "• 🖥️ Transmitir tela.\n"
                 "• 🚀 Ignorar modo lento.\n"
                 "• 🎨 Cor exclusiva no nome.\n"
-                "• ⭐ Cargo destacado na lista.\n"
+                "• ⭐ Cargo destacado na lista de membros.\n"
                 "• 🔊 Prioridade em canais de voz.\n"
                 "• 💬 Acesso a um chat exclusivo."
             )
@@ -642,21 +635,23 @@ class MenuSubCivil(
             mensagem = (
                 "## 💬 Por onde interagir?\n\n"
 
-                "A interação deve ser feita "
-                "através de conversas por chat "
-                "para a Loritta reconhecer."
+                "A interação deve ser feita através "
+                "de conversas por chat para a "
+                "Loritta poder reconhecer."
             )
 
         else:
 
             mensagem = (
-                "## 🏆 Como saberemos quem mais interagiu?\n\n"
+                "## 🏆 Como iremos saber quem mais "
+                "interagiu pela Loritta?\n\n"
 
                 "5 minutos antes do prazo iremos "
-                "reiniciar os XP de todos.\n\n"
+                "reiniciar os XP de todo mundo.\n\n"
 
-                "Ao finalizar o prazo iremos ver "
-                "o ranking da Loritta."
+                "Ao finalizar o prazo iremos ver o "
+                "ranking e quem estiver no topo irá "
+                "ganhar o **Sub Civil**."
             )
 
         await interaction.response.send_message(
@@ -700,9 +695,7 @@ class EnqueteView(
         )
 
         self.enquete_id = enquete_id
-
         self.pergunta = pergunta
-
         self.opcoes = opcoes
 
         emojis = [
@@ -909,6 +902,10 @@ class EnqueteView(
             ver
         )
 
+
+# ==========================================================
+# ENQUETE - MODAL
+# ==========================================================
 
 class EnqueteModal(
     discord.ui.Modal,
@@ -1332,10 +1329,10 @@ def voltar_solicitacao_para_pendente(
 
 
 # ==========================================================
-# BAN - UTILIDADES
+# PERMISSÃO DA EQUIPE DE BAN
 # ==========================================================
 
-def possui_cargo_ban(
+def pode_usar_sistema_ban(
     membro
 ):
 
@@ -1346,11 +1343,21 @@ def possui_cargo_ban(
 
         return False
 
+    # VOCÊ pode usar sem possuir o cargo.
+    if membro.id == DONO_ID:
+
+        return True
+
+    # Todos os outros precisam do cargo Ban.
     return any(
         cargo.id == CARGO_BAN_ID
         for cargo in membro.roles
     )
 
+
+# ==========================================================
+# UTILIDADES DE MODERAÇÃO
+# ==========================================================
 
 async def obter_membro(
     guild,
@@ -1439,8 +1446,7 @@ async def aplicar_castigo(
 
         return (
             False,
-            "O dono do servidor "
-            "não pode receber castigo."
+            "O dono do servidor não pode receber castigo."
         )
 
     if (
@@ -1452,8 +1458,7 @@ async def aplicar_castigo(
 
         return (
             False,
-            "O bot não possui "
-            "**Moderar membros**."
+            "O bot não possui **Moderar membros**."
         )
 
     if (
@@ -1463,8 +1468,7 @@ async def aplicar_castigo(
 
         return (
             False,
-            "Hierarquia de cargos impede "
-            "o castigo."
+            "A hierarquia dos cargos impede o castigo."
         )
 
     try:
@@ -1496,15 +1500,14 @@ async def aplicar_castigo(
 
         return (
             False,
-            "O Discord recusou "
-            "o castigo."
+            "O Discord recusou o castigo."
         )
 
     except discord.HTTPException as erro:
 
         return (
             False,
-            f"Erro: `{erro}`"
+            f"Erro ao aplicar castigo: `{erro}`"
         )
 
 
@@ -1538,7 +1541,9 @@ async def restaurar_timeout_anterior(
         )
     ):
 
-        novo_timeout = data_anterior
+        novo_timeout = (
+            data_anterior
+        )
 
     else:
 
@@ -1549,7 +1554,7 @@ async def restaurar_timeout_anterior(
         await membro.timeout(
             novo_timeout,
             reason=(
-                "Solicitação negada. "
+                "Solicitação de ban negada. "
                 f"Decisor: {decisor_id}"
             )
         )
@@ -1563,15 +1568,14 @@ async def restaurar_timeout_anterior(
 
         return (
             False,
-            "Não consegui remover "
-            "o castigo."
+            "Não consegui remover/restaurar o castigo."
         )
 
     except discord.HTTPException as erro:
 
         return (
             False,
-            f"Erro: `{erro}`"
+            f"Erro ao alterar castigo: `{erro}`"
         )
 
 
@@ -1608,6 +1612,10 @@ async def localizar_canal_aprovacao(
 
     return canal
 
+
+# ==========================================================
+# EMBED DA SOLICITAÇÃO
+# ==========================================================
 
 def timestamp_iso(
     valor
@@ -1746,7 +1754,659 @@ def criar_embed_solicitacao(
 
 
 # ==========================================================
-# PREPARAR SOLICITAÇÃO
+# EDITAR MENSAGEM DA SOLICITAÇÃO
+# ==========================================================
+
+async def editar_mensagem_solicitacao(
+    guild,
+    solicitacao,
+    embed,
+    view
+):
+
+    canal = guild.get_channel(
+        solicitacao["canal_id"]
+    )
+
+    if canal is None:
+
+        try:
+
+            canal = await guild.fetch_channel(
+                solicitacao["canal_id"]
+            )
+
+        except (
+            discord.NotFound,
+            discord.Forbidden,
+            discord.HTTPException
+        ):
+
+            return
+
+    if not isinstance(
+        canal,
+        discord.TextChannel
+    ):
+
+        return
+
+    try:
+
+        mensagem = await canal.fetch_message(
+            solicitacao["mensagem_id"]
+        )
+
+        await mensagem.edit(
+            embed=embed,
+            view=view
+        )
+
+    except (
+        discord.NotFound,
+        discord.Forbidden,
+        discord.HTTPException
+    ):
+
+        pass
+
+
+# ==========================================================
+# APROVAR
+# ==========================================================
+
+async def processar_aprovacao(
+    interaction,
+    solicitacao_id
+):
+
+    solicitacao = buscar_solicitacao_ban(
+        solicitacao_id
+    )
+
+    if (
+        solicitacao is None
+        or solicitacao["status"]
+        != "pendente"
+    ):
+
+        if interaction.response.is_done():
+
+            await interaction.followup.send(
+                "⚠️ Solicitação já decidida.",
+                ephemeral=True
+            )
+
+        else:
+
+            await interaction.response.send_message(
+                "⚠️ Solicitação já decidida.",
+                ephemeral=True
+            )
+
+        return
+
+    if not iniciar_decisao_ban(
+        solicitacao_id
+    ):
+
+        if interaction.response.is_done():
+
+            await interaction.followup.send(
+                "⚠️ Solicitação já está sendo processada.",
+                ephemeral=True
+            )
+
+        else:
+
+            await interaction.response.send_message(
+                "⚠️ Solicitação já está sendo processada.",
+                ephemeral=True
+            )
+
+        return
+
+    if not interaction.response.is_done():
+
+        await interaction.response.defer(
+            ephemeral=True,
+            thinking=True
+        )
+
+    guild = interaction.guild
+
+    if guild is None:
+
+        voltar_solicitacao_para_pendente(
+            solicitacao_id
+        )
+
+        await interaction.followup.send(
+            "❌ Servidor não encontrado.",
+            ephemeral=True
+        )
+
+        return
+
+    usuario_id = (
+        solicitacao[
+            "usuario_id"
+        ]
+    )
+
+    if usuario_id == guild.owner_id:
+
+        voltar_solicitacao_para_pendente(
+            solicitacao_id
+        )
+
+        await interaction.followup.send(
+            "❌ O dono do servidor não pode ser banido.",
+            ephemeral=True
+        )
+
+        return
+
+    bot_member = guild.me
+
+    if (
+        bot_member is None
+        or not bot_member
+        .guild_permissions
+        .ban_members
+    ):
+
+        voltar_solicitacao_para_pendente(
+            solicitacao_id
+        )
+
+        await interaction.followup.send(
+            "❌ O bot não possui **Banir membros**.",
+            ephemeral=True
+        )
+
+        return
+
+    membro = await obter_membro(
+        guild,
+        usuario_id
+    )
+
+    if (
+        membro is not None
+        and bot_member.top_role
+        <= membro.top_role
+    ):
+
+        voltar_solicitacao_para_pendente(
+            solicitacao_id
+        )
+
+        await interaction.followup.send(
+            "❌ Hierarquia impede o banimento.",
+            ephemeral=True
+        )
+
+        return
+
+    try:
+
+        await guild.ban(
+            discord.Object(
+                id=usuario_id
+            ),
+            reason=(
+                f"{solicitacao['tipo'].upper()} aprovado | "
+                f"Solicitante: "
+                f"{solicitacao['solicitante_id']} | "
+                f"Aprovado por: "
+                f"{interaction.user.id} | "
+                f"Motivo: "
+                f"{solicitacao['motivo']}"
+            )
+        )
+
+    except discord.Forbidden:
+
+        voltar_solicitacao_para_pendente(
+            solicitacao_id
+        )
+
+        await interaction.followup.send(
+            "❌ Discord recusou o banimento.",
+            ephemeral=True
+        )
+
+        return
+
+    except discord.HTTPException as erro:
+
+        voltar_solicitacao_para_pendente(
+            solicitacao_id
+        )
+
+        await interaction.followup.send(
+            f"❌ Erro: `{erro}`",
+            ephemeral=True
+        )
+
+        return
+
+    finalizar_solicitacao_ban(
+        solicitacao_id,
+        "aprovado",
+        interaction.user.id
+    )
+
+    solicitacao = buscar_solicitacao_ban(
+        solicitacao_id
+    )
+
+    agora = int(
+        datetime.now(
+            timezone.utc
+        ).timestamp()
+    )
+
+    embed = criar_embed_solicitacao(
+        solicitacao,
+        status_texto=(
+            "✅ **BANIMENTO APROVADO**\n\n"
+
+            f"Solicitado por: "
+            f"<@{solicitacao['solicitante_id']}>\n"
+
+            f"Aprovado por: "
+            f"<@{interaction.user.id}>\n"
+
+            f"Decisão: "
+            f"<t:{agora}:F>"
+        )
+    )
+
+    embed.color = (
+        discord.Color.green()
+    )
+
+    await editar_mensagem_solicitacao(
+        guild,
+        solicitacao,
+        embed,
+        BanApprovalView(
+            solicitacao_id,
+            desativado=True
+        )
+    )
+
+    await interaction.followup.send(
+        "✅ Banimento executado.",
+        ephemeral=True
+    )
+
+
+# ==========================================================
+# NEGAR
+# ==========================================================
+
+async def processar_negacao(
+    interaction,
+    solicitacao_id
+):
+
+    solicitacao = buscar_solicitacao_ban(
+        solicitacao_id
+    )
+
+    if (
+        solicitacao is None
+        or solicitacao["status"]
+        != "pendente"
+    ):
+
+        await interaction.response.send_message(
+            "⚠️ Solicitação já decidida.",
+            ephemeral=True
+        )
+
+        return
+
+    if not iniciar_decisao_ban(
+        solicitacao_id
+    ):
+
+        await interaction.response.send_message(
+            "⚠️ Solicitação já está sendo processada.",
+            ephemeral=True
+        )
+
+        return
+
+    await interaction.response.defer(
+        ephemeral=True,
+        thinking=True
+    )
+
+    guild = interaction.guild
+
+    if guild is None:
+
+        voltar_solicitacao_para_pendente(
+            solicitacao_id
+        )
+
+        await interaction.followup.send(
+            "❌ Servidor não encontrado.",
+            ephemeral=True
+        )
+
+        return
+
+    if solicitacao[
+        "castigo_aplicado"
+    ]:
+
+        membro = await obter_membro(
+            guild,
+            solicitacao[
+                "usuario_id"
+            ]
+        )
+
+        if membro is not None:
+
+            ok, erro = (
+                await restaurar_timeout_anterior(
+                    membro,
+                    solicitacao[
+                        "timeout_anterior"
+                    ],
+                    interaction.user.id
+                )
+            )
+
+            if not ok:
+
+                voltar_solicitacao_para_pendente(
+                    solicitacao_id
+                )
+
+                await interaction.followup.send(
+                    f"❌ {erro}",
+                    ephemeral=True
+                )
+
+                return
+
+        marcar_castigo(
+            solicitacao_id,
+            False
+        )
+
+    finalizar_solicitacao_ban(
+        solicitacao_id,
+        "negado",
+        interaction.user.id
+    )
+
+    solicitacao = buscar_solicitacao_ban(
+        solicitacao_id
+    )
+
+    agora = int(
+        datetime.now(
+            timezone.utc
+        ).timestamp()
+    )
+
+    embed = criar_embed_solicitacao(
+        solicitacao,
+        status_texto=(
+            "❌ **SOLICITAÇÃO NEGADA**\n\n"
+
+            f"Solicitado por: "
+            f"<@{solicitacao['solicitante_id']}>\n"
+
+            f"Negado por: "
+            f"<@{interaction.user.id}>\n"
+
+            f"Decisão: "
+            f"<t:{agora}:F>"
+        )
+    )
+
+    embed.color = (
+        discord.Color.red()
+    )
+
+    await editar_mensagem_solicitacao(
+        guild,
+        solicitacao,
+        embed,
+        BanApprovalView(
+            solicitacao_id,
+            desativado=True
+        )
+    )
+
+    await interaction.followup.send(
+        "❌ Solicitação negada.",
+        ephemeral=True
+    )
+
+
+# ==========================================================
+# MOTIVO FINAL DE CALL
+# ==========================================================
+
+class MotivoFinalBanModal(
+    discord.ui.Modal,
+    title="Motivo final do banimento"
+):
+
+    motivo = discord.ui.TextInput(
+        label="Motivo do banimento",
+        placeholder=(
+            "Informe o motivo explicado em call"
+        ),
+        style=discord.TextStyle.paragraph,
+        required=True,
+        min_length=1,
+        max_length=1000
+    )
+
+    def __init__(
+        self,
+        solicitacao_id
+    ):
+
+        super().__init__()
+
+        self.solicitacao_id = (
+            solicitacao_id
+        )
+
+    async def on_submit(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        if interaction.user.id != DONO_ID:
+
+            await interaction.response.send_message(
+                "❌ Você não possui autorização.",
+                ephemeral=True
+            )
+
+            return
+
+        motivo = (
+            self.motivo.value.strip()
+        )
+
+        if not motivo:
+
+            await interaction.response.send_message(
+                "❌ O motivo é obrigatório.",
+                ephemeral=True
+            )
+
+            return
+
+        atualizar_motivo_solicitacao(
+            self.solicitacao_id,
+            motivo
+        )
+
+        await processar_aprovacao(
+            interaction,
+            self.solicitacao_id
+        )
+
+
+# ==========================================================
+# BOTÕES APROVAR / NEGAR
+# ==========================================================
+
+class BanApprovalView(
+    discord.ui.View
+):
+
+    def __init__(
+        self,
+        solicitacao_id,
+        desativado=False
+    ):
+
+        super().__init__(
+            timeout=None
+        )
+
+        self.solicitacao_id = (
+            solicitacao_id
+        )
+
+        aprovar = discord.ui.Button(
+            label="Aprovar banimento",
+            emoji="✅",
+            style=discord.ButtonStyle.success,
+            custom_id=(
+                f"ban_aprovar_"
+                f"{solicitacao_id}"
+            ),
+            disabled=desativado
+        )
+
+        negar = discord.ui.Button(
+            label="Negar banimento",
+            emoji="❌",
+            style=discord.ButtonStyle.danger,
+            custom_id=(
+                f"ban_negar_"
+                f"{solicitacao_id}"
+            ),
+            disabled=desativado
+        )
+
+        async def aprovar_callback(
+            interaction: discord.Interaction
+        ):
+
+            if interaction.user.id != DONO_ID:
+
+                await interaction.response.send_message(
+                    "❌ Você não possui autorização.",
+                    ephemeral=True
+                )
+
+                return
+
+            solicitacao = buscar_solicitacao_ban(
+                self.solicitacao_id
+            )
+
+            if solicitacao is None:
+
+                await interaction.response.send_message(
+                    "❌ Solicitação não encontrada.",
+                    ephemeral=True
+                )
+
+                return
+
+            if (
+                solicitacao[
+                    "status"
+                ]
+                != "pendente"
+            ):
+
+                await interaction.response.send_message(
+                    "⚠️ Solicitação já decidida.",
+                    ephemeral=True
+                )
+
+                return
+
+            # EXPLICAR EM CALL:
+            # motivo obrigatório antes de banir.
+
+            if (
+                solicitacao[
+                    "modo_motivo"
+                ]
+                == "call"
+            ):
+
+                await interaction.response.send_modal(
+                    MotivoFinalBanModal(
+                        self.solicitacao_id
+                    )
+                )
+
+                return
+
+            await processar_aprovacao(
+                interaction,
+                self.solicitacao_id
+            )
+
+        async def negar_callback(
+            interaction: discord.Interaction
+        ):
+
+            if interaction.user.id != DONO_ID:
+
+                await interaction.response.send_message(
+                    "❌ Você não possui autorização.",
+                    ephemeral=True
+                )
+
+                return
+
+            await processar_negacao(
+                interaction,
+                self.solicitacao_id
+            )
+
+        aprovar.callback = (
+            aprovar_callback
+        )
+
+        negar.callback = (
+            negar_callback
+        )
+
+        self.add_item(
+            aprovar
+        )
+
+        self.add_item(
+            negar
+        )
+
+
+# ==========================================================
+# PREPARAR E ENVIAR SOLICITAÇÃO
 # ==========================================================
 
 async def preparar_e_enviar_solicitacao(
@@ -1768,13 +2428,15 @@ async def preparar_e_enviar_solicitacao(
 
         return
 
-    if not possui_cargo_ban(
+    # DONO_ID OU CARGO_BAN_ID
+
+    if not pode_usar_sistema_ban(
         interaction.user
     ):
 
         await interaction.response.send_message(
-            "❌ Você não possui o cargo "
-            "da equipe de Ban.",
+            "❌ Você não possui autorização para "
+            "usar o sistema da Equipe de Ban.",
             ephemeral=True
         )
 
@@ -1796,12 +2458,16 @@ async def preparar_e_enviar_solicitacao(
         "Nome indisponível"
     )
 
+    # ======================================================
+    # BAN NORMAL
+    # ======================================================
+
     if tipo == "ban":
 
         if membro_alvo is None:
 
             await interaction.followup.send(
-                "❌ Esse usuário não está "
+                "❌ Esse usuário não está mais "
                 "no servidor.\n"
                 "Use Hackban pelo ID.",
                 ephemeral=True
@@ -1812,6 +2478,10 @@ async def preparar_e_enviar_solicitacao(
         usuario_nome = str(
             membro_alvo
         )
+
+    # ======================================================
+    # HACKBAN
+    # ======================================================
 
     else:
 
@@ -1830,8 +2500,7 @@ async def preparar_e_enviar_solicitacao(
         except discord.NotFound:
 
             await interaction.followup.send(
-                "❌ ID de usuário "
-                "não encontrado.",
+                "❌ ID de usuário não encontrado.",
                 ephemeral=True
             )
 
@@ -1841,10 +2510,11 @@ async def preparar_e_enviar_solicitacao(
 
             pass
 
-    if (
-        usuario_id
-        == interaction.user.id
-    ):
+    # ======================================================
+    # PROTEÇÕES
+    # ======================================================
+
+    if usuario_id == interaction.user.id:
 
         await interaction.followup.send(
             "❌ Você não pode solicitar "
@@ -1854,10 +2524,7 @@ async def preparar_e_enviar_solicitacao(
 
         return
 
-    if (
-        usuario_id
-        == guild.owner_id
-    ):
+    if usuario_id == guild.owner_id:
 
         await interaction.followup.send(
             "❌ O dono do servidor "
@@ -1929,8 +2596,7 @@ async def preparar_e_enviar_solicitacao(
     ):
 
         await interaction.followup.send(
-            "❌ Hierarquia de cargos "
-            "impede a punição.",
+            "❌ Hierarquia impede a punição.",
             ephemeral=True
         )
 
@@ -1943,15 +2609,17 @@ async def preparar_e_enviar_solicitacao(
     if canal is None:
 
         await interaction.followup.send(
-            "❌ Canal de aprovação "
-            "não encontrado.",
+            "❌ Canal de aprovação não encontrado.",
             ephemeral=True
         )
 
         return
 
-    castigo_aplicado = False
+    # ======================================================
+    # CASTIGO
+    # ======================================================
 
+    castigo_aplicado = False
     timeout_anterior = None
 
     if membro_alvo is not None:
@@ -1985,6 +2653,10 @@ async def preparar_e_enviar_solicitacao(
             return
 
         castigo_aplicado = True
+
+    # ======================================================
+    # SALVAR
+    # ======================================================
 
     solicitacao_id = (
         uuid.uuid4().hex[:12]
@@ -2091,8 +2763,7 @@ class MotivoEscritoModal(
     motivo = discord.ui.TextInput(
         label="Motivo",
         placeholder=(
-            "Explique o motivo "
-            "da solicitação"
+            "Explique o motivo da solicitação"
         ),
         style=discord.TextStyle.paragraph,
         required=True,
@@ -2108,7 +2779,9 @@ class MotivoEscritoModal(
 
         super().__init__()
 
-        self.usuario_id = usuario_id
+        self.usuario_id = (
+            usuario_id
+        )
 
         self.tipo = tipo
 
@@ -2117,13 +2790,12 @@ class MotivoEscritoModal(
         interaction: discord.Interaction
     ):
 
-        if not possui_cargo_ban(
+        if not pode_usar_sistema_ban(
             interaction.user
         ):
 
             await interaction.response.send_message(
-                "❌ Você não possui o cargo "
-                "da equipe de Ban.",
+                "❌ Você não possui autorização.",
                 ephemeral=True
             )
 
@@ -2152,7 +2824,7 @@ class MotivoEscritoModal(
 
 
 # ==========================================================
-# ESCOLHER MOTIVO
+# ESCOLHER FORMA DO MOTIVO
 # ==========================================================
 
 class EscolherMotivoSelect(
@@ -2165,7 +2837,9 @@ class EscolherMotivoSelect(
         tipo
     ):
 
-        self.usuario_id = usuario_id
+        self.usuario_id = (
+            usuario_id
+        )
 
         self.tipo = tipo
 
@@ -2212,13 +2886,12 @@ class EscolherMotivoSelect(
         interaction: discord.Interaction
     ):
 
-        if not possui_cargo_ban(
+        if not pode_usar_sistema_ban(
             interaction.user
         ):
 
             await interaction.response.send_message(
-                "❌ Você não possui o cargo "
-                "da equipe de Ban.",
+                "❌ Você não possui autorização.",
                 ephemeral=True
             )
 
@@ -2281,7 +2954,7 @@ class EscolherMotivoView(
 
 
 # ==========================================================
-# BAN - USER SELECT NATIVO
+# BAN - SELETOR NATIVO DE USUÁRIO
 # ==========================================================
 
 class SelecionarUsuarioBan(
@@ -2303,13 +2976,12 @@ class SelecionarUsuarioBan(
         interaction: discord.Interaction
     ):
 
-        if not possui_cargo_ban(
+        if not pode_usar_sistema_ban(
             interaction.user
         ):
 
             await interaction.response.send_message(
-                "❌ Você não possui o cargo "
-                "da equipe de Ban.",
+                "❌ Você não possui autorização.",
                 ephemeral=True
             )
 
@@ -2326,7 +2998,7 @@ class SelecionarUsuarioBan(
 
             await interaction.response.send_message(
                 "❌ Esse usuário não está "
-                "no servidor.\n"
+                "mais no servidor.\n"
                 "Use Hackban pelo ID.",
                 ephemeral=True
             )
@@ -2337,8 +3009,9 @@ class SelecionarUsuarioBan(
             content=(
                 f"👤 **Usuário selecionado:** "
                 f"{membro.mention}\n\n"
-                "Agora escolha como "
-                "o motivo será informado:"
+
+                "Agora escolha como o motivo "
+                "será informado:"
             ),
             view=EscolherMotivoView(
                 membro.id,
@@ -2363,7 +3036,7 @@ class SelecionarUsuarioBanView(
 
 
 # ==========================================================
-# HACKBAN
+# HACKBAN - ID
 # ==========================================================
 
 class HackbanIdModal(
@@ -2386,13 +3059,12 @@ class HackbanIdModal(
         interaction: discord.Interaction
     ):
 
-        if not possui_cargo_ban(
+        if not pode_usar_sistema_ban(
             interaction.user
         ):
 
             await interaction.response.send_message(
-                "❌ Você não possui o cargo "
-                "da equipe de Ban.",
+                "❌ Você não possui autorização.",
                 ephemeral=True
             )
 
@@ -2407,8 +3079,7 @@ class HackbanIdModal(
         if not valor.isdigit():
 
             await interaction.response.send_message(
-                "❌ O ID deve conter "
-                "somente números.",
+                "❌ O ID deve conter somente números.",
                 ephemeral=True
             )
 
@@ -2422,8 +3093,9 @@ class HackbanIdModal(
             content=(
                 f"🆔 **ID informado:** "
                 f"`{usuario_id}`\n\n"
-                "Agora escolha como "
-                "o motivo será informado:"
+
+                "Agora escolha como o motivo "
+                "será informado:"
             ),
             view=EscolherMotivoView(
                 usuario_id,
@@ -2434,7 +3106,7 @@ class HackbanIdModal(
 
 
 # ==========================================================
-# PAINEL
+# PAINEL PRINCIPAL
 # ==========================================================
 
 class PainelBanView(
@@ -2451,7 +3123,7 @@ class PainelBanView(
         label="Solicitar Ban",
         emoji="👤",
         style=discord.ButtonStyle.danger,
-        custom_id="painel_ban_normal"
+        custom_id="painel_ban_normal_v4"
     )
     async def solicitar_ban(
         self,
@@ -2459,13 +3131,13 @@ class PainelBanView(
         button: discord.ui.Button
     ):
 
-        if not possui_cargo_ban(
+        if not pode_usar_sistema_ban(
             interaction.user
         ):
 
             await interaction.response.send_message(
-                "❌ Você não possui o cargo "
-                "da equipe de Ban.",
+                "❌ Você não possui autorização "
+                "para usar o sistema de Ban.",
                 ephemeral=True
             )
 
@@ -2474,8 +3146,9 @@ class PainelBanView(
         await interaction.response.send_message(
             content=(
                 "👤 **Solicitar Ban**\n\n"
-                "Clique no seletor abaixo "
-                "e escolha o membro."
+
+                "Clique na caixa abaixo e "
+                "escolha o membro."
             ),
             view=SelecionarUsuarioBanView(),
             ephemeral=True
@@ -2485,7 +3158,7 @@ class PainelBanView(
         label="Solicitar Hackban",
         emoji="🆔",
         style=discord.ButtonStyle.secondary,
-        custom_id="painel_hackban"
+        custom_id="painel_hackban_v4"
     )
     async def solicitar_hackban(
         self,
@@ -2493,13 +3166,13 @@ class PainelBanView(
         button: discord.ui.Button
     ):
 
-        if not possui_cargo_ban(
+        if not pode_usar_sistema_ban(
             interaction.user
         ):
 
             await interaction.response.send_message(
-                "❌ Você não possui o cargo "
-                "da equipe de Ban.",
+                "❌ Você não possui autorização "
+                "para usar o sistema de Ban.",
                 ephemeral=True
             )
 
@@ -2507,637 +3180,6 @@ class PainelBanView(
 
         await interaction.response.send_modal(
             HackbanIdModal()
-        )
-
-
-# ==========================================================
-# EDITAR MENSAGEM DA SOLICITAÇÃO
-# ==========================================================
-
-async def editar_mensagem_solicitacao(
-    guild,
-    solicitacao,
-    embed,
-    view
-):
-
-    canal = guild.get_channel(
-        solicitacao["canal_id"]
-    )
-
-    if canal is None:
-
-        try:
-
-            canal = await guild.fetch_channel(
-                solicitacao["canal_id"]
-            )
-
-        except (
-            discord.NotFound,
-            discord.Forbidden,
-            discord.HTTPException
-        ):
-
-            return
-
-    if not isinstance(
-        canal,
-        discord.TextChannel
-    ):
-
-        return
-
-    try:
-
-        mensagem = await canal.fetch_message(
-            solicitacao["mensagem_id"]
-        )
-
-        await mensagem.edit(
-            embed=embed,
-            view=view
-        )
-
-    except (
-        discord.NotFound,
-        discord.Forbidden,
-        discord.HTTPException
-    ):
-
-        pass
-
-
-# ==========================================================
-# APROVAR
-# ==========================================================
-
-async def processar_aprovacao(
-    interaction,
-    solicitacao_id
-):
-
-    solicitacao = buscar_solicitacao_ban(
-        solicitacao_id
-    )
-
-    if (
-        solicitacao is None
-        or solicitacao["status"]
-        != "pendente"
-    ):
-
-        if interaction.response.is_done():
-
-            await interaction.followup.send(
-                "⚠️ Solicitação já decidida.",
-                ephemeral=True
-            )
-
-        else:
-
-            await interaction.response.send_message(
-                "⚠️ Solicitação já decidida.",
-                ephemeral=True
-            )
-
-        return
-
-    if not iniciar_decisao_ban(
-        solicitacao_id
-    ):
-
-        if interaction.response.is_done():
-
-            await interaction.followup.send(
-                "⚠️ Solicitação já está "
-                "sendo processada.",
-                ephemeral=True
-            )
-
-        else:
-
-            await interaction.response.send_message(
-                "⚠️ Solicitação já está "
-                "sendo processada.",
-                ephemeral=True
-            )
-
-        return
-
-    if not interaction.response.is_done():
-
-        await interaction.response.defer(
-            ephemeral=True,
-            thinking=True
-        )
-
-    guild = interaction.guild
-
-    if guild is None:
-
-        voltar_solicitacao_para_pendente(
-            solicitacao_id
-        )
-
-        await interaction.followup.send(
-            "❌ Servidor não encontrado.",
-            ephemeral=True
-        )
-
-        return
-
-    usuario_id = (
-        solicitacao["usuario_id"]
-    )
-
-    if usuario_id == guild.owner_id:
-
-        voltar_solicitacao_para_pendente(
-            solicitacao_id
-        )
-
-        await interaction.followup.send(
-            "❌ O dono do servidor "
-            "não pode ser banido.",
-            ephemeral=True
-        )
-
-        return
-
-    bot_member = guild.me
-
-    if (
-        bot_member is None
-        or not bot_member
-        .guild_permissions
-        .ban_members
-    ):
-
-        voltar_solicitacao_para_pendente(
-            solicitacao_id
-        )
-
-        await interaction.followup.send(
-            "❌ O bot não possui "
-            "**Banir membros**.",
-            ephemeral=True
-        )
-
-        return
-
-    membro = await obter_membro(
-        guild,
-        usuario_id
-    )
-
-    if (
-        membro is not None
-        and bot_member.top_role
-        <= membro.top_role
-    ):
-
-        voltar_solicitacao_para_pendente(
-            solicitacao_id
-        )
-
-        await interaction.followup.send(
-            "❌ Hierarquia impede "
-            "o banimento.",
-            ephemeral=True
-        )
-
-        return
-
-    try:
-
-        await guild.ban(
-            discord.Object(
-                id=usuario_id
-            ),
-            reason=(
-                f"{solicitacao['tipo'].upper()} aprovado | "
-                f"Solicitado por: "
-                f"{solicitacao['solicitante_id']} | "
-                f"Aprovado por: "
-                f"{interaction.user.id} | "
-                f"Motivo: "
-                f"{solicitacao['motivo']}"
-            )
-        )
-
-    except discord.Forbidden:
-
-        voltar_solicitacao_para_pendente(
-            solicitacao_id
-        )
-
-        await interaction.followup.send(
-            "❌ Discord recusou "
-            "o banimento.",
-            ephemeral=True
-        )
-
-        return
-
-    except discord.HTTPException as erro:
-
-        voltar_solicitacao_para_pendente(
-            solicitacao_id
-        )
-
-        await interaction.followup.send(
-            f"❌ Erro: `{erro}`",
-            ephemeral=True
-        )
-
-        return
-
-    finalizar_solicitacao_ban(
-        solicitacao_id,
-        "aprovado",
-        interaction.user.id
-    )
-
-    solicitacao = buscar_solicitacao_ban(
-        solicitacao_id
-    )
-
-    agora = int(
-        datetime.now(
-            timezone.utc
-        ).timestamp()
-    )
-
-    embed = criar_embed_solicitacao(
-        solicitacao,
-        status_texto=(
-            "✅ **BANIMENTO APROVADO**\n\n"
-            f"Solicitado por: "
-            f"<@{solicitacao['solicitante_id']}>\n"
-            f"Aprovado por: "
-            f"<@{interaction.user.id}>\n"
-            f"Decisão: <t:{agora}:F>"
-        )
-    )
-
-    embed.color = (
-        discord.Color.green()
-    )
-
-    await editar_mensagem_solicitacao(
-        guild,
-        solicitacao,
-        embed,
-        BanApprovalView(
-            solicitacao_id,
-            desativado=True
-        )
-    )
-
-    await interaction.followup.send(
-        "✅ Banimento executado.",
-        ephemeral=True
-    )
-
-
-# ==========================================================
-# NEGAR
-# ==========================================================
-
-async def processar_negacao(
-    interaction,
-    solicitacao_id
-):
-
-    solicitacao = buscar_solicitacao_ban(
-        solicitacao_id
-    )
-
-    if (
-        solicitacao is None
-        or solicitacao["status"]
-        != "pendente"
-    ):
-
-        await interaction.response.send_message(
-            "⚠️ Solicitação já decidida.",
-            ephemeral=True
-        )
-
-        return
-
-    if not iniciar_decisao_ban(
-        solicitacao_id
-    ):
-
-        await interaction.response.send_message(
-            "⚠️ Solicitação já está "
-            "sendo processada.",
-            ephemeral=True
-        )
-
-        return
-
-    await interaction.response.defer(
-        ephemeral=True,
-        thinking=True
-    )
-
-    guild = interaction.guild
-
-    if guild is None:
-
-        voltar_solicitacao_para_pendente(
-            solicitacao_id
-        )
-
-        await interaction.followup.send(
-            "❌ Servidor não encontrado.",
-            ephemeral=True
-        )
-
-        return
-
-    if solicitacao[
-        "castigo_aplicado"
-    ]:
-
-        membro = await obter_membro(
-            guild,
-            solicitacao["usuario_id"]
-        )
-
-        if membro is not None:
-
-            ok, erro = (
-                await restaurar_timeout_anterior(
-                    membro,
-                    solicitacao[
-                        "timeout_anterior"
-                    ],
-                    interaction.user.id
-                )
-            )
-
-            if not ok:
-
-                voltar_solicitacao_para_pendente(
-                    solicitacao_id
-                )
-
-                await interaction.followup.send(
-                    f"❌ {erro}",
-                    ephemeral=True
-                )
-
-                return
-
-        marcar_castigo(
-            solicitacao_id,
-            False
-        )
-
-    finalizar_solicitacao_ban(
-        solicitacao_id,
-        "negado",
-        interaction.user.id
-    )
-
-    solicitacao = buscar_solicitacao_ban(
-        solicitacao_id
-    )
-
-    agora = int(
-        datetime.now(
-            timezone.utc
-        ).timestamp()
-    )
-
-    embed = criar_embed_solicitacao(
-        solicitacao,
-        status_texto=(
-            "❌ **SOLICITAÇÃO NEGADA**\n\n"
-            f"Solicitado por: "
-            f"<@{solicitacao['solicitante_id']}>\n"
-            f"Negado por: "
-            f"<@{interaction.user.id}>\n"
-            f"Decisão: <t:{agora}:F>"
-        )
-    )
-
-    embed.color = (
-        discord.Color.red()
-    )
-
-    await editar_mensagem_solicitacao(
-        guild,
-        solicitacao,
-        embed,
-        BanApprovalView(
-            solicitacao_id,
-            desativado=True
-        )
-    )
-
-    await interaction.followup.send(
-        "❌ Solicitação negada.",
-        ephemeral=True
-    )
-
-
-# ==========================================================
-# MOTIVO FINAL DE CALL
-# ==========================================================
-
-class MotivoFinalBanModal(
-    discord.ui.Modal,
-    title="Motivo final do banimento"
-):
-
-    motivo = discord.ui.TextInput(
-        label="Motivo do banimento",
-        placeholder=(
-            "Informe o motivo "
-            "explicado em call"
-        ),
-        style=discord.TextStyle.paragraph,
-        required=True,
-        min_length=1,
-        max_length=1000
-    )
-
-    def __init__(
-        self,
-        solicitacao_id
-    ):
-
-        super().__init__()
-
-        self.solicitacao_id = (
-            solicitacao_id
-        )
-
-    async def on_submit(
-        self,
-        interaction: discord.Interaction
-    ):
-
-        if interaction.user.id != DONO_ID:
-
-            await interaction.response.send_message(
-                "❌ Você não possui autorização.",
-                ephemeral=True
-            )
-
-            return
-
-        motivo = (
-            self.motivo.value.strip()
-        )
-
-        if not motivo:
-
-            await interaction.response.send_message(
-                "❌ O motivo é obrigatório.",
-                ephemeral=True
-            )
-
-            return
-
-        atualizar_motivo_solicitacao(
-            self.solicitacao_id,
-            motivo
-        )
-
-        await processar_aprovacao(
-            interaction,
-            self.solicitacao_id
-        )
-
-
-# ==========================================================
-# APROVAÇÃO VIEW
-# ==========================================================
-
-class BanApprovalView(
-    discord.ui.View
-):
-
-    def __init__(
-        self,
-        solicitacao_id,
-        desativado=False
-    ):
-
-        super().__init__(
-            timeout=None
-        )
-
-        self.solicitacao_id = (
-            solicitacao_id
-        )
-
-        aprovar = discord.ui.Button(
-            label="Aprovar banimento",
-            emoji="✅",
-            style=discord.ButtonStyle.success,
-            custom_id=(
-                f"ban_aprovar_"
-                f"{solicitacao_id}"
-            ),
-            disabled=desativado
-        )
-
-        negar = discord.ui.Button(
-            label="Negar banimento",
-            emoji="❌",
-            style=discord.ButtonStyle.danger,
-            custom_id=(
-                f"ban_negar_"
-                f"{solicitacao_id}"
-            ),
-            disabled=desativado
-        )
-
-        async def aprovar_callback(
-            interaction: discord.Interaction
-        ):
-
-            if interaction.user.id != DONO_ID:
-
-                await interaction.response.send_message(
-                    "❌ Você não possui autorização.",
-                    ephemeral=True
-                )
-
-                return
-
-            solicitacao = buscar_solicitacao_ban(
-                self.solicitacao_id
-            )
-
-            if solicitacao is None:
-
-                await interaction.response.send_message(
-                    "❌ Solicitação não encontrada.",
-                    ephemeral=True
-                )
-
-                return
-
-            if (
-                solicitacao[
-                    "modo_motivo"
-                ]
-                == "call"
-            ):
-
-                await interaction.response.send_modal(
-                    MotivoFinalBanModal(
-                        self.solicitacao_id
-                    )
-                )
-
-                return
-
-            await processar_aprovacao(
-                interaction,
-                self.solicitacao_id
-            )
-
-        async def negar_callback(
-            interaction: discord.Interaction
-        ):
-
-            if interaction.user.id != DONO_ID:
-
-                await interaction.response.send_message(
-                    "❌ Você não possui autorização.",
-                    ephemeral=True
-                )
-
-                return
-
-            await processar_negacao(
-                interaction,
-                self.solicitacao_id
-            )
-
-        aprovar.callback = (
-            aprovar_callback
-        )
-
-        negar.callback = (
-            negar_callback
-        )
-
-        self.add_item(
-            aprovar
-        )
-
-        self.add_item(
-            negar
         )
 
 
@@ -3150,7 +3192,6 @@ intents = (
 )
 
 intents.members = True
-
 intents.message_content = True
 
 
@@ -3173,6 +3214,10 @@ class MeuBot(
         self.add_view(
             PainelBanView()
         )
+
+        # ==================================================
+        # RESTAURA ENQUETES
+        # ==================================================
 
         for linha in buscar_enquetes_ativas():
 
@@ -3200,6 +3245,10 @@ class MeuBot(
                 )
             )
 
+        # ==================================================
+        # RESTAURA BANIMENTOS PENDENTES
+        # ==================================================
+
         for linha in buscar_solicitacoes_pendentes():
 
             self.add_view(
@@ -3212,6 +3261,10 @@ class MeuBot(
                     ]
                 )
             )
+
+        # ==================================================
+        # SINCRONIZA /
+        # ==================================================
 
         comandos = await self.tree.sync()
 
@@ -3245,7 +3298,9 @@ async def renovar_castigos_pendentes():
     for linha in buscar_castigos_pendentes():
 
         guild = bot.get_guild(
-            linha["guild_id"]
+            linha[
+                "guild_id"
+            ]
         )
 
         if guild is None:
@@ -3254,7 +3309,9 @@ async def renovar_castigos_pendentes():
 
         membro = await obter_membro(
             guild,
-            linha["usuario_id"]
+            linha[
+                "usuario_id"
+            ]
         )
 
         if membro is None:
@@ -3482,7 +3539,7 @@ async def enquete(
 @bot.tree.command(
     name="painelban",
     description=(
-        "Envia o painel da equipe de Ban"
+        "Envia o painel da Equipe de Ban"
     )
 )
 @app_commands.checks.has_permissions(
@@ -3493,18 +3550,20 @@ async def painelban(
 ):
 
     embed = discord.Embed(
-        title="🛡️ Painel da Equipe de Ban",
+        title=(
+            "🛡️ Painel da Equipe de Ban"
+        ),
         description=(
             "Escolha abaixo o tipo "
             "de solicitação.\n\n"
 
             "### 👤 Solicitar Ban\n"
-            "Abre o seletor nativo de usuários "
+            "Abre um seletor de usuários "
             "do Discord.\n\n"
 
             "### 🆔 Solicitar Hackban\n"
-            "Use o ID de quem já saiu "
-            "do servidor.\n\n"
+            "Use o ID do usuário, inclusive "
+            "se ele já saiu do servidor.\n\n"
 
             "### 📝 Motivo\n"
             "✍️ Escrever o motivo\n"
@@ -3518,8 +3577,9 @@ async def painelban(
 
     embed.set_footer(
         text=(
-            "Somente membros da Equipe de Ban "
-            "podem utilizar."
+            "Equipe de Ban pode solicitar. "
+            "O dono autorizado também pode "
+            "usar sem possuir o cargo."
         )
     )
 
@@ -3549,19 +3609,20 @@ async def solicitarban(
     motivo: str
 ):
 
-    if not possui_cargo_ban(
+    if not pode_usar_sistema_ban(
         interaction.user
     ):
 
         await interaction.response.send_message(
-            "❌ Você não possui o cargo "
-            "da equipe de Ban.",
+            "❌ Você não possui autorização.",
             ephemeral=True
         )
 
         return
 
-    motivo = motivo.strip()
+    motivo = (
+        motivo.strip()
+    )
 
     if not motivo:
 
@@ -3610,7 +3671,7 @@ async def erro_slash(
 ):
 
     print(
-        f"Erro comando /: {erro}"
+        f"Erro comando /: {repr(erro)}"
     )
 
     if isinstance(
@@ -3625,23 +3686,29 @@ async def erro_slash(
     else:
 
         mensagem = (
-            "❌ Ocorreu um erro "
-            "ao executar este comando."
+            "❌ Ocorreu um erro ao "
+            "executar esse comando."
         )
 
-    if interaction.response.is_done():
+    try:
 
-        await interaction.followup.send(
-            mensagem,
-            ephemeral=True
-        )
+        if interaction.response.is_done():
 
-    else:
+            await interaction.followup.send(
+                mensagem,
+                ephemeral=True
+            )
 
-        await interaction.response.send_message(
-            mensagem,
-            ephemeral=True
-        )
+        else:
+
+            await interaction.response.send_message(
+                mensagem,
+                ephemeral=True
+            )
+
+    except discord.HTTPException:
+
+        pass
 
 
 # ==========================================================
