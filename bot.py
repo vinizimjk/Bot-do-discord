@@ -18,12 +18,10 @@ from dotenv import load_dotenv
 
 DONO_ID = 1455937306400653344
 CANAL_APROVACAO_ID = 1536073451633254420
-CARGO_BAN_ID = 1536734408277491863
-CARGO_EVENTOS_ID = 1537950605245550643
-
 PAINEL_MENU_URL = "https://painel-menu-bot-production.up.railway.app"
 
 CARGO_MINECRAFT_ID = 1534006899371147304
+CARGO_DESENVOLVIMENTO_ID = 1533625836874498181
 MINECRAFT_HOST = "resenha-DpsX.aternos.me"
 MINECRAFT_PORTA = 20710
 
@@ -61,64 +59,6 @@ else:
 load_dotenv(dotenv_path=ARQUIVO_ENV)
 
 
-# ==========================================================
-# CONFIGURAÇÃO DO MENU SUB CIVIL
-# ==========================================================
-
-CONFIG_PADRAO = {
-    "mensagem_principal": (
-        "## 🎉 Evento Sub Civil\n"
-        "Selecione uma das opções abaixo para saber mais."
-    ),
-    "texto_selecao": "Selecione uma opção",
-}
-
-
-def salvar_config(configuracao):
-    with open(
-        ARQUIVO_CONFIG,
-        "w",
-        encoding="utf-8"
-    ) as arquivo:
-        json.dump(
-            configuracao,
-            arquivo,
-            ensure_ascii=False,
-            indent=4
-        )
-
-
-def carregar_config():
-    if not ARQUIVO_CONFIG.exists():
-        salvar_config(CONFIG_PADRAO.copy())
-        return CONFIG_PADRAO.copy()
-
-    try:
-        with open(
-            ARQUIVO_CONFIG,
-            "r",
-            encoding="utf-8"
-        ) as arquivo:
-            configuracao = json.load(arquivo)
-
-    except (json.JSONDecodeError, OSError):
-        salvar_config(CONFIG_PADRAO.copy())
-        return CONFIG_PADRAO.copy()
-
-    mudou = False
-
-    for chave, valor in CONFIG_PADRAO.items():
-        if chave not in configuracao:
-            configuracao[chave] = valor
-            mudou = True
-
-    if mudou:
-        salvar_config(configuracao)
-
-    return configuracao
-
-
-carregar_config()
 
 
 # ==========================================================
@@ -589,110 +529,6 @@ def gerar_embed_enquete(
 
     return embed
 
-
-# ==========================================================
-# MENU SUB CIVIL
-# ==========================================================
-
-class MenuSubCivil(discord.ui.Select):
-
-    def __init__(self):
-        configuracao = carregar_config()
-
-        opcoes = [
-            discord.SelectOption(
-                label="Quais são as vantagens de ter Sub Civil?",
-                description="Veja todos os benefícios do cargo.",
-                emoji="⭐",
-                value="vantagens"
-            ),
-
-            discord.SelectOption(
-                label="Por onde interagir?",
-                description=(
-                    "Saiba onde as interações "
-                    "serão contabilizadas."
-                ),
-                emoji="💬",
-                value="interagir"
-            ),
-
-            discord.SelectOption(
-                label=(
-                    "Como iremos saber quem mais "
-                    "interagiu pela Loritta?"
-                ),
-                description=(
-                    "Entenda como o vencedor "
-                    "será escolhido."
-                ),
-                emoji="🏆",
-                value="ranking"
-            )
-        ]
-
-        super().__init__(
-            placeholder=configuracao["texto_selecao"],
-            custom_id="menu_sub_civil",
-            min_values=1,
-            max_values=1,
-            options=opcoes
-        )
-
-    async def callback(
-        self,
-        interaction: discord.Interaction
-    ):
-        opcao = self.values[0]
-
-        if opcao == "vantagens":
-            mensagem = (
-                "## ⭐ Vantagens de ter Sub Civil\n\n"
-                "• 🎵 Utilizar efeitos sonoros.\n"
-                "• 📹 Abrir câmera.\n"
-                "• 🖥️ Transmitir tela.\n"
-                "• 🚀 Ignorar modo lento.\n"
-                "• 🎨 Cor exclusiva no nome.\n"
-                "• ⭐ Cargo destacado na lista de membros.\n"
-                "• 🔊 Prioridade em canais de voz.\n"
-                "• 💬 Acesso a um chat exclusivo."
-            )
-
-        elif opcao == "interagir":
-            mensagem = (
-                "## 💬 Por onde interagir?\n\n"
-                "A interação deve ser feita através "
-                "de conversas por chat para a "
-                "Loritta poder reconhecer."
-            )
-
-        else:
-            mensagem = (
-                "## 🏆 Como iremos saber quem mais "
-                "interagiu pela Loritta?\n\n"
-                "5 minutos antes do prazo iremos "
-                "reiniciar os XP de todo mundo.\n\n"
-                "Ao finalizar o prazo iremos ver o "
-                "ranking e quem estiver no topo irá "
-                "ganhar o **Sub Civil**."
-            )
-
-        await interaction.response.send_message(
-            mensagem,
-            ephemeral=True
-        )
-
-
-class MenuView(discord.ui.View):
-
-    def __init__(self):
-        super().__init__(
-            timeout=None
-        )
-
-        self.add_item(
-            MenuSubCivil()
-        )
 
 
 # ==========================================================
@@ -1210,44 +1046,34 @@ def voltar_solicitacao_para_pendente(
 
 
 # ==========================================================
-# PERMISSÃO DO SISTEMA DE BAN
+# PERMISSÃO DOS COMANDOS ADMINISTRATIVOS
 # ==========================================================
 
-def pode_usar_sistema_ban(
-    membro
-):
-    if not isinstance(
-        membro,
-        discord.Member
-    ):
-        return False
-
-    # Você pode usar sem possuir o cargo Ban.
-    if membro.id == DONO_ID:
-        return True
-
-    return any(
-        cargo.id == CARGO_BAN_ID
-        for cargo in membro.roles
-    )
-
-
-# ==========================================================
-# PERMISSÃO DO MENU / EVENTOS
-# ==========================================================
-
-def pode_usar_menu(membro):
+def pode_usar_comando_admin(membro):
     if not isinstance(membro, discord.Member):
         return False
 
     if membro.id == DONO_ID:
         return True
 
-    return any(
-        cargo.id == CARGO_EVENTOS_ID
-        for cargo in membro.roles
-    )
+    return membro.guild_permissions.administrator
 
+
+def pode_usar_sistema_ban(membro):
+    # Painéis e botões de moderação seguem a mesma regra:
+    # dono autorizado ou administrador do servidor.
+    return pode_usar_comando_admin(membro)
+
+
+async def negar_se_nao_admin(interaction):
+    if pode_usar_comando_admin(interaction.user):
+        return False
+
+    await interaction.response.send_message(
+        "❌ Apenas administradores do servidor e o dono autorizado podem usar este comando.",
+        ephemeral=True
+    )
+    return True
 
 # ==========================================================
 # UTILIDADES DE MODERAÇÃO
@@ -2989,11 +2815,11 @@ class MeuBot(commands.Bot):
 
     async def setup_hook(self):
         self.add_view(
-            MenuView()
+            PainelBanView()
         )
 
         self.add_view(
-            PainelBanView()
+            PainelMinecraftView()
         )
 
         # --------------------------------------------------
@@ -3175,97 +3001,6 @@ async def on_ready():
     print("--------------------------------")
 
 
-# ==========================================================
-# !MENU
-# ==========================================================
-
-@bot.command()
-@commands.has_permissions(
-    administrator=True
-)
-async def menu(
-    ctx: commands.Context
-):
-    configuracao = carregar_config()
-
-    await ctx.send(
-        configuracao[
-            "mensagem_principal"
-        ],
-        view=MenuView()
-    )
-
-
-# ==========================================================
-# /MENU
-# ==========================================================
-
-@bot.tree.command(
-    name="menu",
-    description="Envia o menu do Sub Civil"
-)
-async def menu_slash(
-    interaction: discord.Interaction
-):
-    if not pode_usar_menu(
-        interaction.user
-    ):
-        await interaction.response.send_message(
-            "❌ Somente o dono e o cargo **Responsável pelos Eventos** podem usar `/menu`.",
-            ephemeral=True
-        )
-        return
-
-    configuracao = carregar_config()
-
-    await interaction.response.send_message(
-        configuracao[
-            "mensagem_principal"
-        ],
-        view=MenuView()
-    )
-
-
-# ==========================================================
-# /EDITAR_INTERFACE
-# ==========================================================
-
-class AbrirPainelMenuView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=120)
-
-        self.add_item(
-            discord.ui.Button(
-                label="Abrir Painel de Edição",
-                emoji="🌐",
-                style=discord.ButtonStyle.link,
-                url=PAINEL_MENU_URL
-            )
-        )
-
-
-@bot.tree.command(
-    name="editar_interface",
-    description="Abre o site de edição do menu"
-)
-async def editar_interface(
-    interaction: discord.Interaction
-):
-    if not pode_usar_menu(
-        interaction.user
-    ):
-        await interaction.response.send_message(
-            "❌ Somente o dono e o cargo **Responsável pelos Eventos** podem editar o menu.",
-            ephemeral=True
-        )
-        return
-
-    await interaction.response.send_message(
-        "🌐 A edição do menu agora é feita pelo painel web.",
-        view=AbrirPainelMenuView(),
-        ephemeral=True
-    )
-
 
 # ==========================================================
 # /ENQUETE
@@ -3275,12 +3010,12 @@ async def editar_interface(
     name="enquete",
     description="Cria uma enquete"
 )
-@app_commands.checks.has_permissions(
-    administrator=True
-)
 async def enquete(
     interaction: discord.Interaction
 ):
+    if await negar_se_nao_admin(interaction):
+        return
+
     await interaction.response.send_modal(
         EnqueteModal()
     )
@@ -3296,12 +3031,12 @@ async def enquete(
         "Envia o painel da Equipe de Ban"
     )
 )
-@app_commands.checks.has_permissions(
-    administrator=True
-)
 async def painelban(
     interaction: discord.Interaction
 ):
+    if await negar_se_nao_admin(interaction):
+        return
+
     embed = discord.Embed(
         title=(
             "🛡️ Painel da Equipe de Ban"
@@ -3327,9 +3062,8 @@ async def painelban(
 
     embed.set_footer(
         text=(
-            "Equipe de Ban pode solicitar. "
-            "O dono autorizado também pode "
-            "usar sem possuir o cargo."
+            "Somente administradores e o dono autorizado "
+            "podem utilizar este painel."
         )
     )
 
@@ -3397,12 +3131,7 @@ async def solicitarban(
 async def testarminecraft(
     interaction: discord.Interaction
 ):
-    if interaction.user.id != DONO_ID:
-        await interaction.response.send_message(
-            "❌ Somente o dono autorizado "
-            "pode usar este comando.",
-            ephemeral=True
-        )
+    if await negar_se_nao_admin(interaction):
         return
 
     await interaction.response.defer(
@@ -3456,12 +3185,7 @@ async def testarminecraft(
 async def statusminecraft(
     interaction: discord.Interaction
 ):
-    if interaction.user.id != DONO_ID:
-        await interaction.response.send_message(
-            "❌ Somente o dono autorizado "
-            "pode usar este comando.",
-            ephemeral=True
-        )
+    if await negar_se_nao_admin(interaction):
         return
 
     await interaction.response.defer(
@@ -3490,82 +3214,112 @@ async def statusminecraft(
 
 
 # ==========================================================
-# /NOTIFICACAOMINECRAFT
+# PAINEL DE NOTIFICAÇÕES DO MINECRAFT
 # ==========================================================
 
+def pode_configurar_minecraft(membro):
+    if not isinstance(membro, discord.Member):
+        return False
+
+    if membro.id == DONO_ID:
+        return True
+
+    return any(
+        cargo.id == CARGO_MINECRAFT_ID
+        for cargo in membro.roles
+    )
+
+
+class PainelMinecraftView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    async def validar(self, interaction):
+        if pode_configurar_minecraft(interaction.user):
+            return True
+
+        await interaction.response.send_message(
+            "❌ Apenas membros com o cargo de Minecraft podem configurar essas notificações.",
+            ephemeral=True
+        )
+        return False
+
+    @discord.ui.button(
+        label="Ativar notificações",
+        emoji="🔔",
+        style=discord.ButtonStyle.success,
+        custom_id="minecraft_notificacoes:ativar"
+    )
+    async def ativar(self, interaction, button):
+        if not await self.validar(interaction):
+            return
+
+        salvar_preferencia_minecraft(interaction.user.id, True)
+        await interaction.response.send_message(
+            "🔔 Notificações ativadas. Você receberá uma DM quando o servidor ficar online.",
+            ephemeral=True
+        )
+
+    @discord.ui.button(
+        label="Desativar notificações",
+        emoji="🔕",
+        style=discord.ButtonStyle.danger,
+        custom_id="minecraft_notificacoes:desativar"
+    )
+    async def desativar(self, interaction, button):
+        if not await self.validar(interaction):
+            return
+
+        salvar_preferencia_minecraft(interaction.user.id, False)
+        await interaction.response.send_message(
+            "🔕 Notificações desativadas. Você não receberá DMs até ativá-las novamente.",
+            ephemeral=True
+        )
+
+    @discord.ui.button(
+        label="Meu status",
+        emoji="⚙️",
+        style=discord.ButtonStyle.secondary,
+        custom_id="minecraft_notificacoes:status"
+    )
+    async def status(self, interaction, button):
+        if not await self.validar(interaction):
+            return
+
+        ativo = deve_receber_minecraft(interaction.user.id)
+        texto = (
+            "🔔 Suas notificações do Minecraft estão **ativadas**."
+            if ativo
+            else "🔕 Suas notificações do Minecraft estão **desativadas**."
+        )
+        await interaction.response.send_message(texto, ephemeral=True)
+
+
 @bot.tree.command(
-    name="notificacaominecraft",
-    description="Ativa ou desativa as DMs quando o servidor Minecraft ficar online"
+    name="painelminecraft",
+    description="Publica o painel de notificações do Minecraft"
 )
-@app_commands.describe(
-    acao="Escolha se deseja receber as notificações"
-)
-@app_commands.choices(
-    acao=[
-        app_commands.Choice(
-            name="🔔 Ativar notificações",
-            value="ativar"
+async def painelminecraft(interaction: discord.Interaction):
+    if await negar_se_nao_admin(interaction):
+        return
+
+    embed = discord.Embed(
+        title="🎮 Notificações do Minecraft",
+        description=(
+            "Escolha abaixo se deseja receber uma **mensagem privada** "
+            "quando o servidor de Minecraft ficar online.\n\n"
+            "Você pode alterar sua escolha quando quiser. "
+            "Use **Meu status** para conferir sua preferência atual."
         ),
-        app_commands.Choice(
-            name="🔕 Desativar notificações",
-            value="desativar"
-        )
-    ]
-)
-async def notificacaominecraft(
-    interaction: discord.Interaction,
-    acao: app_commands.Choice[str]
-):
-    if interaction.guild is None:
-        await interaction.response.send_message(
-            "❌ Use este comando dentro do servidor.",
-            ephemeral=True
-        )
-        return
-
-    membro = interaction.user
-
-    possui_cargo = (
-        isinstance(membro, discord.Member)
-        and any(
-            cargo.id == CARGO_MINECRAFT_ID
-            for cargo in membro.roles
-        )
+        color=discord.Color.green()
     )
-
-    if (
-        membro.id != DONO_ID
-        and not possui_cargo
-    ):
-        await interaction.response.send_message(
-            "❌ Apenas quem possui o cargo de Minecraft pode configurar essas notificações.",
-            ephemeral=True
-        )
-        return
-
-    receber = (
-        acao.value == "ativar"
+    embed.set_footer(
+        text="Disponível para membros com o cargo Minecraft."
     )
-
-    salvar_preferencia_minecraft(
-        membro.id,
-        receber
-    )
-
-    if receber:
-        mensagem = (
-            "🔔 Notificações do Minecraft **ativadas**. "
-            "Você receberá uma DM quando o servidor passar de offline para online."
-        )
-    else:
-        mensagem = (
-            "🔕 Notificações do Minecraft **desativadas**. "
-            "Você não receberá mais essas DMs até ativá-las novamente."
-        )
 
     await interaction.response.send_message(
-        mensagem,
-        ephemeral=True
+        embed=embed,
+        view=PainelMinecraftView()
     )
 
 
