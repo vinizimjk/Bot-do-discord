@@ -2733,27 +2733,145 @@ async def atualizar_mensagem_status_minecraft(online):
 # MINECRAFT - PING REAL
 # ==========================================================
 
+def _texto_motd_status(status):
+    """
+    Extrai uma representação simples do MOTD retornado pelo ping.
+    Aternos pode responder ao ping mesmo quando o servidor real está
+    desligado; nesse caso o MOTD costuma indicar estado offline.
+    """
+    partes = []
+
+    try:
+        bruto = getattr(status, "raw", None)
+
+        if isinstance(bruto, dict):
+            descricao = bruto.get("description")
+
+            if isinstance(descricao, str):
+                partes.append(descricao)
+
+            elif isinstance(descricao, dict):
+                texto = descricao.get("text")
+
+                if texto:
+                    partes.append(str(texto))
+
+                extras = descricao.get("extra")
+
+                if isinstance(extras, list):
+                    for item in extras:
+                        if isinstance(item, dict):
+                            valor = item.get("text")
+                            if valor:
+                                partes.append(str(valor))
+                        elif item:
+                            partes.append(str(item))
+
+    except Exception:
+        pass
+
+    try:
+        motd = getattr(status, "motd", None)
+
+        if motd is not None:
+            partes.append(str(motd))
+
+    except Exception:
+        pass
+
+    return " ".join(partes).strip()
+
+
+def _resposta_parece_offline_aternos(status):
+    texto = _texto_motd_status(status).casefold()
+
+    marcadores_offline = (
+        "server offline",
+        "server is offline",
+        "servidor offline",
+        "servidor está offline",
+        "servidor esta offline",
+        "offline",
+    )
+
+    return any(
+        marcador in texto
+        for marcador in marcadores_offline
+    )
+
+
 async def minecraft_esta_online():
-    async def java():
-        servidor = JavaServer(MINECRAFT_HOST, MINECRAFT_PORTA, timeout=5)
-        await asyncio.wait_for(servidor.async_status(tries=1), timeout=7)
+    """
+    Para Aternos Java:
+    - NÃO fixa a porta antiga, porque o Aternos usa DNS/SRV dinâmico.
+    - Resolve o endereço atual com JavaServer.lookup().
+    - Só considera online se o ping real responder e o MOTD não for
+      uma resposta de "offline" do proxy do Aternos.
+    """
 
-    async def bedrock():
-        servidor = BedrockServer(MINECRAFT_HOST, MINECRAFT_PORTA, timeout=5)
-        await asyncio.wait_for(servidor.async_status(tries=1), timeout=7)
-
-    tentativas = []
-    if MINECRAFT_EDICAO in ('auto', 'java'):
-        tentativas.append(('Java', java))
-    if MINECRAFT_EDICAO in ('auto', 'bedrock'):
-        tentativas.append(('Bedrock', bedrock))
-
-    for nome, funcao in tentativas:
+    if MINECRAFT_EDICAO in ("auto", "java"):
         try:
-            await funcao()
+            servidor = await asyncio.to_thread(
+                JavaServer.lookup,
+                MINECRAFT_HOST
+            )
+
+            status = await asyncio.wait_for(
+                servidor.async_status(
+                    tries=1
+                ),
+                timeout=8
+            )
+
+            if _resposta_parece_offline_aternos(
+                status
+            ):
+                print(
+                    "Ping Java respondeu, mas o MOTD "
+                    "indica servidor OFFLINE."
+                )
+                return False
+
+            print(
+                "Ping Java válido | "
+                f"Destino resolvido: "
+                f"{servidor.address.host}:"
+                f"{servidor.address.port}"
+            )
+
             return True
+
         except Exception as erro:
-            print(f'Ping Minecraft {nome} falhou: {erro}')
+            print(
+                f"Ping Minecraft Java falhou: {erro}"
+            )
+
+            if MINECRAFT_EDICAO == "java":
+                return False
+
+    # Fallback Bedrock somente se o projeto estiver em modo auto.
+    if MINECRAFT_EDICAO in ("auto", "bedrock"):
+        try:
+            servidor = BedrockServer(
+                MINECRAFT_HOST,
+                MINECRAFT_PORTA,
+                timeout=5
+            )
+
+            await asyncio.wait_for(
+                servidor.async_status(
+                    tries=1
+                ),
+                timeout=7
+            )
+
+            return True
+
+        except Exception as erro:
+            print(
+                f"Ping Minecraft Bedrock falhou: {erro}"
+            )
+
     return False
 
 
