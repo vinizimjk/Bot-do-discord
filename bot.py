@@ -10,6 +10,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
+from mcstatus import JavaServer, BedrockServer
 
 
 # ==========================================================
@@ -22,15 +23,21 @@ PAINEL_MENU_URL = "https://painel-menu-bot-production.up.railway.app"
 
 CARGO_MINECRAFT_ID = 1534006899371147304
 CANAL_STATUS_MINECRAFT_ID = 1538109074779144253
+CANAL_NICKNAMES_MINECRAFT_ID = 1534423515183448155
 CARGO_DESENVOLVIMENTO_ID = 1533625836874498181
 MINECRAFT_HOST = "resenha-DpsX.aternos.me"
 MINECRAFT_PORTA = 20710
+MINECRAFT_EDICAO = "auto"  # auto, java ou bedrock
 
 CASTIGO_DIAS = 28
 
 INTERVALO_MINECRAFT_SEGUNDOS = 60
 FALHAS_OFFLINE_NECESSARIAS = 3
 SUCESSOS_ONLINE_NECESSARIOS = 2
+
+AVISOS_NICK_HORAS = (12, 24, 36, 48)
+INTERVALO_NICKS_MINUTOS = 10
+TEMPO_REMOCAO_NICK_APOS_SAIDA_HORAS = 48
 
 
 # ==========================================================
@@ -201,6 +208,23 @@ def criar_banco():
             )
         """)
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS minecraft_nicknames (
+                guild_id INTEGER NOT NULL,
+                usuario_id INTEGER NOT NULL,
+                nickname TEXT,
+                status TEXT NOT NULL DEFAULT 'pendente',
+                pendente_desde TEXT,
+                avisos_enviados INTEGER NOT NULL DEFAULT 0,
+                solicitacao_enviada INTEGER NOT NULL DEFAULT 0,
+                castigo_aplicado INTEGER NOT NULL DEFAULT 0,
+                mensagem_id INTEGER,
+                saiu_em TEXT,
+                atualizado_em TEXT,
+                PRIMARY KEY (guild_id, usuario_id)
+            )
+        """)
+
         banco.commit()
 
 
@@ -293,6 +317,97 @@ def deve_receber_minecraft(usuario_id):
         return True
 
     return bool(linha["receber"])
+
+
+# ==========================================================
+# NICKNAMES DO MINECRAFT - BANCO
+# ==========================================================
+
+def buscar_cadastro_nick(guild_id, usuario_id):
+    with conectar_banco() as banco:
+        return banco.execute(
+            "SELECT * FROM minecraft_nicknames WHERE guild_id = ? AND usuario_id = ?",
+            (guild_id, usuario_id)
+        ).fetchone()
+
+
+def buscar_pendencias_nick_usuario(usuario_id):
+    with conectar_banco() as banco:
+        return banco.execute(
+            "SELECT * FROM minecraft_nicknames WHERE usuario_id = ? AND status = 'pendente'",
+            (usuario_id,)
+        ).fetchall()
+
+
+def iniciar_pendencia_nick(guild_id, usuario_id):
+    agora = datetime.now(timezone.utc).isoformat()
+    cadastro = buscar_cadastro_nick(guild_id, usuario_id)
+    with conectar_banco() as banco:
+        if cadastro is None:
+            banco.execute(
+                """INSERT INTO minecraft_nicknames
+                (guild_id, usuario_id, status, pendente_desde, atualizado_em)
+                VALUES (?, ?, 'pendente', ?, ?)""",
+                (guild_id, usuario_id, agora, agora)
+            )
+        elif not cadastro['nickname']:
+            banco.execute(
+                """UPDATE minecraft_nicknames
+                SET status='pendente', pendente_desde=COALESCE(pendente_desde, ?),
+                    saiu_em=NULL, atualizado_em=?
+                WHERE guild_id=? AND usuario_id=?""",
+                (agora, agora, guild_id, usuario_id)
+            )
+        else:
+            banco.execute(
+                """UPDATE minecraft_nicknames
+                SET status='ativo', saiu_em=NULL, atualizado_em=?
+                WHERE guild_id=? AND usuario_id=?""",
+                (agora, guild_id, usuario_id)
+            )
+        banco.commit()
+
+
+def atualizar_cadastro_nick(guild_id, usuario_id, **campos):
+    if not campos:
+        return
+    campos['atualizado_em'] = datetime.now(timezone.utc).isoformat()
+    partes = ', '.join(f"{chave} = ?" for chave in campos)
+    valores = list(campos.values()) + [guild_id, usuario_id]
+    with conectar_banco() as banco:
+        banco.execute(
+            f"UPDATE minecraft_nicknames SET {partes} WHERE guild_id = ? AND usuario_id = ?",
+            valores
+        )
+        banco.commit()
+
+
+def listar_nicks_por_status(status):
+    with conectar_banco() as banco:
+        return banco.execute(
+            "SELECT * FROM minecraft_nicknames WHERE status = ?",
+            (status,)
+        ).fetchall()
+
+
+def excluir_cadastro_nick(guild_id, usuario_id):
+    with conectar_banco() as banco:
+        banco.execute(
+            "DELETE FROM minecraft_nicknames WHERE guild_id = ? AND usuario_id = ?",
+            (guild_id, usuario_id)
+        )
+        banco.commit()
+
+
+def tem_ban_pendente_com_castigo(guild_id, usuario_id):
+    with conectar_banco() as banco:
+        linha = banco.execute(
+            """SELECT 1 FROM solicitacoes_ban
+            WHERE guild_id=? AND usuario_id=? AND status='pendente' AND castigo_aplicado=1
+            LIMIT 1""",
+            (guild_id, usuario_id)
+        ).fetchone()
+    return linha is not None
 
 
 # ==========================================================
@@ -1058,12 +1173,13 @@ def pode_usar_comando_admin(membro):
     if membro.id == DONO_ID:
         return True
 
-    return membro.guild_permissions.administrator
+    return any(
+        cargo.id == CARGO_DESENVOLVIMENTO_ID
+        for cargo in membro.roles
+    )
 
 
 def pode_usar_sistema_ban(membro):
-    # Painéis e botões de moderação seguem a mesma regra:
-    # dono autorizado ou administrador do servidor.
     return pode_usar_comando_admin(membro)
 
 
@@ -1072,7 +1188,7 @@ async def negar_se_nao_admin(interaction):
         return False
 
     await interaction.response.send_message(
-        "❌ Apenas administradores do servidor e o dono autorizado podem usar este comando.",
+        "❌ Apenas a Equipe de Desenvolvimento e o dono autorizado podem usar este comando.",
         ephemeral=True
     )
     return True
@@ -1748,6 +1864,11 @@ async def processar_negacao(
             solicitacao_id,
             False
         )
+
+        if membro is not None:
+            cadastro_nick = buscar_cadastro_nick(guild.id, membro.id)
+            if cadastro_nick and cadastro_nick["castigo_aplicado"]:
+                await aplicar_castigo_nick(membro)
 
     finalizar_solicitacao_ban(
         solicitacao_id,
@@ -2541,20 +2662,11 @@ class PainelBanView(
 def criar_embed_status_minecraft(online):
     if online:
         titulo = "🟢 SERVIDOR MINECRAFT ONLINE"
-        descricao = (
-            "O servidor de Minecraft da **Resenha Máxima** "
-            "está disponível agora.\n\n"
-            "🎮 Pode entrar e jogar normalmente."
-        )
+        descricao = "O servidor de Minecraft da **Resenha Máxima** está disponível agora."
         cor = discord.Color.green()
     else:
         titulo = "🔴 SERVIDOR MINECRAFT OFFLINE"
-        descricao = (
-            "O servidor de Minecraft da **Resenha Máxima** "
-            "está offline no momento.\n\n"
-            "A mensagem será atualizada automaticamente "
-            "quando o servidor voltar."
-        )
+        descricao = "O servidor de Minecraft da **Resenha Máxima** está offline no momento."
         cor = discord.Color.red()
 
     embed = discord.Embed(
@@ -2563,306 +2675,330 @@ def criar_embed_status_minecraft(online):
         color=cor,
         timestamp=datetime.now(timezone.utc)
     )
-
-    embed.add_field(
-        name="Status",
-        value="🟢 Online" if online else "🔴 Offline",
-        inline=True
-    )
-
-    embed.add_field(
-        name="Monitoramento",
-        value="Atualização automática",
-        inline=True
-    )
-
-    embed.set_footer(
-        text="Resenha Máxima • Minecraft • Última verificação"
-    )
-
+    embed.add_field(name="Status", value="🟢 Online" if online else "🔴 Offline", inline=True)
+    embed.add_field(name="Verificação", value="Ping real do Minecraft", inline=True)
+    embed.set_footer(text="Resenha Máxima • Minecraft • Última mudança de status")
     return embed
 
 
-async def obter_canal_status_minecraft():
-    canal = bot.get_channel(
-        CANAL_STATUS_MINECRAFT_ID
-    )
-
+async def obter_canal_por_id(canal_id):
+    canal = bot.get_channel(canal_id)
     if canal is None:
         try:
-            canal = await bot.fetch_channel(
-                CANAL_STATUS_MINECRAFT_ID
-            )
-
-        except (
-            discord.NotFound,
-            discord.Forbidden,
-            discord.HTTPException
-        ) as erro:
-            print(
-                "Não consegui acessar o canal "
-                "de status do Minecraft | "
-                f"Erro: {erro}"
-            )
+            canal = await bot.fetch_channel(canal_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
             return None
-
-    if not hasattr(canal, "send"):
-        print(
-            "O canal de status do Minecraft "
-            "não aceita mensagens."
-        )
-        return None
-
-    return canal
+    return canal if hasattr(canal, 'send') else None
 
 
 async def atualizar_mensagem_status_minecraft(online):
-    canal = await obter_canal_status_minecraft()
-
+    canal = await obter_canal_por_id(CANAL_STATUS_MINECRAFT_ID)
     if canal is None:
+        print('Canal de status Minecraft não encontrado.')
         return
-
-    embed = criar_embed_status_minecraft(
-        online
-    )
-
-    mensagem_id = obter_estado(
-        "minecraft_status_message_id"
-    )
 
     mensagem = None
-
+    mensagem_id = obter_estado('minecraft_status_message_id')
     if mensagem_id:
         try:
-            mensagem = await canal.fetch_message(
-                int(mensagem_id)
-            )
-
-        except (
-            ValueError,
-            discord.NotFound,
-            discord.Forbidden,
-            discord.HTTPException
-        ):
+            mensagem = await canal.fetch_message(int(mensagem_id))
+        except (ValueError, discord.NotFound, discord.Forbidden, discord.HTTPException):
             mensagem = None
 
+    embed = criar_embed_status_minecraft(online)
     if mensagem is None:
-        try:
-            mensagem = await canal.send(
-                embed=embed
-            )
-
-            salvar_estado(
-                "minecraft_status_message_id",
-                str(mensagem.id)
-            )
-
-            print(
-                "Mensagem de status Minecraft "
-                f"criada: {mensagem.id}"
-            )
-
-        except discord.HTTPException as erro:
-            print(
-                "Erro ao criar mensagem de "
-                f"status Minecraft: {erro}"
-            )
-
-        return
-
-    try:
-        await mensagem.edit(
-            embed=embed
-        )
-
-    except discord.HTTPException as erro:
-        print(
-            "Erro ao atualizar mensagem de "
-            f"status Minecraft: {erro}"
-        )
+        mensagem = await canal.send(embed=embed)
+        salvar_estado('minecraft_status_message_id', mensagem.id)
+        print(f'Mensagem de status Minecraft criada: {mensagem.id}')
+    else:
+        await mensagem.edit(embed=embed)
 
 
 # ==========================================================
-# MINECRAFT - CHECAR SERVIDOR
+# MINECRAFT - PING REAL
 # ==========================================================
 
 async def minecraft_esta_online():
-    try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(
-                MINECRAFT_HOST,
-                MINECRAFT_PORTA
-            ),
-            timeout=6
-        )
+    async def java():
+        servidor = JavaServer(MINECRAFT_HOST, MINECRAFT_PORTA, timeout=5)
+        await asyncio.wait_for(servidor.async_status(tries=1), timeout=7)
 
-        writer.close()
+    async def bedrock():
+        servidor = BedrockServer(MINECRAFT_HOST, MINECRAFT_PORTA, timeout=5)
+        await asyncio.wait_for(servidor.async_status(tries=1), timeout=7)
 
+    tentativas = []
+    if MINECRAFT_EDICAO in ('auto', 'java'):
+        tentativas.append(('Java', java))
+    if MINECRAFT_EDICAO in ('auto', 'bedrock'):
+        tentativas.append(('Bedrock', bedrock))
+
+    for nome, funcao in tentativas:
         try:
-            await writer.wait_closed()
+            await funcao()
+            return True
+        except Exception as erro:
+            print(f'Ping Minecraft {nome} falhou: {erro}')
+    return False
 
-        except Exception:
-            pass
-
-        return True
-
-    except (
-        asyncio.TimeoutError,
-        ConnectionError,
-        OSError
-    ):
-        return False
-
-
-# ==========================================================
-# MINECRAFT - MONITOR
-# ==========================================================
 
 falhas_minecraft = 0
 sucessos_minecraft = 0
+status_minecraft_inicializado = False
 
 
-@tasks.loop(
-    seconds=INTERVALO_MINECRAFT_SEGUNDOS
-)
+@tasks.loop(seconds=INTERVALO_MINECRAFT_SEGUNDOS)
 async def monitorar_minecraft():
-    global falhas_minecraft
-    global sucessos_minecraft
+    global falhas_minecraft, sucessos_minecraft, status_minecraft_inicializado
 
-    online_agora = (
-        await minecraft_esta_online()
-    )
-
-    estado_salvo = obter_estado(
-        "minecraft_online"
-    )
-
-    # ------------------------------------------------------
-    # PRIMEIRA CHECAGEM
-    # ------------------------------------------------------
+    online_agora = await minecraft_esta_online()
+    estado_salvo = obter_estado('minecraft_online')
 
     if estado_salvo is None:
-        salvar_estado(
-            "minecraft_online",
-            "1" if online_agora else "0"
-        )
-
-        falhas_minecraft = 0
-        sucessos_minecraft = 0
-
-        print(
-            "Estado inicial Minecraft: "
-            + (
-                "ONLINE"
-                if online_agora
-                else "OFFLINE"
-            )
-        )
-
-        await atualizar_mensagem_status_minecraft(
-            online_agora
-        )
+        salvar_estado('minecraft_online', '1' if online_agora else '0')
+        status_minecraft_inicializado = True
+        await atualizar_mensagem_status_minecraft(online_agora)
         return
 
-    estava_online = (
-        estado_salvo == "1"
-    )
-
-    # ------------------------------------------------------
-    # RESPOSTA POSITIVA
-    # ------------------------------------------------------
+    estava_online = estado_salvo == '1'
+    if not status_minecraft_inicializado:
+        status_minecraft_inicializado = True
+        await atualizar_mensagem_status_minecraft(estava_online)
 
     if online_agora:
         falhas_minecraft = 0
-
         if estava_online:
             sucessos_minecraft = 0
-
-            # Mantém a mensagem viva e atualiza
-            # o horário da última verificação.
-            await atualizar_mensagem_status_minecraft(
-                True
-            )
             return
-
         sucessos_minecraft += 1
-
-        if (
-            sucessos_minecraft
-            < SUCESSOS_ONLINE_NECESSARIOS
-        ):
-            print(
-                "Possível Minecraft ONLINE | "
-                f"confirmação "
-                f"{sucessos_minecraft}/"
-                f"{SUCESSOS_ONLINE_NECESSARIOS}"
-            )
+        if sucessos_minecraft < SUCESSOS_ONLINE_NECESSARIOS:
             return
-
         sucessos_minecraft = 0
-
-        salvar_estado(
-            "minecraft_online",
-            "1"
-        )
-
-        print(
-            "Minecraft mudou de "
-            "OFFLINE para ONLINE."
-        )
-
-        await atualizar_mensagem_status_minecraft(
-            True
-        )
+        salvar_estado('minecraft_online', '1')
+        await atualizar_mensagem_status_minecraft(True)
+        print('Minecraft mudou de OFFLINE para ONLINE.')
         return
-
-    # ------------------------------------------------------
-    # RESPOSTA NEGATIVA
-    # ------------------------------------------------------
 
     sucessos_minecraft = 0
-
     if not estava_online:
         falhas_minecraft = 0
-
-        await atualizar_mensagem_status_minecraft(
-            False
-        )
         return
-
     falhas_minecraft += 1
-
-    if (
-        falhas_minecraft
-        < FALHAS_OFFLINE_NECESSARIAS
-    ):
-        print(
-            "Possível Minecraft OFFLINE | "
-            f"confirmação "
-            f"{falhas_minecraft}/"
-            f"{FALHAS_OFFLINE_NECESSARIAS}"
-        )
+    if falhas_minecraft < FALHAS_OFFLINE_NECESSARIAS:
         return
-
     falhas_minecraft = 0
-
-    salvar_estado(
-        "minecraft_online",
-        "0"
-    )
-
-    print(
-        "Minecraft mudou de "
-        "ONLINE para OFFLINE."
-    )
-
-    await atualizar_mensagem_status_minecraft(
-        False
-    )
+    salvar_estado('minecraft_online', '0')
+    await atualizar_mensagem_status_minecraft(False)
+    print('Minecraft mudou de ONLINE para OFFLINE.')
 
 
 @monitorar_minecraft.before_loop
 async def antes_de_monitorar_minecraft():
+    await bot.wait_until_ready()
+
+
+# ==========================================================
+# MINECRAFT - NICKNAMES
+# ==========================================================
+
+async def enviar_log_dono(texto):
+    dono = bot.get_user(DONO_ID)
+    if dono is None:
+        try:
+            dono = await bot.fetch_user(DONO_ID)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return
+    try:
+        await dono.send(texto)
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+
+
+async def enviar_pergunta_nick(membro, aviso=None):
+    if aviso is None:
+        texto = (
+            "🎮 **Cadastro do Minecraft — Resenha Máxima**\n\n"
+            "Você recebeu o cargo de Minecraft. Responda **esta DM** com o seu nickname no Minecraft."
+        )
+    else:
+        texto = (
+            f"⚠️ **Aviso {aviso}/4 — nickname pendente**\n\n"
+            "Responda esta DM com o seu nickname no Minecraft. "
+            "Após o 4º aviso, será aplicado timeout até o cadastro."
+        )
+    try:
+        await membro.send(texto)
+        return True
+    except (discord.Forbidden, discord.HTTPException):
+        return False
+
+
+async def iniciar_cadastro_nick(membro):
+    iniciar_pendencia_nick(membro.guild.id, membro.id)
+    cadastro = buscar_cadastro_nick(membro.guild.id, membro.id)
+    if cadastro and cadastro['nickname']:
+        return
+    if cadastro and not cadastro['solicitacao_enviada']:
+        enviado = await enviar_pergunta_nick(membro)
+        atualizar_cadastro_nick(membro.guild.id, membro.id, solicitacao_enviada=1)
+        if not enviado:
+            await enviar_log_dono(f'⚠️ DM de cadastro bloqueada para {membro} ({membro.id}).')
+
+
+async def publicar_nickname(membro, nickname):
+    canal = await obter_canal_por_id(CANAL_NICKNAMES_MINECRAFT_ID)
+    if canal is None:
+        raise RuntimeError('Canal de nicknames não encontrado.')
+
+    cadastro = buscar_cadastro_nick(membro.guild.id, membro.id)
+    mensagem = None
+    if cadastro and cadastro['mensagem_id']:
+        try:
+            mensagem = await canal.fetch_message(int(cadastro['mensagem_id']))
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
+            mensagem = None
+
+    conteudo = f"{membro.mention} — `{nickname}`"
+    allowed = discord.AllowedMentions(users=False, roles=False, everyone=False)
+    if mensagem is None:
+        mensagem = await canal.send(conteudo, allowed_mentions=allowed)
+    else:
+        await mensagem.edit(content=conteudo, allowed_mentions=allowed)
+    return mensagem.id
+
+
+async def aplicar_castigo_nick(membro):
+    bot_member = membro.guild.me
+    if bot_member is None or not bot_member.guild_permissions.moderate_members:
+        return False, 'Bot sem permissão Moderar membros.'
+    if membro.id == membro.guild.owner_id or bot_member.top_role <= membro.top_role:
+        return False, 'Hierarquia impede o timeout.'
+    try:
+        ate = datetime.now(timezone.utc) + timedelta(days=CASTIGO_DIAS)
+        await membro.timeout(ate, reason='Nickname Minecraft não informado após 4 avisos em 48h.')
+        atualizar_cadastro_nick(membro.guild.id, membro.id, castigo_aplicado=1)
+        return True, None
+    except (discord.Forbidden, discord.HTTPException) as erro:
+        return False, str(erro)
+
+
+async def concluir_nickname(membro, nickname):
+    nickname = nickname.strip()[:32]
+    if not nickname:
+        return False
+
+    cadastro = buscar_cadastro_nick(membro.guild.id, membro.id)
+    mensagem_id = await publicar_nickname(membro, nickname)
+
+    if cadastro and cadastro['castigo_aplicado'] and not tem_ban_pendente_com_castigo(membro.guild.id, membro.id):
+        try:
+            await membro.timeout(None, reason='Nickname Minecraft informado.')
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+
+    atualizar_cadastro_nick(
+        membro.guild.id,
+        membro.id,
+        nickname=nickname,
+        status='ativo',
+        pendente_desde=None,
+        avisos_enviados=0,
+        solicitacao_enviada=1,
+        castigo_aplicado=0,
+        mensagem_id=mensagem_id,
+        saiu_em=None
+    )
+
+    await enviar_log_dono(
+        f"🎮 **Nickname cadastrado**\nUsuário: {membro} ({membro.id})\nNickname: `{nickname}`"
+    )
+    return True
+
+
+async def varrer_membros_minecraft():
+    total = 0
+    for guild in bot.guilds:
+        cargo = guild.get_role(CARGO_MINECRAFT_ID)
+        if cargo is None:
+            continue
+        for membro in cargo.members:
+            if membro.bot:
+                continue
+            cadastro = buscar_cadastro_nick(guild.id, membro.id)
+            if cadastro is None or not cadastro['nickname']:
+                await iniciar_cadastro_nick(membro)
+                total += 1
+    return total
+
+
+@tasks.loop(minutes=INTERVALO_NICKS_MINUTOS)
+async def verificar_nicknames_minecraft():
+    agora = datetime.now(timezone.utc)
+
+    for cadastro in listar_nicks_por_status('pendente'):
+        guild = bot.get_guild(cadastro['guild_id'])
+        membro = guild.get_member(cadastro['usuario_id']) if guild else None
+        if membro is None:
+            continue
+
+        try:
+            inicio = datetime.fromisoformat(cadastro['pendente_desde'])
+        except (TypeError, ValueError):
+            inicio = agora
+
+        horas = (agora - inicio).total_seconds() / 3600
+        enviados = int(cadastro['avisos_enviados'] or 0)
+        proximo = enviados + 1
+
+        if proximo <= 4 and horas >= AVISOS_NICK_HORAS[proximo - 1]:
+            dm = await enviar_pergunta_nick(membro, proximo)
+            atualizar_cadastro_nick(guild.id, membro.id, avisos_enviados=proximo)
+            await enviar_log_dono(
+                f"⚠️ Aviso {proximo}/4 de nickname para {membro} ({membro.id}). "
+                f"DM: {'enviada' if dm else 'falhou/bloqueada'}."
+            )
+            if proximo == 4:
+                ok, erro = await aplicar_castigo_nick(membro)
+                await enviar_log_dono(
+                    f"🔒 Timeout de nickname para {membro}: " + ('aplicado.' if ok else f'falhou — {erro}')
+                )
+
+        atual = buscar_cadastro_nick(guild.id, membro.id)
+        if atual and atual['castigo_aplicado']:
+            limite = getattr(membro, 'timed_out_until', None)
+            if limite is None or limite < agora + timedelta(days=7):
+                await aplicar_castigo_nick(membro)
+
+    for cadastro in listar_nicks_por_status('ausente'):
+        try:
+            saiu = datetime.fromisoformat(cadastro['saiu_em'])
+        except (TypeError, ValueError):
+            continue
+        if agora - saiu < timedelta(hours=TEMPO_REMOCAO_NICK_APOS_SAIDA_HORAS):
+            continue
+
+        guild = bot.get_guild(cadastro['guild_id'])
+        if guild and guild.get_member(cadastro['usuario_id']):
+            atualizar_cadastro_nick(cadastro['guild_id'], cadastro['usuario_id'], status='ativo', saiu_em=None)
+            continue
+
+        if cadastro['mensagem_id']:
+            canal = await obter_canal_por_id(CANAL_NICKNAMES_MINECRAFT_ID)
+            if canal:
+                try:
+                    msg = await canal.fetch_message(int(cadastro['mensagem_id']))
+                    await msg.delete()
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
+                    pass
+
+        await enviar_log_dono(
+            f"🗑️ Nickname removido após 48h fora do servidor. ID: {cadastro['usuario_id']} | Nick: `{cadastro['nickname'] or 'sem nick'}`"
+        )
+        excluir_cadastro_nick(cadastro['guild_id'], cadastro['usuario_id'])
+
+
+@verificar_nicknames_minecraft.before_loop
+async def antes_de_verificar_nicks():
     await bot.wait_until_ready()
 
 
@@ -3002,39 +3138,63 @@ async def antes_de_renovar():
 # ==========================================================
 
 @bot.event
-async def on_member_join(
-    member: discord.Member
-):
-    pendente = (
-        buscar_pendente_para_usuario(
-            member.guild.id,
-            member.id
-        )
-    )
+async def on_member_join(member: discord.Member):
+    cadastro = buscar_cadastro_nick(member.guild.id, member.id)
+    if cadastro and cadastro['status'] == 'ausente':
+        atualizar_cadastro_nick(member.guild.id, member.id, status='ativo' if cadastro['nickname'] else 'pendente', saiu_em=None)
+        await enviar_log_dono(f'↩️ {member} ({member.id}) voltou antes da limpeza do nickname.')
 
-    if pendente is None:
+    pendente = buscar_pendente_para_usuario(member.guild.id, member.id)
+    if pendente is not None:
+        ok, erro = await aplicar_castigo(member, 0, 'Existe uma solicitação de ban pendente para este usuário.')
+        if ok:
+            marcar_castigo(pendente['id'], True)
+        else:
+            print(f'Não consegui reaplicar castigo para {member.id}: {erro}')
+
+
+@bot.event
+async def on_member_remove(member: discord.Member):
+    cadastro = buscar_cadastro_nick(member.guild.id, member.id)
+    if cadastro:
+        atualizar_cadastro_nick(
+            member.guild.id,
+            member.id,
+            status='ausente',
+            saiu_em=datetime.now(timezone.utc).isoformat()
+        )
+        await enviar_log_dono(
+            f'🚪 {member} ({member.id}) saiu. O nickname será removido se não voltar em 48h.'
+        )
+
+
+@bot.event
+async def on_member_update(before: discord.Member, after: discord.Member):
+    tinha = any(cargo.id == CARGO_MINECRAFT_ID for cargo in before.roles)
+    tem = any(cargo.id == CARGO_MINECRAFT_ID for cargo in after.roles)
+    if not tinha and tem and not after.bot:
+        await iniciar_cadastro_nick(after)
+
+
+@bot.event
+async def on_message(message: discord.Message):
+    if message.author.bot:
         return
 
-    ok, erro = await aplicar_castigo(
-        member,
-        0,
-        (
-            "Existe uma solicitação de "
-            "ban pendente para este usuário."
-        )
-    )
+    if isinstance(message.channel, discord.DMChannel):
+        pendencias = buscar_pendencias_nick_usuario(message.author.id)
+        if pendencias:
+            cadastro = pendencias[0]
+            guild = bot.get_guild(cadastro['guild_id'])
+            membro = guild.get_member(message.author.id) if guild else None
+            if membro is not None:
+                nickname = message.content.strip()
+                if nickname:
+                    await concluir_nickname(membro, nickname)
+                    await message.channel.send(f'✅ Nickname `{nickname[:32]}` cadastrado com sucesso.')
+                    return
 
-    if ok:
-        marcar_castigo(
-            pendente["id"],
-            True
-        )
-
-    else:
-        print(
-            "Não consegui reaplicar castigo "
-            f"para {member.id}: {erro}"
-        )
+    await bot.process_commands(message)
 
 
 # ==========================================================
@@ -3054,6 +3214,13 @@ async def on_ready():
         .is_running()
     ):
         monitorar_minecraft.start()
+
+    if not verificar_nicknames_minecraft.is_running():
+        verificar_nicknames_minecraft.start()
+
+    if not getattr(bot, '_scan_nicks_feito', False):
+        bot._scan_nicks_feito = True
+        asyncio.create_task(varrer_membros_minecraft())
 
     print("--------------------------------")
     print(f"Bot conectado como: {bot.user}")
@@ -3182,6 +3349,25 @@ async def solicitarban(
         "ban",
         "escrito",
         motivo
+    )
+
+
+# ==========================================================
+# /SINCRONIZARNICKS
+# ==========================================================
+
+@bot.tree.command(
+    name="sincronizarnicks",
+    description="Verifica membros do cargo Minecraft sem nickname cadastrado"
+)
+async def sincronizarnicks(interaction: discord.Interaction):
+    if await negar_se_nao_admin(interaction):
+        return
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    total = await varrer_membros_minecraft()
+    await interaction.followup.send(
+        f"✅ Varredura concluída. {total} cadastro(s) pendente(s) processado(s).",
+        ephemeral=True
     )
 
 
