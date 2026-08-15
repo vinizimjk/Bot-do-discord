@@ -5,6 +5,9 @@ import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import quote
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
 import discord
 from discord import app_commands
@@ -38,6 +41,11 @@ SUCESSOS_ONLINE_NECESSARIOS = 2
 AVISOS_NICK_HORAS = (12, 24, 36, 48)
 INTERVALO_NICKS_MINUTOS = 10
 TEMPO_REMOCAO_NICK_APOS_SAIDA_HORAS = 48
+
+NICK_MIN_CARACTERES = 3
+NICK_MAX_CARACTERES = 32
+PLAYERDB_XBOX_URL = "https://playerdb.co/api/player/xbox/{nickname}"
+PLAYERDB_USER_AGENT = "ResenhaMaximaDiscordBot/1.0"
 
 # Nicknames que já tinham sido informados antes da automação.
 # O bot importa esses cadastros uma única vez no banco e avisa por DM.
@@ -2808,16 +2816,73 @@ async def antes_de_monitorar_minecraft():
 # MINECRAFT - NICKNAMES
 # ==========================================================
 
+def criar_embed_log_admin(texto):
+    texto = str(texto)
+
+    if texto.startswith("✅"):
+        titulo = "✅ Ação concluída"
+        cor = discord.Color.green()
+    elif texto.startswith("⚠️"):
+        titulo = "⚠️ Atenção"
+        cor = discord.Color.orange()
+    elif texto.startswith("🔒"):
+        titulo = "🔒 Castigo de nickname"
+        cor = discord.Color.red()
+    elif texto.startswith("🗑️"):
+        titulo = "🗑️ Cadastro removido"
+        cor = discord.Color.dark_grey()
+    elif texto.startswith("🚪"):
+        titulo = "🚪 Membro saiu"
+        cor = discord.Color.orange()
+    elif texto.startswith("↩️"):
+        titulo = "↩️ Membro retornou"
+        cor = discord.Color.blue()
+    elif texto.startswith("📣"):
+        titulo = "📣 Aviso no servidor"
+        cor = discord.Color.gold()
+    elif texto.startswith("🎮"):
+        titulo = "🎮 Cadastro Minecraft"
+        cor = discord.Color.green()
+    elif texto.startswith("🔄"):
+        titulo = "🔄 Novo cadastro solicitado"
+        cor = discord.Color.gold()
+    else:
+        titulo = "📋 Registro do bot"
+        cor = discord.Color.blurple()
+
+    embed = discord.Embed(
+        title=titulo,
+        description=texto,
+        color=cor,
+        timestamp=datetime.now(timezone.utc)
+    )
+    embed.set_footer(
+        text="Resenha Máxima • Administração"
+    )
+    return embed
+
+
 async def enviar_log_dono(texto):
     dono = bot.get_user(DONO_ID)
+
     if dono is None:
         try:
             dono = await bot.fetch_user(DONO_ID)
-        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+        except (
+            discord.NotFound,
+            discord.Forbidden,
+            discord.HTTPException
+        ):
             return
+
     try:
-        await dono.send(texto)
-    except (discord.Forbidden, discord.HTTPException):
+        await dono.send(
+            embed=criar_embed_log_admin(texto)
+        )
+    except (
+        discord.Forbidden,
+        discord.HTTPException
+    ):
         pass
 
 
@@ -2933,6 +2998,159 @@ async def avisar_dm_fechada_no_chat(membro):
 
 
 
+def validar_formato_nickname(nickname):
+    nickname = " ".join(
+        nickname.strip().split()
+    )
+
+    if len(nickname) < NICK_MIN_CARACTERES:
+        return False, "Esse nickname é curto demais."
+
+    if len(nickname) > NICK_MAX_CARACTERES:
+        return (
+            False,
+            f"O nickname pode ter no máximo "
+            f"{NICK_MAX_CARACTERES} caracteres."
+        )
+
+    sem_espacos = nickname.replace(" ", "")
+
+    if len(set(sem_espacos.lower())) <= 1:
+        return (
+            False,
+            "Esse nickname não parece ser um gamertag real."
+        )
+
+    if not any(
+        caractere.isalnum()
+        for caractere in nickname
+    ):
+        return (
+            False,
+            "O nickname precisa conter letras ou números."
+        )
+
+    return True, None
+
+
+def _consultar_playerdb_xbox_sync(nickname):
+    url = PLAYERDB_XBOX_URL.format(
+        nickname=quote(
+            nickname,
+            safe=""
+        )
+    )
+
+    requisicao = Request(
+        url,
+        headers={
+            "User-Agent": PLAYERDB_USER_AGENT,
+            "Accept": "application/json",
+        }
+    )
+
+    try:
+        with urlopen(
+            requisicao,
+            timeout=12
+        ) as resposta:
+            corpo = resposta.read().decode(
+                "utf-8",
+                errors="replace"
+            )
+
+        dados = json.loads(corpo)
+
+    except HTTPError as erro:
+        if erro.code in (400, 404):
+            return False, None, "Conta Xbox não encontrada."
+
+        if erro.code == 429:
+            return (
+                None,
+                None,
+                "Serviço de verificação temporariamente limitado."
+            )
+
+        return (
+            None,
+            None,
+            f"PlayerDB respondeu HTTP {erro.code}."
+        )
+
+    except (
+        URLError,
+        TimeoutError,
+        OSError,
+        json.JSONDecodeError
+    ) as erro:
+        return (
+            None,
+            None,
+            f"Falha ao consultar Xbox: {erro}"
+        )
+
+    if not isinstance(dados, dict):
+        return (
+            None,
+            None,
+            "Resposta inválida do serviço de verificação."
+        )
+
+    sucesso = dados.get("success")
+    jogador = (
+        dados.get("data", {})
+        .get("player")
+    )
+
+    if sucesso is True and isinstance(
+        jogador,
+        dict
+    ):
+        gamertag = (
+            jogador.get("username")
+            or nickname
+        )
+        xuid = jogador.get("id")
+
+        return True, {
+            "gamertag": str(gamertag),
+            "xuid": (
+                str(xuid)
+                if xuid
+                else None
+            ),
+        }, None
+
+    mensagem = (
+        dados.get("message")
+        or dados.get("error")
+        or "Conta Xbox não encontrada."
+    )
+
+    return False, None, str(mensagem)
+
+
+async def verificar_nickname_xbox(nickname):
+    return await asyncio.to_thread(
+        _consultar_playerdb_xbox_sync,
+        nickname
+    )
+
+
+async def responder_nick_invalido(
+    canal_dm,
+    motivo
+):
+    await canal_dm.send(
+        "😭 **Tá de sacanagem? Bota a porra do nick certo.**\n\n"
+        f"{motivo}\n"
+        "Manda o seu **gamertag completo do Minecraft/Xbox** "
+        "para eu conferir novamente."
+    )
+
+
+
 async def enviar_pergunta_nick(membro, aviso=None):
     if aviso is None:
         texto = (
@@ -3008,18 +3226,48 @@ async def aplicar_castigo_nick(membro):
         return False, str(erro)
 
 
-async def concluir_nickname(membro, nickname):
-    nickname = nickname.strip()[:32]
+async def concluir_nickname(
+    membro,
+    nickname,
+    xbox_dados=None
+):
+    nickname = (
+        nickname.strip()
+        [:NICK_MAX_CARACTERES]
+    )
+
     if not nickname:
         return False
 
-    cadastro = buscar_cadastro_nick(membro.guild.id, membro.id)
-    mensagem_id = await publicar_nickname(membro, nickname)
+    cadastro = buscar_cadastro_nick(
+        membro.guild.id,
+        membro.id
+    )
 
-    if cadastro and cadastro['castigo_aplicado'] and not tem_ban_pendente_com_castigo(membro.guild.id, membro.id):
+    mensagem_id = await publicar_nickname(
+        membro,
+        nickname
+    )
+
+    if (
+        cadastro
+        and cadastro['castigo_aplicado']
+        and not tem_ban_pendente_com_castigo(
+            membro.guild.id,
+            membro.id
+        )
+    ):
         try:
-            await membro.timeout(None, reason='Nickname Minecraft informado.')
-        except (discord.Forbidden, discord.HTTPException):
+            await membro.timeout(
+                None,
+                reason=(
+                    "Nickname Minecraft válido informado."
+                )
+            )
+        except (
+            discord.Forbidden,
+            discord.HTTPException
+        ):
             pass
 
     atualizar_cadastro_nick(
@@ -3035,9 +3283,27 @@ async def concluir_nickname(membro, nickname):
         saiu_em=None
     )
 
+    detalhes_xbox = ""
+
+    if xbox_dados:
+        xuid = xbox_dados.get("xuid")
+
+        detalhes_xbox = (
+            "\nVerificação Xbox: ✅ Encontrado"
+            + (
+                f"\nXUID: `{xuid}`"
+                if xuid
+                else ""
+            )
+        )
+
     await enviar_log_dono(
-        f"🎮 **Nickname cadastrado**\nUsuário: {membro} ({membro.id})\nNickname: `{nickname}`"
+        "🎮 **Nickname cadastrado**\n"
+        f"Usuário: {membro} ({membro.id})\n"
+        f"Nickname: `{nickname}`"
+        f"{detalhes_xbox}"
     )
+
     return True
 
 
@@ -3421,10 +3687,74 @@ async def on_message(message: discord.Message):
             guild = bot.get_guild(cadastro['guild_id'])
             membro = guild.get_member(message.author.id) if guild else None
             if membro is not None:
-                nickname = message.content.strip()
+                nickname = " ".join(
+                    message.content.strip().split()
+                )
+
                 if nickname:
-                    await concluir_nickname(membro, nickname)
-                    await message.channel.send(f'✅ Nickname `{nickname[:32]}` cadastrado com sucesso.')
+                    formato_ok, motivo = (
+                        validar_formato_nickname(
+                            nickname
+                        )
+                    )
+
+                    if not formato_ok:
+                        await responder_nick_invalido(
+                            message.channel,
+                            motivo
+                        )
+                        return
+
+                    await message.channel.send(
+                        "🔎 Vou conferir esse gamertag na Xbox..."
+                    )
+
+                    existe, xbox_dados, erro = (
+                        await verificar_nickname_xbox(
+                            nickname
+                        )
+                    )
+
+                    if existe is False:
+                        await responder_nick_invalido(
+                            message.channel,
+                            (
+                                "Não encontrei esse gamertag na Xbox. "
+                                f"Detalhe: {erro}"
+                            )
+                        )
+                        return
+
+                    if existe is None:
+                        await message.channel.send(
+                            "⚠️ Não consegui consultar a Xbox agora. "
+                            "Seu cadastro **não foi aceito ainda**. "
+                            "Tenta mandar o nickname novamente "
+                            "em alguns minutos."
+                        )
+
+                        await enviar_log_dono(
+                            "⚠️ Verificação Xbox indisponível para "
+                            f"{membro} ({membro.id}) | "
+                            f"Nickname tentado: `{nickname}` | {erro}"
+                        )
+                        return
+
+                    nickname_confirmado = (
+                        xbox_dados.get("gamertag")
+                        or nickname
+                    )
+
+                    await concluir_nickname(
+                        membro,
+                        nickname_confirmado,
+                        xbox_dados=xbox_dados
+                    )
+
+                    await message.channel.send(
+                        "✅ **Nickname confirmado na Xbox e cadastrado!**\n"
+                        f"🎮 `{nickname_confirmado}`"
+                    )
                     return
 
     await bot.process_commands(message)
@@ -3536,7 +3866,7 @@ async def painelban(
 
     embed.set_footer(
         text=(
-            "Somente administradores e o dono autorizado "
+            "Somente a Equipe de Desenvolvimento e o dono autorizado "
             "podem utilizar este painel."
         )
     )
@@ -3608,6 +3938,130 @@ async def sincronizarnicks(interaction: discord.Interaction):
         f"✅ Varredura concluída. {total} cadastro(s) pendente(s) processado(s).",
         ephemeral=True
     )
+
+
+# ==========================================================
+# /SOLICITARNICKNOVAMENTE
+# ==========================================================
+
+@bot.tree.command(
+    name="solicitarnicknovamente",
+    description=(
+        "Invalida o nickname atual "
+        "e pede um novo cadastro"
+    )
+)
+@app_commands.describe(
+    usuario=(
+        "Membro que precisa informar "
+        "o nickname novamente"
+    )
+)
+async def solicitarnicknovamente(
+    interaction: discord.Interaction,
+    usuario: discord.Member
+):
+    if await negar_se_nao_admin(
+        interaction
+    ):
+        return
+
+    possui_cargo = any(
+        cargo.id == CARGO_MINECRAFT_ID
+        for cargo in usuario.roles
+    )
+
+    if not possui_cargo:
+        await interaction.response.send_message(
+            "❌ Esse membro não possui o cargo Minecraft.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(
+        ephemeral=True,
+        thinking=True
+    )
+
+    cadastro = buscar_cadastro_nick(
+        interaction.guild.id,
+        usuario.id
+    )
+
+    if cadastro and cadastro["mensagem_id"]:
+        canal = await obter_canal_por_id(
+            CANAL_NICKNAMES_MINECRAFT_ID
+        )
+
+        if canal:
+            try:
+                mensagem = await canal.fetch_message(
+                    int(cadastro["mensagem_id"])
+                )
+                await mensagem.delete()
+
+            except (
+                discord.NotFound,
+                discord.Forbidden,
+                discord.HTTPException,
+                ValueError
+            ):
+                pass
+
+    iniciar_pendencia_nick(
+        interaction.guild.id,
+        usuario.id
+    )
+
+    atualizar_cadastro_nick(
+        interaction.guild.id,
+        usuario.id,
+        nickname=None,
+        status="pendente",
+        pendente_desde=datetime.now(
+            timezone.utc
+        ).isoformat(),
+        avisos_enviados=0,
+        solicitacao_enviada=0,
+        castigo_aplicado=0,
+        mensagem_id=None,
+        saiu_em=None
+    )
+
+    enviado = await enviar_pergunta_nick(
+        usuario
+    )
+
+    atualizar_cadastro_nick(
+        interaction.guild.id,
+        usuario.id,
+        solicitacao_enviada=1
+    )
+
+    await enviar_log_dono(
+        "🔄 **Nickname solicitado novamente**\n"
+        f"Usuário: {usuario} ({usuario.id})\n"
+        f"Solicitado por: {interaction.user} "
+        f"({interaction.user.id})\n"
+        f"DM: "
+        f"{'enviada' if enviado else 'fechada/bloqueada'}"
+    )
+
+    await interaction.followup.send(
+        (
+            "✅ Novo cadastro solicitado para "
+            f"{usuario.mention}."
+            + (
+                "\nA DM foi enviada normalmente."
+                if enviado
+                else
+                "\nA DM está fechada; "
+                "o bot avisou a pessoa no chat geral."
+            )
+        ),
+        ephemeral=True
+    )
+
 
 
 # ==========================================================
