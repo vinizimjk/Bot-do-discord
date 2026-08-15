@@ -2802,77 +2802,58 @@ def _resposta_parece_offline_aternos(status):
 
 async def minecraft_esta_online():
     """
-    Para Aternos Java:
-    - NÃO fixa a porta antiga, porque o Aternos usa DNS/SRV dinâmico.
-    - Resolve o endereço atual com JavaServer.lookup().
-    - Só considera online se o ping real responder e o MOTD não for
-      uma resposta de "offline" do proxy do Aternos.
+    Verifica exclusivamente o servidor Minecraft Bedrock.
+
+    Se o servidor responder ao ping Bedrock, retorna True.
+    Se ocorrer timeout ou qualquer erro de conexão, retorna False.
     """
 
-    if MINECRAFT_EDICAO in ("auto", "java"):
-        try:
-            servidor = await asyncio.to_thread(
-                JavaServer.lookup,
-                MINECRAFT_HOST
-            )
+    try:
+        servidor = BedrockServer(
+            MINECRAFT_HOST,
+            MINECRAFT_PORTA,
+            timeout=5
+        )
 
-            status = await asyncio.wait_for(
-                servidor.async_status(
-                    tries=1
-                ),
-                timeout=8
-            )
+        status = await asyncio.wait_for(
+            servidor.async_status(tries=1),
+            timeout=7
+        )
+        motd = str(status.motd).strip().casefold()
 
-            if _resposta_parece_offline_aternos(
-                status
-            ):
-                print(
-                    "Ping Java respondeu, mas o MOTD "
-                    "indica servidor OFFLINE."
-                )
-                return False
-
+        if "offline" in motd:
             print(
-                "Ping Java válido | "
-                f"Destino resolvido: "
-                f"{servidor.address.host}:"
-                f"{servidor.address.port}"
+                "Ping Bedrock respondeu, mas o MOTD indica OFFLINE."
             )
+            return False
+        print(
+            "Ping Minecraft Bedrock OK | "
+            f"{MINECRAFT_HOST}:{MINECRAFT_PORTA} | "
+            f"Status recebido: {status}"
+        )
 
-            return True
+        return True
 
-        except Exception as erro:
-            print(
-                f"Ping Minecraft Java falhou: {erro}"
-            )
+    except (
+        asyncio.TimeoutError,
+        TimeoutError,
+        ConnectionError,
+        OSError
+    ) as erro:
+        print(
+            "Ping Minecraft Bedrock falhou | "
+            f"{type(erro).__name__}: {erro}"
+        )
 
-            if MINECRAFT_EDICAO == "java":
-                return False
+        return False
 
-    # Fallback Bedrock somente se o projeto estiver em modo auto.
-    if MINECRAFT_EDICAO in ("auto", "bedrock"):
-        try:
-            servidor = BedrockServer(
-                MINECRAFT_HOST,
-                MINECRAFT_PORTA,
-                timeout=5
-            )
+    except Exception as erro:
+        print(
+            "Erro no ping Minecraft Bedrock | "
+            f"{type(erro).__name__}: {erro}"
+        )
 
-            await asyncio.wait_for(
-                servidor.async_status(
-                    tries=1
-                ),
-                timeout=7
-            )
-
-            return True
-
-        except Exception as erro:
-            print(
-                f"Ping Minecraft Bedrock falhou: {erro}"
-            )
-
-    return False
+        return False
 
 
 falhas_minecraft = 0
