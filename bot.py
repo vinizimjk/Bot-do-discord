@@ -5,9 +5,6 @@ import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import quote
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
 
 import discord
 from discord import app_commands
@@ -30,7 +27,7 @@ CANAL_NICKNAMES_MINECRAFT_ID = 1534423515183448155
 CARGO_DESENVOLVIMENTO_ID = 1533625836874498181
 MINECRAFT_HOST = "resenha-DpsX.aternos.me"
 MINECRAFT_PORTA = 20710
-MINECRAFT_EDICAO = "bedrock" # auto, java ou bedrock
+MINECRAFT_EDICAO = "bedrock"  # servidor atual é Bedrock
 
 CASTIGO_DIAS = 28
 
@@ -44,8 +41,6 @@ TEMPO_REMOCAO_NICK_APOS_SAIDA_HORAS = 48
 
 NICK_MIN_CARACTERES = 3
 NICK_MAX_CARACTERES = 32
-PLAYERDB_XBOX_URL = "https://playerdb.co/api/player/xbox/{nickname}"
-PLAYERDB_USER_AGENT = "ResenhaMaximaDiscordBot/1.0"
 
 # Nicknames que já tinham sido informados antes da automação.
 # O bot importa esses cadastros uma única vez no banco e avisa por DM.
@@ -2706,108 +2701,153 @@ async def obter_canal_por_id(canal_id):
     return canal if hasattr(canal, 'send') else None
 
 
-async def atualizar_mensagem_status_minecraft(online):
-    canal = await obter_canal_por_id(CANAL_STATUS_MINECRAFT_ID)
+async def _localizar_paineis_status_minecraft(canal):
+    encontrados = []
+
+    try:
+        async for mensagem in canal.history(
+            limit=100
+        ):
+            if (
+                bot.user is not None
+                and mensagem.author.id != bot.user.id
+            ):
+                continue
+
+            if not mensagem.embeds:
+                continue
+
+            titulo = (
+                mensagem.embeds[0].title
+                or ""
+            ).upper()
+
+            if (
+                "SERVIDOR MINECRAFT ONLINE" in titulo
+                or "SERVIDOR MINECRAFT OFFLINE" in titulo
+            ):
+                encontrados.append(mensagem)
+
+    except (
+        discord.Forbidden,
+        discord.HTTPException
+    ):
+        pass
+
+    encontrados.sort(
+        key=lambda msg: msg.created_at,
+        reverse=True
+    )
+
+    return encontrados
+
+
+async def atualizar_mensagem_status_minecraft(
+    online
+):
+    canal = await obter_canal_por_id(
+        CANAL_STATUS_MINECRAFT_ID
+    )
+
     if canal is None:
-        print('Canal de status Minecraft não encontrado.')
+        print(
+            "Canal de status Minecraft "
+            "não encontrado."
+        )
         return
 
     mensagem = None
-    mensagem_id = obter_estado('minecraft_status_message_id')
+    mensagem_id = obter_estado(
+        "minecraft_status_message_id"
+    )
+
     if mensagem_id:
         try:
-            mensagem = await canal.fetch_message(int(mensagem_id))
-        except (ValueError, discord.NotFound, discord.Forbidden, discord.HTTPException):
+            mensagem = await canal.fetch_message(
+                int(mensagem_id)
+            )
+        except (
+            ValueError,
+            discord.NotFound,
+            discord.Forbidden,
+            discord.HTTPException
+        ):
             mensagem = None
 
-    embed = criar_embed_status_minecraft(online)
+    paineis = []
+
     if mensagem is None:
-        mensagem = await canal.send(embed=embed)
-        salvar_estado('minecraft_status_message_id', mensagem.id)
-        print(f'Mensagem de status Minecraft criada: {mensagem.id}')
+        paineis = await _localizar_paineis_status_minecraft(
+            canal
+        )
+
+        if paineis:
+            mensagem = paineis[0]
+
+            salvar_estado(
+                "minecraft_status_message_id",
+                mensagem.id
+            )
+
+    embed = criar_embed_status_minecraft(
+        online
+    )
+
+    if mensagem is None:
+        mensagem = await canal.send(
+            embed=embed
+        )
+
+        salvar_estado(
+            "minecraft_status_message_id",
+            mensagem.id
+        )
+
+        print(
+            "Mensagem de status Minecraft "
+            f"criada: {mensagem.id}"
+        )
+
     else:
-        await mensagem.edit(embed=embed)
+        await mensagem.edit(
+            embed=embed
+        )
+
+    # Se existirem painéis duplicados antigos,
+    # mantém somente o painel oficial mais recente.
+    if not paineis:
+        paineis = await _localizar_paineis_status_minecraft(
+            canal
+        )
+
+    for duplicada in paineis:
+        if duplicada.id == mensagem.id:
+            continue
+
+        try:
+            await duplicada.delete()
+            print(
+                "Painel Minecraft duplicado removido: "
+                f"{duplicada.id}"
+            )
+        except (
+            discord.Forbidden,
+            discord.HTTPException
+        ):
+            pass
 
 
 # ==========================================================
 # MINECRAFT - PING REAL
 # ==========================================================
 
-def _texto_motd_status(status):
-    """
-    Extrai uma representação simples do MOTD retornado pelo ping.
-    Aternos pode responder ao ping mesmo quando o servidor real está
-    desligado; nesse caso o MOTD costuma indicar estado offline.
-    """
-    partes = []
-
-    try:
-        bruto = getattr(status, "raw", None)
-
-        if isinstance(bruto, dict):
-            descricao = bruto.get("description")
-
-            if isinstance(descricao, str):
-                partes.append(descricao)
-
-            elif isinstance(descricao, dict):
-                texto = descricao.get("text")
-
-                if texto:
-                    partes.append(str(texto))
-
-                extras = descricao.get("extra")
-
-                if isinstance(extras, list):
-                    for item in extras:
-                        if isinstance(item, dict):
-                            valor = item.get("text")
-                            if valor:
-                                partes.append(str(valor))
-                        elif item:
-                            partes.append(str(item))
-
-    except Exception:
-        pass
-
-    try:
-        motd = getattr(status, "motd", None)
-
-        if motd is not None:
-            partes.append(str(motd))
-
-    except Exception:
-        pass
-
-    return " ".join(partes).strip()
-
-
-def _resposta_parece_offline_aternos(status):
-    texto = _texto_motd_status(status).casefold()
-
-    marcadores_offline = (
-        "server offline",
-        "server is offline",
-        "servidor offline",
-        "servidor está offline",
-        "servidor esta offline",
-        "offline",
-    )
-
-    return any(
-        marcador in texto
-        for marcador in marcadores_offline
-    )
-
-
 async def minecraft_esta_online():
     """
-    Verifica exclusivamente o servidor Minecraft Bedrock.
+    Verifica exclusivamente o servidor Bedrock do Aternos.
 
-    Se o servidor responder ao ping Bedrock, retorna True.
-    Se ocorrer timeout ou qualquer erro de conexão, retorna False.
+    O Aternos pode responder ao ping mesmo desligado.
+    Quando isso acontece, o MOTD retorna "Offline".
     """
-
     try:
         servidor = BedrockServer(
             MINECRAFT_HOST,
@@ -2816,20 +2856,27 @@ async def minecraft_esta_online():
         )
 
         status = await asyncio.wait_for(
-            servidor.async_status(tries=1),
+            servidor.async_status(
+                tries=1
+            ),
             timeout=7
         )
-        motd = str(status.motd).strip().casefold()
+
+        motd = str(
+            status.motd
+        ).strip().casefold()
 
         if "offline" in motd:
             print(
-                "Ping Bedrock respondeu, mas o MOTD indica OFFLINE."
+                "Ping Bedrock respondeu, "
+                "mas o MOTD indica OFFLINE."
             )
             return False
+
         print(
             "Ping Minecraft Bedrock OK | "
             f"{MINECRAFT_HOST}:{MINECRAFT_PORTA} | "
-            f"Status recebido: {status}"
+            f"MOTD: {status.motd}"
         )
 
         return True
@@ -2844,7 +2891,6 @@ async def minecraft_esta_online():
             "Ping Minecraft Bedrock falhou | "
             f"{type(erro).__name__}: {erro}"
         )
-
         return False
 
     except Exception as erro:
@@ -2852,7 +2898,6 @@ async def minecraft_esta_online():
             "Erro no ping Minecraft Bedrock | "
             f"{type(erro).__name__}: {erro}"
         )
-
         return False
 
 
@@ -3132,111 +3177,6 @@ def validar_formato_nickname(nickname):
     return True, None
 
 
-def _consultar_playerdb_xbox_sync(nickname):
-    url = PLAYERDB_XBOX_URL.format(
-        nickname=quote(
-            nickname,
-            safe=""
-        )
-    )
-
-    requisicao = Request(
-        url,
-        headers={
-            "User-Agent": PLAYERDB_USER_AGENT,
-            "Accept": "application/json",
-        }
-    )
-
-    try:
-        with urlopen(
-            requisicao,
-            timeout=12
-        ) as resposta:
-            corpo = resposta.read().decode(
-                "utf-8",
-                errors="replace"
-            )
-
-        dados = json.loads(corpo)
-
-    except HTTPError as erro:
-        if erro.code in (400, 404):
-            return False, None, "Conta Xbox não encontrada."
-
-        if erro.code == 429:
-            return (
-                None,
-                None,
-                "Serviço de verificação temporariamente limitado."
-            )
-
-        return (
-            None,
-            None,
-            f"PlayerDB respondeu HTTP {erro.code}."
-        )
-
-    except (
-        URLError,
-        TimeoutError,
-        OSError,
-        json.JSONDecodeError
-    ) as erro:
-        return (
-            None,
-            None,
-            f"Falha ao consultar Xbox: {erro}"
-        )
-
-    if not isinstance(dados, dict):
-        return (
-            None,
-            None,
-            "Resposta inválida do serviço de verificação."
-        )
-
-    sucesso = dados.get("success")
-    jogador = (
-        dados.get("data", {})
-        .get("player")
-    )
-
-    if sucesso is True and isinstance(
-        jogador,
-        dict
-    ):
-        gamertag = (
-            jogador.get("username")
-            or nickname
-        )
-        xuid = jogador.get("id")
-
-        return True, {
-            "gamertag": str(gamertag),
-            "xuid": (
-                str(xuid)
-                if xuid
-                else None
-            ),
-        }, None
-
-    mensagem = (
-        dados.get("message")
-        or dados.get("error")
-        or "Conta Xbox não encontrada."
-    )
-
-    return False, None, str(mensagem)
-
-
-async def verificar_nickname_xbox(nickname):
-    return await asyncio.to_thread(
-        _consultar_playerdb_xbox_sync,
-        nickname
-    )
-
-
 async def responder_nick_invalido(
     canal_dm,
     motivo
@@ -3244,11 +3184,9 @@ async def responder_nick_invalido(
     await canal_dm.send(
         "😭 **Tá de sacanagem? Bota a porra do nick certo.**\n\n"
         f"{motivo}\n"
-        "Manda o seu **gamertag completo do Minecraft/Xbox** "
-        "para eu conferir novamente."
+        "Manda o seu **nickname completo do Minecraft** "
+        "para eu cadastrar."
     )
-
-
 
 async def enviar_pergunta_nick(membro, aviso=None):
     if aviso is None:
@@ -3288,26 +3226,226 @@ async def iniciar_cadastro_nick(membro):
             await enviar_log_dono(f'⚠️ DM de cadastro bloqueada para {membro} ({membro.id}).')
 
 
-async def publicar_nickname(membro, nickname):
-    canal = await obter_canal_por_id(CANAL_NICKNAMES_MINECRAFT_ID)
-    if canal is None:
-        raise RuntimeError('Canal de nicknames não encontrado.')
+def listar_nicknames_publicos(
+    guild_id
+):
+    with conectar_banco() as banco:
+        return banco.execute(
+            """
+            SELECT *
+            FROM minecraft_nicknames
+            WHERE
+                guild_id = ?
+                AND nickname IS NOT NULL
+                AND TRIM(nickname) <> ''
+                AND status IN ('ativo', 'ausente')
+            ORDER BY LOWER(nickname), usuario_id
+            """,
+            (guild_id,)
+        ).fetchall()
 
-    cadastro = buscar_cadastro_nick(membro.guild.id, membro.id)
+
+def criar_embed_tabela_nicknames(
+    guild
+):
+    linhas = []
+
+    for cadastro in listar_nicknames_publicos(
+        guild.id
+    ):
+        membro = guild.get_member(
+            cadastro["usuario_id"]
+        )
+
+        if membro is not None:
+            usuario = membro.mention
+        else:
+            usuario = f"<@{cadastro['usuario_id']}>"
+
+        linhas.append(
+            f"{usuario} — `{cadastro['nickname']}`"
+        )
+
+    if not linhas:
+        descricao = (
+            "Nenhum nickname cadastrado ainda."
+        )
+    else:
+        descricao = "\n".join(linhas)
+
+        if len(descricao) > 4000:
+            descricao = (
+                descricao[:3950]
+                + "\n\n… lista muito grande para exibir inteira."
+            )
+
+    embed = discord.Embed(
+        title="🎮 NICKNAMES DA GALERA",
+        description=descricao,
+        color=discord.Color.gold(),
+        timestamp=datetime.now(
+            timezone.utc
+        )
+    )
+
+    embed.set_footer(
+        text=(
+            "Resenha Máxima • "
+            "Tabela atualizada automaticamente"
+        )
+    )
+
+    return embed
+
+
+async def _localizar_tabelas_nicknames(
+    canal
+):
+    encontrados = []
+
+    try:
+        async for mensagem in canal.history(
+            limit=100
+        ):
+            if (
+                bot.user is not None
+                and mensagem.author.id != bot.user.id
+            ):
+                continue
+
+            if not mensagem.embeds:
+                continue
+
+            titulo = (
+                mensagem.embeds[0].title
+                or ""
+            ).upper()
+
+            if "NICKNAMES DA GALERA" in titulo:
+                encontrados.append(
+                    mensagem
+                )
+
+    except (
+        discord.Forbidden,
+        discord.HTTPException
+    ):
+        pass
+
+    encontrados.sort(
+        key=lambda msg: msg.created_at,
+        reverse=True
+    )
+
+    return encontrados
+
+
+async def atualizar_tabela_nicknames(
+    guild
+):
+    canal = await obter_canal_por_id(
+        CANAL_NICKNAMES_MINECRAFT_ID
+    )
+
+    if canal is None:
+        raise RuntimeError(
+            "Canal de nicknames não encontrado."
+        )
+
     mensagem = None
-    if cadastro and cadastro['mensagem_id']:
+    mensagem_id = obter_estado(
+        "minecraft_nicknames_table_message_id"
+    )
+
+    if mensagem_id:
         try:
-            mensagem = await canal.fetch_message(int(cadastro['mensagem_id']))
-        except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
+            mensagem = await canal.fetch_message(
+                int(mensagem_id)
+            )
+        except (
+            ValueError,
+            discord.NotFound,
+            discord.Forbidden,
+            discord.HTTPException
+        ):
             mensagem = None
 
-    conteudo = f"{membro.mention} — `{nickname}`"
-    allowed = discord.AllowedMentions(users=False, roles=False, everyone=False)
+    tabelas = []
+
     if mensagem is None:
-        mensagem = await canal.send(conteudo, allowed_mentions=allowed)
+        tabelas = await _localizar_tabelas_nicknames(
+            canal
+        )
+
+        if tabelas:
+            mensagem = tabelas[0]
+
+            salvar_estado(
+                "minecraft_nicknames_table_message_id",
+                mensagem.id
+            )
+
+    embed = criar_embed_tabela_nicknames(
+        guild
+    )
+
+    if mensagem is None:
+        mensagem = await canal.send(
+            embed=embed
+        )
+
+        salvar_estado(
+            "minecraft_nicknames_table_message_id",
+            mensagem.id
+        )
+
+        print(
+            "Tabela de nicknames criada: "
+            f"{mensagem.id}"
+        )
+
     else:
-        await mensagem.edit(content=conteudo, allowed_mentions=allowed)
+        await mensagem.edit(
+            embed=embed
+        )
+
+    if not tabelas:
+        tabelas = await _localizar_tabelas_nicknames(
+            canal
+        )
+
+    for duplicada in tabelas:
+        if duplicada.id == mensagem.id:
+            continue
+
+        try:
+            await duplicada.delete()
+        except (
+            discord.Forbidden,
+            discord.HTTPException
+        ):
+            pass
+
     return mensagem.id
+
+
+async def publicar_nickname(
+    membro,
+    nickname
+):
+    # A tabela pública é única.
+    # O cadastro individual fica apenas no banco.
+    atualizar_cadastro_nick(
+        membro.guild.id,
+        membro.id,
+        mensagem_id=None
+    )
+
+    await atualizar_tabela_nicknames(
+        membro.guild
+    )
+
+    return None
 
 
 async def aplicar_castigo_nick(membro):
@@ -3328,7 +3466,7 @@ async def aplicar_castigo_nick(membro):
 async def concluir_nickname(
     membro,
     nickname,
-    xbox_dados=None
+    origem="informado pelo membro"
 ):
     nickname = (
         nickname.strip()
@@ -3343,14 +3481,9 @@ async def concluir_nickname(
         membro.id
     )
 
-    mensagem_id = await publicar_nickname(
-        membro,
-        nickname
-    )
-
     if (
         cadastro
-        and cadastro['castigo_aplicado']
+        and cadastro["castigo_aplicado"]
         and not tem_ban_pendente_com_castigo(
             membro.guild.id,
             membro.id
@@ -3360,7 +3493,7 @@ async def concluir_nickname(
             await membro.timeout(
                 None,
                 reason=(
-                    "Nickname Minecraft válido informado."
+                    "Nickname Minecraft informado."
                 )
             )
         except (
@@ -3373,34 +3506,24 @@ async def concluir_nickname(
         membro.guild.id,
         membro.id,
         nickname=nickname,
-        status='ativo',
+        status="ativo",
         pendente_desde=None,
         avisos_enviados=0,
         solicitacao_enviada=1,
         castigo_aplicado=0,
-        mensagem_id=mensagem_id,
+        mensagem_id=None,
         saiu_em=None
     )
 
-    detalhes_xbox = ""
-
-    if xbox_dados:
-        xuid = xbox_dados.get("xuid")
-
-        detalhes_xbox = (
-            "\nVerificação Xbox: ✅ Encontrado"
-            + (
-                f"\nXUID: `{xuid}`"
-                if xuid
-                else ""
-            )
-        )
+    await atualizar_tabela_nicknames(
+        membro.guild
+    )
 
     await enviar_log_dono(
         "🎮 **Nickname cadastrado**\n"
         f"Usuário: {membro} ({membro.id})\n"
-        f"Nickname: `{nickname}`"
-        f"{detalhes_xbox}"
+        f"Nickname: `{nickname}`\n"
+        f"Origem: {origem}"
     )
 
     return True
@@ -3495,7 +3618,8 @@ async def importar_nicks_pre_cadastrados():
 
                 await concluir_nickname(
                     membro,
-                    nickname
+                    nickname,
+                    origem="pré-cadastrado"
                 )
 
                 importados += 1
@@ -3580,19 +3704,21 @@ async def verificar_nicknames_minecraft():
             atualizar_cadastro_nick(cadastro['guild_id'], cadastro['usuario_id'], status='ativo', saiu_em=None)
             continue
 
-        if cadastro['mensagem_id']:
-            canal = await obter_canal_por_id(CANAL_NICKNAMES_MINECRAFT_ID)
-            if canal:
-                try:
-                    msg = await canal.fetch_message(int(cadastro['mensagem_id']))
-                    await msg.delete()
-                except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
-                    pass
-
         await enviar_log_dono(
-            f"🗑️ Nickname removido após 48h fora do servidor. ID: {cadastro['usuario_id']} | Nick: `{cadastro['nickname'] or 'sem nick'}`"
+            f"🗑️ Nickname removido após 48h fora do servidor. "
+            f"ID: {cadastro['usuario_id']} | "
+            f"Nick: `{cadastro['nickname'] or 'sem nick'}`"
         )
-        excluir_cadastro_nick(cadastro['guild_id'], cadastro['usuario_id'])
+
+        excluir_cadastro_nick(
+            cadastro['guild_id'],
+            cadastro['usuario_id']
+        )
+
+        if guild is not None:
+            await atualizar_tabela_nicknames(
+                guild
+            )
 
 
 @verificar_nicknames_minecraft.before_loop
@@ -3775,19 +3901,41 @@ async def on_member_update(before: discord.Member, after: discord.Member):
 
 
 @bot.event
-async def on_message(message: discord.Message):
+async def on_message(
+    message: discord.Message
+):
     if message.author.bot:
         return
 
-    if isinstance(message.channel, discord.DMChannel):
-        pendencias = buscar_pendencias_nick_usuario(message.author.id)
+    if isinstance(
+        message.channel,
+        discord.DMChannel
+    ):
+        pendencias = (
+            buscar_pendencias_nick_usuario(
+                message.author.id
+            )
+        )
+
         if pendencias:
             cadastro = pendencias[0]
-            guild = bot.get_guild(cadastro['guild_id'])
-            membro = guild.get_member(message.author.id) if guild else None
+            guild = bot.get_guild(
+                cadastro["guild_id"]
+            )
+
+            membro = (
+                guild.get_member(
+                    message.author.id
+                )
+                if guild
+                else None
+            )
+
             if membro is not None:
                 nickname = " ".join(
-                    message.content.strip().split()
+                    message.content
+                    .strip()
+                    .split()
                 )
 
                 if nickname:
@@ -3804,59 +3952,23 @@ async def on_message(message: discord.Message):
                         )
                         return
 
-                    await message.channel.send(
-                        "🔎 Vou conferir esse gamertag na Xbox..."
-                    )
-
-                    existe, xbox_dados, erro = (
-                        await verificar_nickname_xbox(
-                            nickname
-                        )
-                    )
-
-                    if existe is False:
-                        await responder_nick_invalido(
-                            message.channel,
-                            (
-                                "Não encontrei esse gamertag na Xbox. "
-                                f"Detalhe: {erro}"
-                            )
-                        )
-                        return
-
-                    if existe is None:
-                        await message.channel.send(
-                            "⚠️ Não consegui consultar a Xbox agora. "
-                            "Seu cadastro **não foi aceito ainda**. "
-                            "Tenta mandar o nickname novamente "
-                            "em alguns minutos."
-                        )
-
-                        await enviar_log_dono(
-                            "⚠️ Verificação Xbox indisponível para "
-                            f"{membro} ({membro.id}) | "
-                            f"Nickname tentado: `{nickname}` | {erro}"
-                        )
-                        return
-
-                    nickname_confirmado = (
-                        xbox_dados.get("gamertag")
-                        or nickname
-                    )
-
                     await concluir_nickname(
                         membro,
-                        nickname_confirmado,
-                        xbox_dados=xbox_dados
+                        nickname,
+                        origem="informado pelo membro"
                     )
 
                     await message.channel.send(
-                        "✅ **Nickname confirmado na Xbox e cadastrado!**\n"
-                        f"🎮 `{nickname_confirmado}`"
+                        "✅ **Nickname cadastrado!**\n"
+                        f"🎮 `{nickname}`\n\n"
+                        "Se estiver errado, a equipe pode "
+                        "solicitar um novo cadastro."
                     )
                     return
 
-    await bot.process_commands(message)
+    await bot.process_commands(
+        message
+    )
 
 
 # ==========================================================
@@ -3882,6 +3994,18 @@ async def on_ready():
     if not getattr(bot, "_nicks_pre_cadastrados_importados", False):
         bot._nicks_pre_cadastrados_importados = True
         await importar_nicks_pre_cadastrados()
+
+    # Garante uma única tabela de nicknames no canal.
+    for guild in bot.guilds:
+        try:
+            await atualizar_tabela_nicknames(
+                guild
+            )
+        except Exception as erro:
+            print(
+                "Erro ao atualizar tabela de nicknames "
+                f"na inicialização: {erro}"
+            )
 
     if not verificar_nicknames_minecraft.is_running():
         verificar_nicknames_minecraft.start()
@@ -4082,31 +4206,6 @@ async def solicitarnicknovamente(
         thinking=True
     )
 
-    cadastro = buscar_cadastro_nick(
-        interaction.guild.id,
-        usuario.id
-    )
-
-    if cadastro and cadastro["mensagem_id"]:
-        canal = await obter_canal_por_id(
-            CANAL_NICKNAMES_MINECRAFT_ID
-        )
-
-        if canal:
-            try:
-                mensagem = await canal.fetch_message(
-                    int(cadastro["mensagem_id"])
-                )
-                await mensagem.delete()
-
-            except (
-                discord.NotFound,
-                discord.Forbidden,
-                discord.HTTPException,
-                ValueError
-            ):
-                pass
-
     iniciar_pendencia_nick(
         interaction.guild.id,
         usuario.id
@@ -4161,6 +4260,102 @@ async def solicitarnicknovamente(
         ephemeral=True
     )
 
+
+
+# ==========================================================
+# /ADICIONARNICKMANUAL
+# ==========================================================
+
+@bot.tree.command(
+    name="adicionarnickmanual",
+    description=(
+        "Cadastra um nickname manualmente "
+        "sem validação externa"
+    )
+)
+@app_commands.describe(
+    usuario="Membro que receberá o nickname",
+    nickname="Nickname correto do Minecraft"
+)
+async def adicionarnickmanual(
+    interaction: discord.Interaction,
+    usuario: discord.Member,
+    nickname: str
+):
+    if await negar_se_nao_admin(
+        interaction
+    ):
+        return
+
+    possui_cargo = any(
+        cargo.id == CARGO_MINECRAFT_ID
+        for cargo in usuario.roles
+    )
+
+    if not possui_cargo:
+        await interaction.response.send_message(
+            "❌ Esse membro não possui "
+            "o cargo Minecraft.",
+            ephemeral=True
+        )
+        return
+
+    nickname = " ".join(
+        nickname.strip().split()
+    )
+
+    formato_ok, motivo = (
+        validar_formato_nickname(
+            nickname
+        )
+    )
+
+    if not formato_ok:
+        await interaction.response.send_message(
+            f"❌ {motivo}",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(
+        ephemeral=True,
+        thinking=True
+    )
+
+    iniciar_pendencia_nick(
+        interaction.guild.id,
+        usuario.id
+    )
+
+    await concluir_nickname(
+        usuario,
+        nickname,
+        origem=(
+            "cadastro manual por "
+            f"{interaction.user} "
+            f"({interaction.user.id})"
+        )
+    )
+
+    try:
+        await usuario.send(
+            "✅ **Seu nickname do Minecraft "
+            "foi cadastrado manualmente pela equipe.**\n\n"
+            f"🎮 Nickname: `{nickname}`"
+        )
+    except (
+        discord.Forbidden,
+        discord.HTTPException
+    ):
+        await avisar_dm_fechada_no_chat(
+            usuario
+        )
+
+    await interaction.followup.send(
+        "✅ Nickname cadastrado manualmente "
+        f"para {usuario.mention}: `{nickname}`",
+        ephemeral=True
+    )
 
 
 # ==========================================================
