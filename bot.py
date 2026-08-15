@@ -21,6 +21,7 @@ CANAL_APROVACAO_ID = 1536073451633254420
 PAINEL_MENU_URL = "https://painel-menu-bot-production.up.railway.app"
 
 CARGO_MINECRAFT_ID = 1534006899371147304
+CANAL_STATUS_MINECRAFT_ID = 1538109074779144253
 CARGO_DESENVOLVIMENTO_ID = 1533625836874498181
 MINECRAFT_HOST = "resenha-DpsX.aternos.me"
 MINECRAFT_PORTA = 20710
@@ -29,6 +30,7 @@ CASTIGO_DIAS = 28
 
 INTERVALO_MINECRAFT_SEGUNDOS = 60
 FALHAS_OFFLINE_NECESSARIAS = 3
+SUCESSOS_ONLINE_NECESSARIOS = 2
 
 
 # ==========================================================
@@ -2533,30 +2535,151 @@ class PainelBanView(
 
 
 # ==========================================================
-# MINECRAFT - EMBED DA DM
+# MINECRAFT - STATUS NO CANAL
 # ==========================================================
 
-def criar_embed_minecraft_online():
-    embed = discord.Embed(
-        title="🟢 SERVIDOR MINECRAFT ONLINE",
-        description=(
-            "O servidor do **Resenha Máxima** "
-            "acabou de ficar online! 🎮\n\n"
-            "Abra o Minecraft e entre pelo "
-            "servidor que você já tem salvo.\n\n"
-            "⛏️ **Bom jogo!**"
-        ),
-        color=discord.Color.green(),
-        timestamp=datetime.now(
-            timezone.utc
+def criar_embed_status_minecraft(online):
+    if online:
+        titulo = "🟢 SERVIDOR MINECRAFT ONLINE"
+        descricao = (
+            "O servidor de Minecraft da **Resenha Máxima** "
+            "está disponível agora.\n\n"
+            "🎮 Pode entrar e jogar normalmente."
         )
+        cor = discord.Color.green()
+    else:
+        titulo = "🔴 SERVIDOR MINECRAFT OFFLINE"
+        descricao = (
+            "O servidor de Minecraft da **Resenha Máxima** "
+            "está offline no momento.\n\n"
+            "A mensagem será atualizada automaticamente "
+            "quando o servidor voltar."
+        )
+        cor = discord.Color.red()
+
+    embed = discord.Embed(
+        title=titulo,
+        description=descricao,
+        color=cor,
+        timestamp=datetime.now(timezone.utc)
+    )
+
+    embed.add_field(
+        name="Status",
+        value="🟢 Online" if online else "🔴 Offline",
+        inline=True
+    )
+
+    embed.add_field(
+        name="Monitoramento",
+        value="Atualização automática",
+        inline=True
     )
 
     embed.set_footer(
-        text="Resenha Máxima • Minecraft"
+        text="Resenha Máxima • Minecraft • Última verificação"
     )
 
     return embed
+
+
+async def obter_canal_status_minecraft():
+    canal = bot.get_channel(
+        CANAL_STATUS_MINECRAFT_ID
+    )
+
+    if canal is None:
+        try:
+            canal = await bot.fetch_channel(
+                CANAL_STATUS_MINECRAFT_ID
+            )
+
+        except (
+            discord.NotFound,
+            discord.Forbidden,
+            discord.HTTPException
+        ) as erro:
+            print(
+                "Não consegui acessar o canal "
+                "de status do Minecraft | "
+                f"Erro: {erro}"
+            )
+            return None
+
+    if not hasattr(canal, "send"):
+        print(
+            "O canal de status do Minecraft "
+            "não aceita mensagens."
+        )
+        return None
+
+    return canal
+
+
+async def atualizar_mensagem_status_minecraft(online):
+    canal = await obter_canal_status_minecraft()
+
+    if canal is None:
+        return
+
+    embed = criar_embed_status_minecraft(
+        online
+    )
+
+    mensagem_id = obter_estado(
+        "minecraft_status_message_id"
+    )
+
+    mensagem = None
+
+    if mensagem_id:
+        try:
+            mensagem = await canal.fetch_message(
+                int(mensagem_id)
+            )
+
+        except (
+            ValueError,
+            discord.NotFound,
+            discord.Forbidden,
+            discord.HTTPException
+        ):
+            mensagem = None
+
+    if mensagem is None:
+        try:
+            mensagem = await canal.send(
+                embed=embed
+            )
+
+            salvar_estado(
+                "minecraft_status_message_id",
+                str(mensagem.id)
+            )
+
+            print(
+                "Mensagem de status Minecraft "
+                f"criada: {mensagem.id}"
+            )
+
+        except discord.HTTPException as erro:
+            print(
+                "Erro ao criar mensagem de "
+                f"status Minecraft: {erro}"
+            )
+
+        return
+
+    try:
+        await mensagem.edit(
+            embed=embed
+        )
+
+    except discord.HTTPException as erro:
+        print(
+            "Erro ao atualizar mensagem de "
+            f"status Minecraft: {erro}"
+        )
 
 
 # ==========================================================
@@ -2592,117 +2715,11 @@ async def minecraft_esta_online():
 
 
 # ==========================================================
-# MINECRAFT - DESTINATÁRIOS
-# ==========================================================
-
-async def obter_destinatarios_minecraft():
-    destinatarios = {}
-
-    for guild in bot.guilds:
-        cargo = guild.get_role(
-            CARGO_MINECRAFT_ID
-        )
-
-        # Pessoas com o cargo Minecraft.
-        if cargo is not None:
-            for membro in cargo.members:
-                if (
-                    not membro.bot
-                    and deve_receber_minecraft(membro.id)
-                ):
-                    destinatarios[membro.id] = membro
-
-        # O dono também pode receber, mas respeita a própria preferência.
-        dono = guild.get_member(
-            DONO_ID
-        )
-
-        if dono is None:
-            try:
-                dono = await guild.fetch_member(
-                    DONO_ID
-                )
-            except (
-                discord.NotFound,
-                discord.Forbidden,
-                discord.HTTPException
-            ):
-                dono = None
-
-        if (
-            dono is not None
-            and not dono.bot
-            and deve_receber_minecraft(dono.id)
-        ):
-            destinatarios[dono.id] = dono
-
-    return list(
-        destinatarios.values()
-    )
-
-
-# ==========================================================
-# MINECRAFT - ENVIAR NOTIFICAÇÃO
-# ==========================================================
-
-async def avisar_minecraft_online():
-    embed = (
-        criar_embed_minecraft_online()
-    )
-
-    destinatarios = (
-        await obter_destinatarios_minecraft()
-    )
-
-    enviados = 0
-    falharam = 0
-
-    for membro in destinatarios:
-        try:
-            await membro.send(
-                embed=embed
-            )
-
-            enviados += 1
-
-        except discord.Forbidden as erro:
-            falharam += 1
-
-            print(
-                "DM Minecraft BLOQUEADA para "
-                f"{membro} ({membro.id}) | "
-                f"Dono: {membro.id == DONO_ID} | "
-                f"Status: {getattr(erro, 'status', 'N/A')} | "
-                f"Código: {getattr(erro, 'code', 'N/A')} | "
-                f"Erro: {erro}"
-            )
-
-        except discord.HTTPException as erro:
-            falharam += 1
-
-            print(
-                "ERRO na DM Minecraft para "
-                f"{membro} ({membro.id}) | "
-                f"Dono: {membro.id == DONO_ID} | "
-                f"Status: {getattr(erro, 'status', 'N/A')} | "
-                f"Código: {getattr(erro, 'code', 'N/A')} | "
-                f"Erro: {erro}"
-            )
-
-        await asyncio.sleep(0.3)
-
-    print(
-        "Minecraft ONLINE | "
-        f"DMs enviadas: {enviados} | "
-        f"Falharam: {falharam}"
-    )
-
-
-# ==========================================================
 # MINECRAFT - MONITOR
 # ==========================================================
 
 falhas_minecraft = 0
+sucessos_minecraft = 0
 
 
 @tasks.loop(
@@ -2710,6 +2727,7 @@ falhas_minecraft = 0
 )
 async def monitorar_minecraft():
     global falhas_minecraft
+    global sucessos_minecraft
 
     online_agora = (
         await minecraft_esta_online()
@@ -2719,7 +2737,10 @@ async def monitorar_minecraft():
         "minecraft_online"
     )
 
-    # Primeira checagem: apenas grava estado.
+    # ------------------------------------------------------
+    # PRIMEIRA CHECAGEM
+    # ------------------------------------------------------
+
     if estado_salvo is None:
         salvar_estado(
             "minecraft_online",
@@ -2727,6 +2748,7 @@ async def monitorar_minecraft():
         )
 
         falhas_minecraft = 0
+        sucessos_minecraft = 0
 
         print(
             "Estado inicial Minecraft: "
@@ -2737,6 +2759,9 @@ async def monitorar_minecraft():
             )
         )
 
+        await atualizar_mensagem_status_minecraft(
+            online_agora
+        )
         return
 
     estava_online = (
@@ -2744,31 +2769,66 @@ async def monitorar_minecraft():
     )
 
     # ------------------------------------------------------
-    # ONLINE
+    # RESPOSTA POSITIVA
     # ------------------------------------------------------
 
     if online_agora:
         falhas_minecraft = 0
 
-        # Mudança OFFLINE -> ONLINE
-        if not estava_online:
-            salvar_estado(
-                "minecraft_online",
-                "1"
-            )
+        if estava_online:
+            sucessos_minecraft = 0
 
+            # Mantém a mensagem viva e atualiza
+            # o horário da última verificação.
+            await atualizar_mensagem_status_minecraft(
+                True
+            )
+            return
+
+        sucessos_minecraft += 1
+
+        if (
+            sucessos_minecraft
+            < SUCESSOS_ONLINE_NECESSARIOS
+        ):
             print(
-                "Minecraft mudou de "
-                "OFFLINE para ONLINE."
+                "Possível Minecraft ONLINE | "
+                f"confirmação "
+                f"{sucessos_minecraft}/"
+                f"{SUCESSOS_ONLINE_NECESSARIOS}"
             )
+            return
 
-            await avisar_minecraft_online()
+        sucessos_minecraft = 0
 
+        salvar_estado(
+            "minecraft_online",
+            "1"
+        )
+
+        print(
+            "Minecraft mudou de "
+            "OFFLINE para ONLINE."
+        )
+
+        await atualizar_mensagem_status_minecraft(
+            True
+        )
         return
 
     # ------------------------------------------------------
-    # POSSÍVEL OFFLINE
+    # RESPOSTA NEGATIVA
     # ------------------------------------------------------
+
+    sucessos_minecraft = 0
+
+    if not estava_online:
+        falhas_minecraft = 0
+
+        await atualizar_mensagem_status_minecraft(
+            False
+        )
+        return
 
     falhas_minecraft += 1
 
@@ -2776,20 +2836,29 @@ async def monitorar_minecraft():
         falhas_minecraft
         < FALHAS_OFFLINE_NECESSARIAS
     ):
+        print(
+            "Possível Minecraft OFFLINE | "
+            f"confirmação "
+            f"{falhas_minecraft}/"
+            f"{FALHAS_OFFLINE_NECESSARIAS}"
+        )
         return
 
     falhas_minecraft = 0
 
-    if estava_online:
-        salvar_estado(
-            "minecraft_online",
-            "0"
-        )
+    salvar_estado(
+        "minecraft_online",
+        "0"
+    )
 
-        print(
-            "Minecraft mudou de "
-            "ONLINE para OFFLINE."
-        )
+    print(
+        "Minecraft mudou de "
+        "ONLINE para OFFLINE."
+    )
+
+    await atualizar_mensagem_status_minecraft(
+        False
+    )
 
 
 @monitorar_minecraft.before_loop
@@ -2817,11 +2886,6 @@ class MeuBot(commands.Bot):
         self.add_view(
             PainelBanView()
         )
-
-        self.add_view(
-            PainelMinecraftView()
-        )
-
         # --------------------------------------------------
         # RESTAURAR ENQUETES
         # --------------------------------------------------
@@ -2998,6 +3062,10 @@ async def on_ready():
         f"Servidor monitorado: "
         f"{MINECRAFT_HOST}:{MINECRAFT_PORTA}"
     )
+    print(
+        "Canal de status Minecraft: "
+        f"{CANAL_STATUS_MINECRAFT_ID}"
+    )
     print("--------------------------------")
 
 
@@ -3118,60 +3186,6 @@ async def solicitarban(
 
 
 # ==========================================================
-# /TESTARMINECRAFT
-# ==========================================================
-
-@bot.tree.command(
-    name="testarminecraft",
-    description=(
-        "Envia a prévia da notificação "
-        "Minecraft somente para o dono"
-    )
-)
-async def testarminecraft(
-    interaction: discord.Interaction
-):
-    if await negar_se_nao_admin(interaction):
-        return
-
-    await interaction.response.defer(
-        ephemeral=True,
-        thinking=True
-    )
-
-    embed = (
-        criar_embed_minecraft_online()
-    )
-
-    try:
-        await interaction.user.send(
-            embed=embed
-        )
-
-    except discord.Forbidden:
-        await interaction.followup.send(
-            "❌ O Discord bloqueou a DM para você.\n\n"
-            "Verifique se você permite mensagens "
-            "diretas de membros deste servidor.",
-            ephemeral=True
-        )
-        return
-
-    except discord.HTTPException as erro:
-        await interaction.followup.send(
-            "❌ Houve um erro ao enviar sua DM:\n"
-            f"`{erro}`",
-            ephemeral=True
-        )
-        return
-
-    await interaction.followup.send(
-        "✅ Prévia enviada no seu privado.",
-        ephemeral=True
-    )
-
-
-# ==========================================================
 # /STATUSMINECRAFT
 # ==========================================================
 
@@ -3210,116 +3224,6 @@ async def statusminecraft(
     await interaction.followup.send(
         mensagem,
         ephemeral=True
-    )
-
-
-# ==========================================================
-# PAINEL DE NOTIFICAÇÕES DO MINECRAFT
-# ==========================================================
-
-def pode_configurar_minecraft(membro):
-    if not isinstance(membro, discord.Member):
-        return False
-
-    if membro.id == DONO_ID:
-        return True
-
-    return any(
-        cargo.id == CARGO_MINECRAFT_ID
-        for cargo in membro.roles
-    )
-
-
-class PainelMinecraftView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    async def validar(self, interaction):
-        if pode_configurar_minecraft(interaction.user):
-            return True
-
-        await interaction.response.send_message(
-            "❌ Apenas membros com o cargo de Minecraft podem configurar essas notificações.",
-            ephemeral=True
-        )
-        return False
-
-    @discord.ui.button(
-        label="Ativar notificações",
-        emoji="🔔",
-        style=discord.ButtonStyle.success,
-        custom_id="minecraft_notificacoes:ativar"
-    )
-    async def ativar(self, interaction, button):
-        if not await self.validar(interaction):
-            return
-
-        salvar_preferencia_minecraft(interaction.user.id, True)
-        await interaction.response.send_message(
-            "🔔 Notificações ativadas. Você receberá uma DM quando o servidor ficar online.",
-            ephemeral=True
-        )
-
-    @discord.ui.button(
-        label="Desativar notificações",
-        emoji="🔕",
-        style=discord.ButtonStyle.danger,
-        custom_id="minecraft_notificacoes:desativar"
-    )
-    async def desativar(self, interaction, button):
-        if not await self.validar(interaction):
-            return
-
-        salvar_preferencia_minecraft(interaction.user.id, False)
-        await interaction.response.send_message(
-            "🔕 Notificações desativadas. Você não receberá DMs até ativá-las novamente.",
-            ephemeral=True
-        )
-
-    @discord.ui.button(
-        label="Meu status",
-        emoji="⚙️",
-        style=discord.ButtonStyle.secondary,
-        custom_id="minecraft_notificacoes:status"
-    )
-    async def status(self, interaction, button):
-        if not await self.validar(interaction):
-            return
-
-        ativo = deve_receber_minecraft(interaction.user.id)
-        texto = (
-            "🔔 Suas notificações do Minecraft estão **ativadas**."
-            if ativo
-            else "🔕 Suas notificações do Minecraft estão **desativadas**."
-        )
-        await interaction.response.send_message(texto, ephemeral=True)
-
-
-@bot.tree.command(
-    name="painelminecraft",
-    description="Publica o painel de notificações do Minecraft"
-)
-async def painelminecraft(interaction: discord.Interaction):
-    if await negar_se_nao_admin(interaction):
-        return
-
-    embed = discord.Embed(
-        title="🎮 Notificações do Minecraft",
-        description=(
-            "Escolha abaixo se deseja receber uma **mensagem privada** "
-            "quando o servidor de Minecraft ficar online.\n\n"
-            "Você pode alterar sua escolha quando quiser. "
-            "Use **Meu status** para conferir sua preferência atual."
-        ),
-        color=discord.Color.green()
-    )
-    embed.set_footer(
-        text="Disponível para membros com o cargo Minecraft."
-    )
-
-    await interaction.response.send_message(
-        embed=embed,
-        view=PainelMinecraftView()
     )
 
 
