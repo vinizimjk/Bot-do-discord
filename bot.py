@@ -39,6 +39,13 @@ AVISOS_NICK_HORAS = (12, 24, 36, 48)
 INTERVALO_NICKS_MINUTOS = 10
 TEMPO_REMOCAO_NICK_APOS_SAIDA_HORAS = 48
 
+# Nicknames que já tinham sido informados antes da automação.
+# O bot importa esses cadastros uma única vez no banco e avisa por DM.
+NICKS_PRE_CADASTRADOS = {
+    1455937306400653344: "vinizim_dajk",
+    1089629818628349962: "Darck1777",
+}
+
 
 # ==========================================================
 # PASTAS / ARQUIVOS
@@ -2814,6 +2821,118 @@ async def enviar_log_dono(texto):
         pass
 
 
+def normalizar_nome_canal(nome):
+    return (
+        nome.lower()
+        .replace("・", "-")
+        .replace("•", "-")
+        .replace(" ", "-")
+        .replace("_", "-")
+    )
+
+
+async def obter_chat_geral(guild):
+    """
+    Procura automaticamente o chat geral da Resenha.
+    Prioridade:
+    1) canal cujo nome contenha 'chat-da-resenha'
+    2) canal cujo nome contenha 'chat-geral'
+    3) canal 'geral'
+    4) system_channel do servidor
+    """
+    candidatos = []
+
+    for canal in guild.text_channels:
+        nome = normalizar_nome_canal(canal.name)
+
+        if "chat-da-resenha" in nome:
+            return canal
+
+        if "chat-geral" in nome:
+            candidatos.append((0, canal))
+        elif nome == "geral" or nome.endswith("-geral"):
+            candidatos.append((1, canal))
+
+    if candidatos:
+        candidatos.sort(key=lambda item: item[0])
+        return candidatos[0][1]
+
+    return guild.system_channel
+
+
+async def avisar_dm_fechada_no_chat(membro):
+    """
+    Se a DM do membro estiver fechada, menciona a pessoa no chat geral
+    pedindo para abrir as mensagens privadas.
+
+    Há um bloqueio de 6 horas para não repetir menções em sequência.
+    """
+    chave = (
+        "dm_nick_fechada_chat_"
+        f"{membro.guild.id}_{membro.id}"
+    )
+
+    ultimo = obter_estado(chave)
+    agora = datetime.now(timezone.utc)
+
+    if ultimo:
+        try:
+            ultimo_dt = datetime.fromisoformat(ultimo)
+
+            if agora - ultimo_dt < timedelta(hours=6):
+                return
+        except (TypeError, ValueError):
+            pass
+
+    canal = await obter_chat_geral(
+        membro.guild
+    )
+
+    if canal is None:
+        await enviar_log_dono(
+            "⚠️ A DM de "
+            f"{membro} ({membro.id}) está fechada e "
+            "não encontrei o chat geral para avisá-lo."
+        )
+        return
+
+    try:
+        await canal.send(
+            (
+                f"{membro.mention}, preciso falar com você no privado "
+                "para concluir seu cadastro do Minecraft. 🎮\n"
+                "Por favor, **abra suas mensagens diretas (DMs)** "
+                "do servidor e aguarde o próximo aviso do bot."
+            ),
+            allowed_mentions=discord.AllowedMentions(
+                users=True,
+                roles=False,
+                everyone=False
+            )
+        )
+
+        salvar_estado(
+            chave,
+            agora.isoformat()
+        )
+
+        await enviar_log_dono(
+            "📣 DM fechada: mencionei "
+            f"{membro} ({membro.id}) no chat geral."
+        )
+
+    except (
+        discord.Forbidden,
+        discord.HTTPException
+    ) as erro:
+        await enviar_log_dono(
+            "⚠️ A DM de "
+            f"{membro} ({membro.id}) está fechada e "
+            f"não consegui avisar no chat geral: {erro}"
+        )
+
+
+
 async def enviar_pergunta_nick(membro, aviso=None):
     if aviso is None:
         texto = (
@@ -2829,7 +2948,14 @@ async def enviar_pergunta_nick(membro, aviso=None):
     try:
         await membro.send(texto)
         return True
-    except (discord.Forbidden, discord.HTTPException):
+
+    except (
+        discord.Forbidden,
+        discord.HTTPException
+    ):
+        await avisar_dm_fechada_no_chat(
+            membro
+        )
         return False
 
 
@@ -2913,6 +3039,113 @@ async def concluir_nickname(membro, nickname):
         f"🎮 **Nickname cadastrado**\nUsuário: {membro} ({membro.id})\nNickname: `{nickname}`"
     )
     return True
+
+
+async def avisar_nick_pre_cadastrado(membro, nickname):
+    """Envia a confirmação somente uma vez para cada usuário."""
+    chave = (
+        "nick_pre_cadastrado_dm_"
+        f"{membro.guild.id}_{membro.id}"
+    )
+
+    if obter_estado(chave) == "1":
+        return
+
+    texto = (
+        "✅ **Seu nickname do Minecraft já foi cadastrado**\n\n"
+        f"🎮 Nickname: `{nickname}`\n\n"
+        "Você já estava na lista antiga do servidor, então "
+        "não precisa responder aos avisos de cadastro."
+    )
+
+    enviado = False
+
+    try:
+        await membro.send(texto)
+        enviado = True
+
+    except (
+        discord.Forbidden,
+        discord.HTTPException
+    ):
+        await enviar_log_dono(
+            "⚠️ Não consegui enviar a confirmação do nickname "
+            f"pré-cadastrado para {membro} ({membro.id})."
+        )
+
+    # Marca como processado para não ficar tentando/spamando
+    # a cada reinicialização do bot.
+    salvar_estado(chave, "1")
+
+    if enviado:
+        await enviar_log_dono(
+            "✅ Confirmação de nickname pré-cadastrado enviada para "
+            f"{membro} ({membro.id}) — `{nickname}`"
+        )
+
+
+async def importar_nicks_pre_cadastrados():
+    """
+    Importa cadastros antigos antes de iniciar os avisos automáticos.
+    Isso impede que essas pessoas recebam cobranças de nickname.
+    """
+    importados = 0
+    ausentes = 0
+
+    for guild in bot.guilds:
+        for usuario_id, nickname in NICKS_PRE_CADASTRADOS.items():
+            membro = guild.get_member(usuario_id)
+
+            if membro is None:
+                try:
+                    membro = await guild.fetch_member(usuario_id)
+
+                except (
+                    discord.NotFound,
+                    discord.Forbidden,
+                    discord.HTTPException
+                ):
+                    ausentes += 1
+                    continue
+
+            cadastro = buscar_cadastro_nick(
+                guild.id,
+                usuario_id
+            )
+
+            precisa_atualizar = (
+                cadastro is None
+                or cadastro["nickname"] != nickname
+                or cadastro["status"] != "ativo"
+                or bool(cadastro["castigo_aplicado"])
+            )
+
+            if precisa_atualizar:
+                # Garante que existe uma linha no banco sem mandar
+                # a pergunta de cadastro.
+                iniciar_pendencia_nick(
+                    guild.id,
+                    usuario_id
+                )
+
+                await concluir_nickname(
+                    membro,
+                    nickname
+                )
+
+                importados += 1
+
+            await avisar_nick_pre_cadastrado(
+                membro,
+                nickname
+            )
+
+    print(
+        "Nicknames pré-cadastrados processados | "
+        f"Atualizados: {importados} | "
+        f"Não encontrados no servidor: {ausentes}"
+    )
+
 
 
 async def varrer_membros_minecraft():
@@ -3214,6 +3447,12 @@ async def on_ready():
         .is_running()
     ):
         monitorar_minecraft.start()
+
+    # Importa os nicknames antigos antes de iniciar qualquer
+    # cobrança automática. Assim eles não recebem avisos indevidos.
+    if not getattr(bot, "_nicks_pre_cadastrados_importados", False):
+        bot._nicks_pre_cadastrados_importados = True
+        await importar_nicks_pre_cadastrados()
 
     if not verificar_nicknames_minecraft.is_running():
         verificar_nicknames_minecraft.start()
