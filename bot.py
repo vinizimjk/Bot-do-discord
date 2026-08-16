@@ -3,7 +3,8 @@ import json
 import os
 import sqlite3
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time as dt_time
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import discord
@@ -37,6 +38,9 @@ SUCESSOS_ONLINE_NECESSARIOS = 2
 
 AVISOS_NICK_HORAS = (12, 24, 36, 48)
 INTERVALO_NICKS_MINUTOS = 10
+
+FUSO_SERVIDOR = ZoneInfo("America/Cuiaba")
+CHAVE_CANAL_COMANDOS = "canal_comandos_id"
 TEMPO_REMOCAO_NICK_APOS_SAIDA_HORAS = 48
 
 NICK_MIN_CARACTERES = 3
@@ -3972,6 +3976,146 @@ async def on_message(
 
 
 # ==========================================================
+# CANAL DE COMANDOS - LIMPEZA
+# ==========================================================
+
+def obter_canal_comandos_id():
+    valor = obter_estado(
+        CHAVE_CANAL_COMANDOS
+    )
+
+    if not valor:
+        return None
+
+    try:
+        return int(valor)
+    except (TypeError, ValueError):
+        return None
+
+
+async def obter_canal_comandos():
+    canal_id = obter_canal_comandos_id()
+
+    if canal_id is None:
+        return None
+
+    canal = bot.get_channel(
+        canal_id
+    )
+
+    if canal is None:
+        try:
+            canal = await bot.fetch_channel(
+                canal_id
+            )
+
+        except (
+            discord.NotFound,
+            discord.Forbidden,
+            discord.HTTPException
+        ):
+            return None
+
+    if not isinstance(
+        canal,
+        discord.TextChannel
+    ):
+        return None
+
+    return canal
+
+
+async def limpar_canal_comandos(
+    *,
+    motivo="Limpeza do canal de comandos"
+):
+    canal = await obter_canal_comandos()
+
+    if canal is None:
+        return (
+            False,
+            0,
+            "Canal de comandos não configurado "
+            "ou não encontrado."
+        )
+
+    try:
+        apagadas = await canal.purge(
+            limit=None,
+            check=lambda mensagem: (
+                not mensagem.pinned
+            ),
+            bulk=True,
+            reason=motivo
+        )
+
+    except discord.Forbidden:
+        return (
+            False,
+            0,
+            "O bot não tem permissão para "
+            "gerenciar mensagens nesse canal."
+        )
+
+    except discord.HTTPException as erro:
+        return (
+            False,
+            0,
+            f"Erro do Discord ao limpar o canal: {erro}"
+        )
+
+    return (
+        True,
+        len(apagadas),
+        None
+    )
+
+
+@tasks.loop(
+    time=dt_time(
+        hour=0,
+        minute=0,
+        second=0,
+        tzinfo=FUSO_SERVIDOR
+    )
+)
+async def limpeza_diaria_canal_comandos():
+    ok, quantidade, erro = (
+        await limpar_canal_comandos(
+            motivo=(
+                "Limpeza automática diária "
+                "do canal de comandos"
+            )
+        )
+    )
+
+    if ok:
+        print(
+            "Limpeza automática do canal "
+            f"de comandos concluída | "
+            f"Mensagens removidas: {quantidade}"
+        )
+
+        await enviar_log_dono(
+            "🧹 **Limpeza automática do canal "
+            "de comandos concluída**\n"
+            f"Mensagens removidas: {quantidade}"
+        )
+
+    else:
+        print(
+            "Limpeza automática do canal "
+            f"de comandos não executada: {erro}"
+        )
+
+
+@limpeza_diaria_canal_comandos.before_loop
+async def antes_da_limpeza_diaria():
+    await bot.wait_until_ready()
+
+
+
+# ==========================================================
 # ONLINE
 # ==========================================================
 
@@ -3988,6 +4132,12 @@ async def on_ready():
         .is_running()
     ):
         monitorar_minecraft.start()
+
+    if not (
+        limpeza_diaria_canal_comandos
+        .is_running()
+    ):
+        limpeza_diaria_canal_comandos.start()
 
     # Importa os nicknames antigos antes de iniciar qualquer
     # cobrança automática. Assim eles não recebem avisos indevidos.
@@ -4025,7 +4175,157 @@ async def on_ready():
         "Canal de status Minecraft: "
         f"{CANAL_STATUS_MINECRAFT_ID}"
     )
+    canal_comandos_id = obter_canal_comandos_id()
+
+    print(
+        "Limpeza diária do canal de comandos: "
+        "ATIVA às 00:00 (America/Cuiaba)"
+    )
+
+    print(
+        "Canal de comandos configurado: "
+        + (
+            str(canal_comandos_id)
+            if canal_comandos_id
+            else "NÃO CONFIGURADO"
+        )
+    )
     print("--------------------------------")
+
+
+
+# ==========================================================
+# /DEFINIRCANALCOMANDOS
+# ==========================================================
+
+@bot.tree.command(
+    name="definircanalcomandos",
+    description=(
+        "Define o canal que será limpo "
+        "automaticamente todos os dias"
+    )
+)
+@app_commands.describe(
+    canal=(
+        "Canal de comandos. "
+        "Se não escolher, usa o canal atual."
+    )
+)
+async def definircanalcomandos(
+    interaction: discord.Interaction,
+    canal: discord.TextChannel | None = None
+):
+    if await negar_se_nao_admin(
+        interaction
+    ):
+        return
+
+    canal_escolhido = (
+        canal
+        or interaction.channel
+    )
+
+    if not isinstance(
+        canal_escolhido,
+        discord.TextChannel
+    ):
+        await interaction.response.send_message(
+            "❌ Escolha um canal de texto válido.",
+            ephemeral=True
+        )
+        return
+
+    salvar_estado(
+        CHAVE_CANAL_COMANDOS,
+        canal_escolhido.id
+    )
+
+    await interaction.response.send_message(
+        "✅ Canal de comandos configurado: "
+        f"{canal_escolhido.mention}\n\n"
+        "🕛 Limpeza automática: **todos os dias às 00:00** "
+        "(horário de Cuiabá).\n"
+        "📌 Mensagens fixadas serão preservadas.",
+        ephemeral=True
+    )
+
+    await enviar_log_dono(
+        "🧹 **Canal de comandos configurado**\n"
+        f"Canal: {canal_escolhido.mention} "
+        f"({canal_escolhido.id})\n"
+        f"Configurado por: "
+        f"{interaction.user} "
+        f"({interaction.user.id})"
+    )
+
+
+# ==========================================================
+# /LIMPARCOMANDOS
+# ==========================================================
+
+@bot.tree.command(
+    name="limparcomandos",
+    description=(
+        "Limpa manualmente o canal "
+        "de comandos configurado"
+    )
+)
+async def limparcomandos(
+    interaction: discord.Interaction
+):
+    if await negar_se_nao_admin(
+        interaction
+    ):
+        return
+
+    canal = await obter_canal_comandos()
+
+    if canal is None:
+        await interaction.response.send_message(
+            "❌ O canal de comandos ainda não foi configurado.\n"
+            "Use `/definircanalcomandos` primeiro.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(
+        ephemeral=True,
+        thinking=True
+    )
+
+    ok, quantidade, erro = (
+        await limpar_canal_comandos(
+            motivo=(
+                "Limpeza manual solicitada por "
+                f"{interaction.user} "
+                f"({interaction.user.id})"
+            )
+        )
+    )
+
+    if not ok:
+        await interaction.followup.send(
+            f"❌ {erro}",
+            ephemeral=True
+        )
+        return
+
+    await interaction.followup.send(
+        "✅ Canal limpo com sucesso.\n"
+        f"🧹 Mensagens removidas: **{quantidade}**\n"
+        f"📍 Canal: {canal.mention}\n"
+        "📌 Mensagens fixadas foram preservadas.",
+        ephemeral=True
+    )
+
+    await enviar_log_dono(
+        "🧹 **Limpeza manual do canal de comandos**\n"
+        f"Canal: {canal.mention} ({canal.id})\n"
+        f"Mensagens removidas: {quantidade}\n"
+        f"Solicitado por: "
+        f"{interaction.user} "
+        f"({interaction.user.id})"
+    )
 
 
 
