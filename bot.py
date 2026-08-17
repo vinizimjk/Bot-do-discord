@@ -3970,6 +3970,10 @@ async def on_message(
                     )
                     return
 
+    await processar_aviso_limpeza_por_mensagem(
+        message
+    )
+
     await bot.process_commands(
         message
     )
@@ -3978,6 +3982,59 @@ async def on_message(
 # ==========================================================
 # CANAL DE COMANDOS - LIMPEZA
 # ==========================================================
+
+CHAVE_AVISO_LIMPEZA_ID = "aviso_limpeza_comandos_id"
+CHAVE_AVISO_LIMPEZA_CONTAGEM = "aviso_limpeza_comandos_contagem"
+
+
+async def publicar_aviso_canal_limpo(canal):
+    try:
+        aviso = await canal.send(
+            "🧹 **Este canal foi limpo.**\n"
+            "Essa ação foi feita para evitar acúmulo de mensagens.\n\n"
+            "ℹ️ Este aviso desaparece automaticamente após "
+            "**3 novas mensagens** no canal."
+        )
+        salvar_estado(CHAVE_AVISO_LIMPEZA_ID, aviso.id)
+        salvar_estado(CHAVE_AVISO_LIMPEZA_CONTAGEM, 0)
+        return aviso
+    except discord.HTTPException as erro:
+        print(f"Não consegui publicar o aviso de canal limpo: {erro}")
+        return None
+
+
+async def processar_aviso_limpeza_por_mensagem(message: discord.Message):
+    canal_id = obter_canal_comandos_id()
+    if canal_id is None or message.channel.id != canal_id:
+        return
+
+    aviso_id = obter_estado(CHAVE_AVISO_LIMPEZA_ID)
+    if not aviso_id:
+        return
+
+    try:
+        contagem = int(obter_estado(CHAVE_AVISO_LIMPEZA_CONTAGEM) or 0)
+    except (TypeError, ValueError):
+        contagem = 0
+
+    contagem += 1
+    salvar_estado(CHAVE_AVISO_LIMPEZA_CONTAGEM, contagem)
+
+    if contagem < 3:
+        return
+
+    try:
+        aviso = await message.channel.fetch_message(int(aviso_id))
+        await aviso.delete(reason="Aviso de limpeza removido após 3 novas mensagens")
+    except (ValueError, discord.NotFound):
+        pass
+    except (discord.Forbidden, discord.HTTPException) as erro:
+        print(f"Não consegui apagar o aviso de limpeza: {erro}")
+        return
+
+    salvar_estado(CHAVE_AVISO_LIMPEZA_ID, "")
+    salvar_estado(CHAVE_AVISO_LIMPEZA_CONTAGEM, 0)
+
 
 def obter_canal_comandos_id():
     valor = obter_estado(
@@ -4064,6 +4121,10 @@ async def limpar_canal_comandos(
             f"Erro do Discord ao limpar o canal: {erro}"
         )
 
+    await publicar_aviso_canal_limpo(
+        canal
+    )
+
     return (
         True,
         len(apagadas),
@@ -4137,35 +4198,40 @@ async def antes_da_limpeza_diaria():
 CHAVE_CANAL_FUNCOES_BOT = "canal_funcoes_bot_id"
 CHAVE_MENSAGEM_FUNCOES_BOT = "mensagem_funcoes_bot_id"
 
-# Data/hora desta atualização.
-DATA_ULTIMA_ATUALIZACAO_ISO = "2026-08-16T20:11:00-04:00"
+DATA_ULTIMA_ATUALIZACAO_ISO = "2026-08-17T11:17:00-04:00"
 
-FUNCOES_ATUAIS = [
-    "🛡️ Sistema de Ban e Hackban",
-    "📊 Criação e gerenciamento de enquetes",
-    "🎮 Monitoramento do servidor Minecraft Bedrock",
-    "🟢🔴 Status automático Online/Offline do Aternos",
-    "📝 Cadastro e tabela única de nicknames do Minecraft",
-    "⚠️ Até 4 avisos em 48h para nickname pendente",
-    "👤 Cadastro manual de nickname pela equipe",
-    "🔄 Solicitação de novo nickname quando necessário",
-    "📩 Aviso no chat quando a DM do membro estiver fechada",
-    "⏳ Remoção de nickname após 48h fora do servidor",
-    "🧹 Limpeza automática diária do canal de comandos à meia-noite",
-    "🧽 Limpeza manual do canal de comandos",
-    "🔐 Comandos administrativos restritos à equipe autorizada",
-]
+FUNCOES_ATUAIS_CATEGORIAS = {
+    "🎮 Minecraft": [
+        "🎮 Monitoramento do servidor Bedrock",
+        "🟢 Status Online / Offline do Aternos",
+        "📝 Cadastro e tabela única de nicknames",
+        "⚠️ Nick pendente — até 4 avisos em 48h",
+        "👤 Cadastro manual pela equipe",
+        "🔄 Solicitação de novo nickname",
+        "📩 Aviso no chat quando a DM estiver fechada",
+        "⏳ Remoção do nick após 48h fora do servidor",
+    ],
+    "🛡️ Moderação": [
+        "🔨 Sistema de Ban e Hackban",
+        "📊 Criação e gerenciamento de enquetes",
+    ],
+    "⚙️ Administração": [
+        "🧹 Limpeza automática do canal de comandos à meia-noite",
+        "🧽 Limpeza manual do canal de comandos",
+        "🔐 Comandos administrativos com controle de permissão",
+    ],
+}
 
 FUNCOES_ULTIMA_ATUALIZACAO = [
-    "🤖 Ficha oficial **Para que eu sirvo?** no canal de funções do bot",
-    "🆕 Novidades ficam destacadas por 24 horas antes de entrarem em **Funções atuais**",
-    "📜 Registro das funções que já existiram e foram removidas",
+    "📱 Ficha de funções reorganizada para leitura no celular",
+    "🧹 Aviso após a limpeza do canal de comandos",
+    "3️⃣ O aviso de limpeza some após 3 novas mensagens",
 ]
 
 FUNCOES_REMOVIDAS = [
-    "📩 Aviso por DM quando o Minecraft ficava online — removido após votação do servidor",
-    "🔔 Painel para ativar/desativar notificações do Minecraft — deixou de ser necessário",
-    "🔎 Verificação obrigatória de nickname pela Xbox/PlayerDB — removida por falsos negativos e para permitir cadastro manual",
+    "📩 Aviso por DM quando o Minecraft ficava online — removido após votação",
+    "🔔 Painel de notificações do Minecraft — deixou de ser necessário",
+    "🔎 Verificação obrigatória pela Xbox/PlayerDB — removida por falsos negativos",
     "🧪 Sistema antigo de teste/notificação do Minecraft por DM — perdeu a utilidade",
 ]
 
@@ -4173,177 +4239,104 @@ _funcoes_bot_lock = asyncio.Lock()
 
 
 def obter_canal_funcoes_bot_id():
-    valor = obter_estado(
-        CHAVE_CANAL_FUNCOES_BOT
-    )
-
+    valor = obter_estado(CHAVE_CANAL_FUNCOES_BOT)
     if not valor:
         return None
-
     try:
         return int(valor)
-    except (
-        TypeError,
-        ValueError
-    ):
+    except (TypeError, ValueError):
         return None
 
 
 def data_ultima_atualizacao_funcoes():
     try:
-        return datetime.fromisoformat(
-            DATA_ULTIMA_ATUALIZACAO_ISO
-        )
+        return datetime.fromisoformat(DATA_ULTIMA_ATUALIZACAO_ISO)
     except ValueError:
-        return datetime.now(
-            timezone.utc
-        )
+        return datetime.now(timezone.utc)
 
 
 def ultima_atualizacao_em_destaque():
-    agora = datetime.now(
-        timezone.utc
-    )
-
-    data = (
-        data_ultima_atualizacao_funcoes()
-    )
-
+    agora = datetime.now(timezone.utc)
+    data = data_ultima_atualizacao_funcoes()
     if data.tzinfo is None:
-        data = data.replace(
-            tzinfo=timezone.utc
-        )
-
-    return (
-        agora
-        < data.astimezone(
-            timezone.utc
-        )
-        + timedelta(
-            hours=24
-        )
-    )
+        data = data.replace(tzinfo=timezone.utc)
+    return agora < data.astimezone(timezone.utc) + timedelta(hours=24)
 
 
-def listas_funcoes_para_exibir():
-    atuais = list(
-        FUNCOES_ATUAIS
-    )
-
-    novidades = list(
-        FUNCOES_ULTIMA_ATUALIZACAO
-    )
-
-    if not ultima_atualizacao_em_destaque():
-        for item in novidades:
-            if item not in atuais:
-                atuais.append(
-                    item
-                )
-
-        novidades = []
-
-    return (
-        atuais,
-        novidades
-    )
-
-
-def texto_lista_funcoes(
-    itens,
-    vazio="Nenhuma no momento."
-):
+def texto_funcoes(itens, vazio="Nenhuma no momento."):
     if not itens:
         return vazio
-
-    return "\n".join(
-        f"• {item}"
-        for item in itens
-    )
+    return "\n\n".join(itens)
 
 
-def criar_embed_funcoes_bot():
-    atuais, novidades = (
-        listas_funcoes_para_exibir()
-    )
+def categorias_funcoes_para_exibir():
+    categorias = {nome: list(itens) for nome, itens in FUNCOES_ATUAIS_CATEGORIAS.items()}
+    novidades = list(FUNCOES_ULTIMA_ATUALIZACAO)
+    if not ultima_atualizacao_em_destaque():
+        categorias.setdefault("🤖 Bot e sistema", []).extend(novidades)
+        novidades = []
+    return categorias, novidades
 
-    data = (
-        data_ultima_atualizacao_funcoes()
-    )
 
-    embed = discord.Embed(
+def criar_embeds_funcoes_bot():
+    categorias, novidades = categorias_funcoes_para_exibir()
+    data = data_ultima_atualizacao_funcoes()
+    embeds = []
+
+    apresentacao = discord.Embed(
         title="🤖 Para que eu sirvo?",
         description=(
-            "Eu sou o bot oficial da "
-            "**Resenha Máxima**.\n\n"
-            "Fui criado para automatizar "
-            "sistemas do servidor, ajudar "
-            "a equipe e manter tudo organizado."
+            "Sou o bot oficial da **Resenha Máxima**.\n\n"
+            "Automatizo sistemas, ajudo a equipe e mantenho o servidor organizado."
         ),
-        color=discord.Color.gold(),
-        timestamp=datetime.now(
-            timezone.utc
-        )
+        color=discord.Color.gold()
     )
-
-    embed.add_field(
+    apresentacao.add_field(
         name="🛠️ Desenvolvimento",
-        value=(
-            "👨‍💻 Programador: "
-            f"<@{DONO_ID}>"
-        ),
+        value=f"👨‍💻 Programador: <@{DONO_ID}>",
         inline=False
     )
+    embeds.append(apresentacao)
 
     if novidades:
-        embed.add_field(
-            name="🆕 Última atualização",
-            value=texto_lista_funcoes(
-                novidades
+        fim_destaque = data + timedelta(hours=24)
+        atualizacao = discord.Embed(
+            title="🆕 Última atualização",
+            description=texto_funcoes(novidades),
+            color=discord.Color.orange()
+        )
+        atualizacao.add_field(
+            name="⏳ Depois disso",
+            value=(
+                "Essas novidades entram em **Funções atuais** "
+                f"<t:{int(fim_destaque.timestamp())}:R>."
             ),
             inline=False
         )
+        embeds.append(atualizacao)
 
-        fim_destaque = (
-            data
-            + timedelta(
-                hours=24
+    for nome, itens in categorias.items():
+        embeds.append(
+            discord.Embed(
+                title=nome,
+                description=texto_funcoes(itens),
+                color=discord.Color.dark_gold()
             )
         )
 
-        embed.add_field(
-            name="⏳ Entra em Funções atuais",
-            value=(
-                f"<t:{int(fim_destaque.timestamp())}:R>"
-            ),
-            inline=False
-        )
-
-    embed.add_field(
-        name="⚙️ Funções atuais",
-        value=texto_lista_funcoes(
-            atuais
-        ),
-        inline=False
-    )
-
-    embed.add_field(
-        name="🗑️ Funções removidas",
-        value=texto_lista_funcoes(
+    removidas = discord.Embed(
+        title="🗑️ Funções removidas",
+        description=texto_funcoes(
             FUNCOES_REMOVIDAS,
             "Nenhuma função removida registrada."
         ),
-        inline=False
+        color=discord.Color.dark_grey()
     )
-
-    embed.set_footer(
-        text=(
-            "Resenha Máxima • "
-            "Ficha atualizada automaticamente"
-        )
+    removidas.set_footer(
+        text="Resenha Máxima • Ficha atualizada automaticamente"
     )
-
-    return embed
+    embeds.append(removidas)
+    return embeds
 
 
 async def obter_canal_funcoes_bot():
@@ -4408,11 +4401,11 @@ async def atualizar_mensagem_funcoes_bot():
             ):
                 mensagem = None
 
-        embed = criar_embed_funcoes_bot()
+        embeds = criar_embeds_funcoes_bot()
 
         if mensagem is None:
             mensagem = await canal.send(
-                embed=embed
+                embeds=embeds
             )
 
             salvar_estado(
@@ -4441,7 +4434,8 @@ async def atualizar_mensagem_funcoes_bot():
 
         else:
             await mensagem.edit(
-                embed=embed
+                content=None,
+                embeds=embeds
             )
 
         return True
