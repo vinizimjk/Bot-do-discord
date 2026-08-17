@@ -4115,12 +4115,495 @@ async def antes_da_limpeza_diaria():
 
 
 
+
+# ==========================================================
+# FUNÇÕES DO BOT — FICHA OFICIAL
+# ==========================================================
+#
+# O canal pode ser definido pelo comando:
+# /definircanalfuncoes
+#
+# O bot mantém UMA ÚNICA mensagem nesse canal e a edita.
+#
+# Novidades permanecem em "Última atualização" por 24 horas.
+# Depois disso, sobem automaticamente para "Funções atuais".
+#
+# Em futuras atualizações:
+# - coloque recursos novos em FUNCOES_ULTIMA_ATUALIZACAO;
+# - atualize DATA_ULTIMA_ATUALIZACAO_ISO;
+# - quando algo for removido, mova para FUNCOES_REMOVIDAS.
+# ==========================================================
+
+CHAVE_CANAL_FUNCOES_BOT = "canal_funcoes_bot_id"
+CHAVE_MENSAGEM_FUNCOES_BOT = "mensagem_funcoes_bot_id"
+
+# Data/hora desta atualização.
+DATA_ULTIMA_ATUALIZACAO_ISO = "2026-08-16T20:11:00-04:00"
+
+FUNCOES_ATUAIS = [
+    "🛡️ Sistema de Ban e Hackban",
+    "📊 Criação e gerenciamento de enquetes",
+    "🎮 Monitoramento do servidor Minecraft Bedrock",
+    "🟢🔴 Status automático Online/Offline do Aternos",
+    "📝 Cadastro e tabela única de nicknames do Minecraft",
+    "⚠️ Até 4 avisos em 48h para nickname pendente",
+    "👤 Cadastro manual de nickname pela equipe",
+    "🔄 Solicitação de novo nickname quando necessário",
+    "📩 Aviso no chat quando a DM do membro estiver fechada",
+    "⏳ Remoção de nickname após 48h fora do servidor",
+    "🧹 Limpeza automática diária do canal de comandos à meia-noite",
+    "🧽 Limpeza manual do canal de comandos",
+    "🔐 Comandos administrativos restritos à equipe autorizada",
+]
+
+FUNCOES_ULTIMA_ATUALIZACAO = [
+    "🤖 Ficha oficial **Para que eu sirvo?** no canal de funções do bot",
+    "🆕 Novidades ficam destacadas por 24 horas antes de entrarem em **Funções atuais**",
+    "📜 Registro das funções que já existiram e foram removidas",
+]
+
+FUNCOES_REMOVIDAS = [
+    "📩 Aviso por DM quando o Minecraft ficava online — removido após votação do servidor",
+    "🔔 Painel para ativar/desativar notificações do Minecraft — deixou de ser necessário",
+    "🔎 Verificação obrigatória de nickname pela Xbox/PlayerDB — removida por falsos negativos e para permitir cadastro manual",
+    "🧪 Sistema antigo de teste/notificação do Minecraft por DM — perdeu a utilidade",
+]
+
+_funcoes_bot_lock = asyncio.Lock()
+
+
+def obter_canal_funcoes_bot_id():
+    valor = obter_estado(
+        CHAVE_CANAL_FUNCOES_BOT
+    )
+
+    if not valor:
+        return None
+
+    try:
+        return int(valor)
+    except (
+        TypeError,
+        ValueError
+    ):
+        return None
+
+
+def data_ultima_atualizacao_funcoes():
+    try:
+        return datetime.fromisoformat(
+            DATA_ULTIMA_ATUALIZACAO_ISO
+        )
+    except ValueError:
+        return datetime.now(
+            timezone.utc
+        )
+
+
+def ultima_atualizacao_em_destaque():
+    agora = datetime.now(
+        timezone.utc
+    )
+
+    data = (
+        data_ultima_atualizacao_funcoes()
+    )
+
+    if data.tzinfo is None:
+        data = data.replace(
+            tzinfo=timezone.utc
+        )
+
+    return (
+        agora
+        < data.astimezone(
+            timezone.utc
+        )
+        + timedelta(
+            hours=24
+        )
+    )
+
+
+def listas_funcoes_para_exibir():
+    atuais = list(
+        FUNCOES_ATUAIS
+    )
+
+    novidades = list(
+        FUNCOES_ULTIMA_ATUALIZACAO
+    )
+
+    if not ultima_atualizacao_em_destaque():
+        for item in novidades:
+            if item not in atuais:
+                atuais.append(
+                    item
+                )
+
+        novidades = []
+
+    return (
+        atuais,
+        novidades
+    )
+
+
+def texto_lista_funcoes(
+    itens,
+    vazio="Nenhuma no momento."
+):
+    if not itens:
+        return vazio
+
+    return "\n".join(
+        f"• {item}"
+        for item in itens
+    )
+
+
+def criar_embed_funcoes_bot():
+    atuais, novidades = (
+        listas_funcoes_para_exibir()
+    )
+
+    data = (
+        data_ultima_atualizacao_funcoes()
+    )
+
+    embed = discord.Embed(
+        title="🤖 Para que eu sirvo?",
+        description=(
+            "Eu sou o bot oficial da "
+            "**Resenha Máxima**.\n\n"
+            "Fui criado para automatizar "
+            "sistemas do servidor, ajudar "
+            "a equipe e manter tudo organizado."
+        ),
+        color=discord.Color.gold(),
+        timestamp=datetime.now(
+            timezone.utc
+        )
+    )
+
+    embed.add_field(
+        name="🛠️ Desenvolvimento",
+        value=(
+            "👨‍💻 Programador: "
+            f"<@{DONO_ID}>"
+        ),
+        inline=False
+    )
+
+    if novidades:
+        embed.add_field(
+            name="🆕 Última atualização",
+            value=texto_lista_funcoes(
+                novidades
+            ),
+            inline=False
+        )
+
+        fim_destaque = (
+            data
+            + timedelta(
+                hours=24
+            )
+        )
+
+        embed.add_field(
+            name="⏳ Entra em Funções atuais",
+            value=(
+                f"<t:{int(fim_destaque.timestamp())}:R>"
+            ),
+            inline=False
+        )
+
+    embed.add_field(
+        name="⚙️ Funções atuais",
+        value=texto_lista_funcoes(
+            atuais
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🗑️ Funções removidas",
+        value=texto_lista_funcoes(
+            FUNCOES_REMOVIDAS,
+            "Nenhuma função removida registrada."
+        ),
+        inline=False
+    )
+
+    embed.set_footer(
+        text=(
+            "Resenha Máxima • "
+            "Ficha atualizada automaticamente"
+        )
+    )
+
+    return embed
+
+
+async def obter_canal_funcoes_bot():
+    canal_id = (
+        obter_canal_funcoes_bot_id()
+    )
+
+    if canal_id is None:
+        return None
+
+    canal = bot.get_channel(
+        canal_id
+    )
+
+    if canal is None:
+        try:
+            canal = await bot.fetch_channel(
+                canal_id
+            )
+
+        except (
+            discord.NotFound,
+            discord.Forbidden,
+            discord.HTTPException
+        ):
+            return None
+
+    if not isinstance(
+        canal,
+        discord.TextChannel
+    ):
+        return None
+
+    return canal
+
+
+async def atualizar_mensagem_funcoes_bot():
+    async with _funcoes_bot_lock:
+        canal = await obter_canal_funcoes_bot()
+
+        if canal is None:
+            return False
+
+        mensagem = None
+        mensagem_id = obter_estado(
+            CHAVE_MENSAGEM_FUNCOES_BOT
+        )
+
+        if mensagem_id:
+            try:
+                mensagem = await canal.fetch_message(
+                    int(
+                        mensagem_id
+                    )
+                )
+
+            except (
+                ValueError,
+                discord.NotFound,
+                discord.Forbidden,
+                discord.HTTPException
+            ):
+                mensagem = None
+
+        embed = criar_embed_funcoes_bot()
+
+        if mensagem is None:
+            mensagem = await canal.send(
+                embed=embed
+            )
+
+            salvar_estado(
+                CHAVE_MENSAGEM_FUNCOES_BOT,
+                mensagem.id
+            )
+
+            try:
+                await mensagem.pin(
+                    reason=(
+                        "Ficha oficial "
+                        "das funções do bot"
+                    )
+                )
+
+            except (
+                discord.Forbidden,
+                discord.HTTPException
+            ):
+                pass
+
+            print(
+                "Mensagem Funções do Bot "
+                f"criada: {mensagem.id}"
+            )
+
+        else:
+            await mensagem.edit(
+                embed=embed
+            )
+
+        return True
+
+
+@tasks.loop(
+    minutes=15
+)
+async def atualizar_funcoes_bot_periodicamente():
+    try:
+        await atualizar_mensagem_funcoes_bot()
+
+    except Exception as erro:
+        print(
+            "Erro ao atualizar "
+            f"Funções do Bot: {erro}"
+        )
+
+
+@atualizar_funcoes_bot_periodicamente.before_loop
+async def antes_de_atualizar_funcoes_bot():
+    await bot.wait_until_ready()
+
+
+# ==========================================================
+# /DEFINIRCANALFUNCOES
+# ==========================================================
+
+@bot.tree.command(
+    name="definircanalfuncoes",
+    description=(
+        "Define o canal da ficha "
+        "de funções do bot"
+    )
+)
+@app_commands.describe(
+    canal=(
+        "Canal de funções. "
+        "Se não escolher, usa o canal atual."
+    )
+)
+async def definircanalfuncoes(
+    interaction: discord.Interaction,
+    canal: discord.TextChannel | None = None
+):
+    if await negar_se_nao_admin(
+        interaction
+    ):
+        return
+
+    canal_escolhido = (
+        canal
+        or interaction.channel
+    )
+
+    if not isinstance(
+        canal_escolhido,
+        discord.TextChannel
+    ):
+        await interaction.response.send_message(
+            "❌ Escolha um canal de texto válido.",
+            ephemeral=True
+        )
+        return
+
+    salvar_estado(
+        CHAVE_CANAL_FUNCOES_BOT,
+        canal_escolhido.id
+    )
+
+    # Força criação/localização da mensagem
+    # no novo canal configurado.
+    salvar_estado(
+        CHAVE_MENSAGEM_FUNCOES_BOT,
+        ""
+    )
+
+    await interaction.response.defer(
+        ephemeral=True,
+        thinking=True
+    )
+
+    ok = await atualizar_mensagem_funcoes_bot()
+
+    if ok:
+        await interaction.followup.send(
+            "✅ Canal de funções configurado: "
+            f"{canal_escolhido.mention}\n"
+            "A ficha **Para que eu sirvo?** "
+            "já foi criada/atualizada.",
+            ephemeral=True
+        )
+
+    else:
+        await interaction.followup.send(
+            "❌ Não consegui criar a ficha "
+            "nesse canal. Confira as permissões "
+            "do bot.",
+            ephemeral=True
+        )
+
+
+# ==========================================================
+# /ATUALIZARFUNCOES
+# ==========================================================
+
+@bot.tree.command(
+    name="atualizarfuncoes",
+    description=(
+        "Atualiza manualmente "
+        "a ficha de funções do bot"
+    )
+)
+async def atualizarfuncoes(
+    interaction: discord.Interaction
+):
+    if await negar_se_nao_admin(
+        interaction
+    ):
+        return
+
+    await interaction.response.defer(
+        ephemeral=True,
+        thinking=True
+    )
+
+    if (
+        obter_canal_funcoes_bot_id()
+        is None
+    ):
+        await interaction.followup.send(
+            "❌ Use `/definircanalfuncoes` "
+            "primeiro.",
+            ephemeral=True
+        )
+        return
+
+    ok = await atualizar_mensagem_funcoes_bot()
+
+    await interaction.followup.send(
+        (
+            "✅ Ficha de funções atualizada."
+            if ok
+            else
+            "❌ Não consegui atualizar a ficha."
+        ),
+        ephemeral=True
+    )
+
+
 # ==========================================================
 # ONLINE
 # ==========================================================
 
 @bot.event
 async def on_ready():
+    if not (
+        atualizar_funcoes_bot_periodicamente
+        .is_running()
+    ):
+        atualizar_funcoes_bot_periodicamente.start()
+
     if not (
         renovar_castigos_pendentes
         .is_running()
