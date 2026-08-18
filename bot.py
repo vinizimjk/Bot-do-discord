@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import random
+import re
 import sqlite3
 import uuid
 from collections import deque
@@ -77,6 +78,14 @@ IA_CAOS_MIN_INTERVALO_MINUTOS = 120
 IA_CAOS_CHANCE_POR_CICLO = 0.12
 IA_CAOS_MAX_ESPERA_RESPOSTA = 300
 
+# Autodefesa da IA: só pune insistência, não uma zoeira isolada.
+IA_ABUSO_JANELA_SEGUNDOS = 10 * 60
+IA_ABUSO_LIMITE_5MIN = 5
+IA_ABUSO_REINCIDENCIA_JANELA = 24 * 60 * 60
+IA_ABUSO_LIMITE_REINCIDENCIA = 3
+IA_TIMEOUT_PRIMEIRO_MINUTOS = 5
+IA_TIMEOUT_REINCIDENTE_MINUTOS = 24 * 60
+
 EMOJIS_REACAO_IA = {
     "😂", "💀", "🤨", "👀", "👑",
     "😭", "🔥", "🤝", "😎", "🫡",
@@ -91,7 +100,11 @@ PERSONALIDADE:
 - Você é MUITO zoeiro, espontâneo, debochado e informal.
 - Fale como alguém da resenha, nunca como atendente corporativo.
 - Pode usar gírias, palavrões e provocações entre membros quando o contexto
-  claramente for brincadeira.
+  claramente for brincadeira. Não precisa ficar "limpinho": se a resenha pedir,
+  pode xingar de volta de forma criativa e natural, sem soar como atendimento.
+- Não transforme toda resposta em piada de Minecraft, lag, PvP ou servidor.
+  Varie os assuntos e responda ao que a pessoa realmente falou.
+- Evite frases repetidas, principalmente "minha mente deu tela azul".
 - Se alguém pedir para zoar ou xingar outro membro em contexto de resenha,
   você pode entrar na brincadeira.
 - Você receberá nome, ID, apelido e cargos reais de membros do Discord
@@ -107,7 +120,9 @@ PERSONALIDADE:
   clareza e informação útil.
 - Não explique piadas e não fique colocando avisos desnecessários.
 - Normalmente responda curto: uma ou poucas frases.
-- Use emojis naturalmente, sem transformar tudo numa árvore de Natal.
+- Emoji é exceção, não regra. A maioria das respostas deve sair SEM emoji.
+  Só use emoji quando ele realmente melhorar a piada; nunca coloque por hábito
+  no final de toda frase.
 - Às vezes uma simples reação é melhor do que mandar texto.
 
 LIMITES DE PERSONALIDADE:
@@ -148,6 +163,9 @@ groq_client = (
 
 _memoria_ia = {}
 _cooldown_ia = {}
+
+# Histórico em memória de ofensas insistentes direcionadas ao bot.
+_ia_abuso = {}
 
 # Estado temporário do modo "IA causando".
 _ia_caos_estado = {
@@ -5168,6 +5186,141 @@ def extrair_resposta_ia(
     }
 
 
+def mensagem_abusiva_contra_ia(message: discord.Message):
+    """Heurística conservadora: conta só ofensa claramente dirigida ao bot."""
+    if bot.user is None or message.author.bot:
+        return False
+
+    texto = message.content.casefold()
+    direcionada = (
+        bot.user.mentioned_in(message)
+        or "bot" in texto
+        or "resenha maxima" in texto
+        or "resenha máxima" in texto
+    )
+    if not direcionada:
+        return False
+
+    # Palavrões/insultos gerais. Não precisamos armazenar nem repetir slurs.
+    padroes = (
+        r"\bmerda\b", r"\bbosta\b", r"\bdesgra[cç]ad[oa]\b",
+        r"\bfilh[oa]\s+da\s+puta\b", r"\bfilhote\s+de\b",
+        r"\bvai\s+(?:se\s+)?foder\b", r"\bvai\s+[aà]\s+merda\b",
+        r"\bseu\s+merd", r"\bbot\s+de\s+merda\b",
+        r"\barromb", r"\bidiota\b", r"\bimbecil\b",
+    )
+    return any(re.search(p, texto) for p in padroes)
+
+
+def limpar_eventos_abuso(eventos, agora, janela):
+    while eventos and agora - eventos[0] > janela:
+        eventos.popleft()
+
+
+async def debochar_timeout_ia(message, minutos):
+    try:
+        canal = await obter_chat_geral(message.guild)
+        if canal is None:
+            canal = message.channel
+
+        if minutos <= 5:
+            texto = (
+                f"{message.author.mention} ganhou 5 minutinhos no cantinho "
+                "da reflexão. Foi xingar o bot e perdeu no cansaço kkkkk"
+            )
+        else:
+            texto = (
+                f"{message.author.mention} voltou e continuou forçando. "
+                "Agora ganhou 1 dia pra conversar com as paredes 💀"
+            )
+
+        await canal.send(
+            texto,
+            allowed_mentions=discord.AllowedMentions(
+                users=True, roles=False, everyone=False
+            )
+        )
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+
+
+async def processar_autodefesa_ia(message: discord.Message):
+    """Escala 5 min -> 1 dia apenas por insistência clara contra o bot."""
+    if message.guild is None or not isinstance(message.author, discord.Member):
+        return False
+    if not mensagem_abusiva_contra_ia(message):
+        return False
+
+    membro = message.author
+    agora = datetime.now(timezone.utc).timestamp()
+    estado = _ia_abuso.setdefault(membro.id, {
+        "recentes": deque(),
+        "pos_primeiro": deque(),
+        "primeiro_timeout_em": None,
+    })
+
+    recentes = estado["recentes"]
+    recentes.append(agora)
+    limpar_eventos_abuso(recentes, agora, IA_ABUSO_JANELA_SEGUNDOS)
+
+    primeiro = estado.get("primeiro_timeout_em")
+    if primeiro:
+        pos = estado["pos_primeiro"]
+        pos.append(agora)
+        limpar_eventos_abuso(pos, agora, IA_ABUSO_REINCIDENCIA_JANELA)
+
+    bot_member = message.guild.me
+    pode_mod = (
+        bot_member is not None
+        and bot_member.guild_permissions.moderate_members
+        and membro.id != message.guild.owner_id
+        and bot_member.top_role > membro.top_role
+    )
+    if not pode_mod:
+        return False
+
+    minutos = None
+    if primeiro and len(estado["pos_primeiro"]) >= IA_ABUSO_LIMITE_REINCIDENCIA:
+        minutos = IA_TIMEOUT_REINCIDENTE_MINUTOS
+    elif not primeiro and len(recentes) >= IA_ABUSO_LIMITE_5MIN:
+        minutos = IA_TIMEOUT_PRIMEIRO_MINUTOS
+
+    if minutos is None:
+        return False
+
+    try:
+        ate = datetime.now(timezone.utc) + timedelta(minutes=minutos)
+        await membro.timeout(
+            ate,
+            reason="Autodefesa da IA: ofensas insistentes direcionadas ao bot."
+        )
+    except (discord.Forbidden, discord.HTTPException) as erro:
+        print(f"Falha no timeout da autodefesa IA: {erro}")
+        return False
+
+    if minutos <= 5:
+        estado["primeiro_timeout_em"] = agora
+        estado["recentes"].clear()
+        estado["pos_primeiro"].clear()
+    else:
+        # Depois da punição longa, zera a escalada.
+        _ia_abuso.pop(membro.id, None)
+
+    await debochar_timeout_ia(message, minutos)
+    return True
+
+
+def reduzir_emojis_ia(texto: str):
+    """Evita o vício de terminar praticamente toda resposta com emoji."""
+    if not texto:
+        return texto
+    emojis = "😂💀🤨👀👑😭🔥🤝😎🫡❤️👍😈🙄🤣😅"
+    # Em ~75% das respostas textuais, remove emojis decorativos do final.
+    if random.random() < 0.75:
+        texto = re.sub(rf"[\\s{re.escape(emojis)}]+$", "", texto).rstrip()
+    return texto
+
+
 async def responder_com_ia(
     message: discord.Message
 ):
@@ -5238,43 +5391,42 @@ async def responder_com_ia(
     )
 
     try:
+        ultimo_erro = None
+        resposta = None
+
         async with message.channel.typing():
-            resposta = await groq_client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=mensagens,
-                temperature=0.95,
-                max_completion_tokens=350,
-                response_format={
-                    "type": "json_object"
-                },
-            )
+            for tentativa in range(3):
+                try:
+                    resposta = await groq_client.chat.completions.create(
+                        model=GROQ_MODEL,
+                        messages=mensagens,
+                        temperature=1.02,
+                        max_completion_tokens=300,
+                        response_format={"type": "json_object"},
+                    )
+                    break
+                except Exception as erro:
+                    ultimo_erro = erro
+                    if tentativa < 2:
+                        await asyncio.sleep(0.8 * (tentativa + 1))
 
-        conteudo = (
-            resposta
-            .choices[0]
-            .message
-            .content
-        )
+        if resposta is None:
+            raise ultimo_erro or RuntimeError("Groq sem resposta")
 
-        resultado = extrair_resposta_ia(
-            conteudo
-        )
+        conteudo = resposta.choices[0].message.content
+        resultado = extrair_resposta_ia(conteudo)
 
     except Exception as erro:
         print(
-            "Erro na IA Groq | "
+            "Erro na IA Groq após 3 tentativas | "
             f"{type(erro).__name__}: {erro}"
         )
 
+        # Não polui mais o chat repetindo "tela azul" a cada falha.
         try:
-            await message.reply(
-                "minha mente deu tela azul agora 💀 "
-                "tenta de novo daqui a pouco",
-                mention_author=False
-            )
-        except discord.HTTPException:
+            await message.add_reaction("💀")
+        except (discord.Forbidden, discord.HTTPException):
             pass
-
         return True
 
     memoria.append(
@@ -5313,7 +5465,9 @@ async def responder_com_ia(
 
         return True
 
-    texto = resultado["texto"]
+    texto = reduzir_emojis_ia(
+        resultado["texto"]
+    )
 
     try:
         await message.reply(
@@ -6130,11 +6284,15 @@ async def on_message(
         message
     )
 
+    puniu_por_abuso = await processar_autodefesa_ia(
+        message
+    )
+
     caiu_na_pegadinha = await processar_resposta_caos(
         message
     )
 
-    if not caiu_na_pegadinha:
+    if not caiu_na_pegadinha and not puniu_por_abuso:
         await responder_com_ia(
             message
         )
