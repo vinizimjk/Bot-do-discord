@@ -74,8 +74,27 @@ CHAVE_IA_CAOS_ULTIMA_ACAO = "ia_caos_ultima_acao"
 CHAVE_CANAL_ATUALIZACOES = "canal_atualizacoes_bot_id"
 CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA = "ultima_atualizacao_bot_publicada"
 
-ATUALIZACAO_BOT_ID = "2026-08-18-01"
+ATUALIZACAO_BOT_ID = "2026-08-18-02"
 ATUALIZACAO_BOT_TITULO = "Atualização da Resenha Máxima"
+
+# Respostas de personagem para recusas genéricas da IA.
+# Alterna entre membros conhecidos da Resenha.
+IA_FALLBACK_MACETANDO = [
+    ("Shelby", 1089629818628349962),
+    ("PK", 595754985875308565),
+    ("Draxz", 927746687605280809),
+]
+
+IA_RECUSAS_GENERICAS = (
+    "desculpe, não posso ajudar",
+    "desculpe, mas não posso ajudar",
+    "não posso ajudar com isso",
+    "nao posso ajudar com isso",
+    "não posso ajudar nesse pedido",
+    "não posso atender",
+    "não posso fazer isso",
+    "não posso continuar com isso",
+)
 
 ATUALIZACAO_NOVIDADES = [
     "🤖 IA da Resenha Máxima integrada ao Discord",
@@ -98,6 +117,8 @@ ATUALIZACAO_ALTERACOES = [
     "😂 IA usa menos emojis no fim de cada resposta",
     "🔐 Modo causando só usa canais onde o alvo pode enviar mensagens",
     "🧭 Comandos agora ficam agrupados em /ia, /minecraft, /ban, /enquete, /canal e /funcoes",
+    "📚 Canal de Funções/Sobre mim foi separado definitivamente do histórico de atualizações",
+    "🎭 Recusas genéricas da IA agora viram respostas de personagem alternando Shelby, PK e Draxz",
 ]
 
 ATUALIZACAO_PROBLEMAS_CONHECIDOS = [
@@ -4884,6 +4905,42 @@ async def publicar_atualizacao_automatica():
         print(f"Atualização do bot não publicada | {mensagem}")
 
 
+def resposta_recusa_personagem():
+    nome, usuario_id = random.choice(
+        IA_FALLBACK_MACETANDO
+    )
+
+    # Na maior parte das vezes só usa o nome para não notificar a galera
+    # a cada recusa. Ocasionalmente menciona de verdade.
+    alvo = (
+        f"<@{usuario_id}>"
+        if random.random() < 0.30
+        else nome
+    )
+
+    return (
+        f"agora não dá, tô macetando o {alvo}"
+    )
+
+
+def parece_recusa_generica_ia(
+    texto
+):
+    if not texto:
+        return False
+
+    normalizado = (
+        texto
+        .strip()
+        .casefold()
+    )
+
+    return any(
+        trecho in normalizado
+        for trecho in IA_RECUSAS_GENERICAS
+    )
+
+
 # ==========================================================
 # IA DA RESENHA MÁXIMA — CONVERSA POR MENÇÃO / RESPOSTA
 # ==========================================================
@@ -5595,6 +5652,11 @@ async def responder_com_ia(
     texto = reduzir_emojis_ia(
         resultado["texto"]
     )
+
+    if parece_recusa_generica_ia(
+        texto
+    ):
+        texto = resposta_recusa_personagem()
 
     try:
         await message.reply(
@@ -6748,19 +6810,14 @@ async def antes_da_limpeza_diaria():
 #
 # O bot mantém UMA ÚNICA mensagem nesse canal e a edita.
 #
-# Novidades permanecem em "Última atualização" por 24 horas.
-# Depois disso, sobem automaticamente para "Funções atuais".
-#
-# Em futuras atualizações:
-# - coloque recursos novos em FUNCOES_ULTIMA_ATUALIZACAO;
-# - atualize DATA_ULTIMA_ATUALIZACAO_ISO;
-# - quando algo for removido, mova para FUNCOES_REMOVIDAS.
+# Este canal mostra SOMENTE o que o bot faz atualmente.
+# Changelog, novidades e bugs corrigidos ficam exclusivamente
+# no canal configurado por /atualizacao definircanal.
 # ==========================================================
 
 CHAVE_CANAL_FUNCOES_BOT = "canal_funcoes_bot_id"
 CHAVE_MENSAGEM_FUNCOES_BOT = "mensagem_funcoes_bot_id"
 
-DATA_ULTIMA_ATUALIZACAO_ISO = "2026-08-18T00:08:57-04:00"
 
 FUNCOES_ATUAIS_CATEGORIAS = {
     "🎮 Minecraft": [
@@ -6784,14 +6841,6 @@ FUNCOES_ATUAIS_CATEGORIAS = {
     ],
 }
 
-FUNCOES_ULTIMA_ATUALIZACAO = [
-    "📢 Novo canal de histórico de atualizações do bot",
-    "🆕 Cada versão pode publicar novidades, alterações e bugs corrigidos",
-    "🐛 Problemas conhecidos agora ficam registrados no changelog",
-    "⚙️ Novo grupo /atualizacao para definir canal, publicar e consultar status",
-    "🎭 IA usa cargos de forma menos repetitiva nas zoeiras",
-    "😈 Modo IA causando funciona das 06:00 às 23:00",
-]
 
 FUNCOES_REMOVIDAS = [
     "📩 Aviso por DM quando o Minecraft ficava online — removido após votação",
@@ -6813,21 +6862,6 @@ def obter_canal_funcoes_bot_id():
         return None
 
 
-def data_ultima_atualizacao_funcoes():
-    try:
-        return datetime.fromisoformat(DATA_ULTIMA_ATUALIZACAO_ISO)
-    except ValueError:
-        return datetime.now(timezone.utc)
-
-
-def ultima_atualizacao_em_destaque():
-    agora = datetime.now(timezone.utc)
-    data = data_ultima_atualizacao_funcoes()
-    if data.tzinfo is None:
-        data = data.replace(tzinfo=timezone.utc)
-    return agora < data.astimezone(timezone.utc) + timedelta(hours=24)
-
-
 def texto_funcoes(itens, vazio="Nenhuma no momento."):
     if not itens:
         return vazio
@@ -6835,17 +6869,14 @@ def texto_funcoes(itens, vazio="Nenhuma no momento."):
 
 
 def categorias_funcoes_para_exibir():
-    categorias = {nome: list(itens) for nome, itens in FUNCOES_ATUAIS_CATEGORIAS.items()}
-    novidades = list(FUNCOES_ULTIMA_ATUALIZACAO)
-    if not ultima_atualizacao_em_destaque():
-        categorias.setdefault("🤖 Bot e sistema", []).extend(novidades)
-        novidades = []
-    return categorias, novidades
+    return {
+        nome: list(itens)
+        for nome, itens in FUNCOES_ATUAIS_CATEGORIAS.items()
+    }
 
 
 def criar_embeds_funcoes_bot():
-    categorias, novidades = categorias_funcoes_para_exibir()
-    data = data_ultima_atualizacao_funcoes()
+    categorias = categorias_funcoes_para_exibir()
     embeds = []
 
     apresentacao = discord.Embed(
@@ -6862,23 +6893,6 @@ def criar_embeds_funcoes_bot():
         inline=False
     )
     embeds.append(apresentacao)
-
-    if novidades:
-        fim_destaque = data + timedelta(hours=24)
-        atualizacao = discord.Embed(
-            title="🆕 Última atualização",
-            description=texto_funcoes(novidades),
-            color=discord.Color.orange()
-        )
-        atualizacao.add_field(
-            name="⏳ Depois disso",
-            value=(
-                "Essas novidades entram em **Funções atuais** "
-                f"<t:{int(fim_destaque.timestamp())}:R>."
-            ),
-            inline=False
-        )
-        embeds.append(atualizacao)
 
     for nome, itens in categorias.items():
         embeds.append(
