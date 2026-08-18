@@ -67,6 +67,44 @@ CHAVE_IA_CAOS_ATIVO = "ia_caos_ativo"
 CHAVE_IA_CAOS_PROXIMO_ALVO = "ia_caos_proximo_alvo"
 CHAVE_IA_CAOS_ULTIMA_ACAO = "ia_caos_ultima_acao"
 
+# ==========================================================
+# ATUALIZAÇÕES DO BOT
+# ==========================================================
+
+CHAVE_CANAL_ATUALIZACOES = "canal_atualizacoes_bot_id"
+CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA = "ultima_atualizacao_bot_publicada"
+
+ATUALIZACAO_BOT_ID = "2026-08-18-01"
+ATUALIZACAO_BOT_TITULO = "Atualização da Resenha Máxima"
+
+ATUALIZACAO_NOVIDADES = [
+    "🤖 IA da Resenha Máxima integrada ao Discord",
+    "🧠 IA reconhece nomes, apelidos e cargos reais dos membros",
+    "😈 Modo IA causando com alvo aleatório ou manual",
+    "📊 Enquetes organizadas em Normal, Secreta e Temporária",
+    "🗂️ Slash commands reorganizados por grupos",
+    "📢 Novo canal de histórico de atualizações do bot",
+]
+
+ATUALIZACAO_CORRECOES = [
+    "🎮 Corrigido falso OFFLINE no monitor do Minecraft Bedrock",
+    "📍 Corrigido modo causando usando canal onde o alvo não podia responder",
+    "⚡ Corrigidas falhas de JSON nas respostas da Groq",
+    "🧯 Reduzido o fallback repetitivo de 'tela azul' da IA",
+]
+
+ATUALIZACAO_ALTERACOES = [
+    "🎭 IA usa cargos de forma menos repetitiva nas zoeiras",
+    "😂 IA usa menos emojis no fim de cada resposta",
+    "🔐 Modo causando só usa canais onde o alvo pode enviar mensagens",
+    "🧭 Comandos agora ficam agrupados em /ia, /minecraft, /ban, /enquete, /canal e /funcoes",
+]
+
+ATUALIZACAO_PROBLEMAS_CONHECIDOS = [
+    "🖼️ IA ainda não interpreta visualmente imagens e figurinhas",
+    "🎨 Geração de imagens pela IA ainda não foi implementada",
+]
+
 IA_MEMORIA_MENSAGENS = 10
 IA_MAX_RESPOSTA_CARACTERES = 1600
 IA_COOLDOWN_SEGUNDOS = 8
@@ -4767,6 +4805,86 @@ async def on_member_update(before: discord.Member, after: discord.Member):
 
 
 # ==========================================================
+# ATUALIZAÇÕES DO BOT — HISTÓRICO / CHANGELOG
+# ==========================================================
+
+def obter_canal_atualizacoes_id():
+    valor = obter_estado(CHAVE_CANAL_ATUALIZACOES)
+    if not valor:
+        return None
+    try:
+        return int(valor)
+    except (TypeError, ValueError):
+        return None
+
+
+async def obter_canal_atualizacoes():
+    canal_id = obter_canal_atualizacoes_id()
+    if canal_id is None:
+        return None
+    canal = bot.get_channel(canal_id)
+    if canal is None:
+        try:
+            canal = await bot.fetch_channel(canal_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return None
+    return canal if isinstance(canal, discord.TextChannel) else None
+
+
+def texto_lista_atualizacao(itens, vazio="Nenhum item."):
+    if not itens:
+        return vazio
+    return "\n".join(f"• {item}" for item in itens)
+
+
+def criar_embed_atualizacao_bot():
+    embed = discord.Embed(
+        title=f"🤖 {ATUALIZACAO_BOT_TITULO}",
+        description=(
+            f"**Versão:** `{ATUALIZACAO_BOT_ID}`\n"
+            "Resumo das mudanças desta atualização."
+        ),
+        color=discord.Color.gold(),
+        timestamp=datetime.now(timezone.utc)
+    )
+    embed.add_field(name="🆕 Novidades", value=texto_lista_atualizacao(ATUALIZACAO_NOVIDADES), inline=False)
+    embed.add_field(name="🔧 Bugs corrigidos", value=texto_lista_atualizacao(ATUALIZACAO_CORRECOES), inline=False)
+    embed.add_field(name="♻️ Alterações", value=texto_lista_atualizacao(ATUALIZACAO_ALTERACOES), inline=False)
+    embed.add_field(
+        name="🐛 Problemas conhecidos",
+        value=texto_lista_atualizacao(ATUALIZACAO_PROBLEMAS_CONHECIDOS, "Nenhum problema conhecido registrado."),
+        inline=False
+    )
+    embed.set_footer(text="Resenha Máxima • Histórico de atualizações")
+    return embed
+
+
+async def publicar_atualizacao_bot(*, forcar=False):
+    canal = await obter_canal_atualizacoes()
+    if canal is None:
+        return False, "Canal de atualizações não configurado."
+    ultima = obter_estado(CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA)
+    if not forcar and ultima == ATUALIZACAO_BOT_ID:
+        return False, "Esta atualização já foi publicada."
+    try:
+        await canal.send(embed=criar_embed_atualizacao_bot())
+    except (discord.Forbidden, discord.HTTPException) as erro:
+        return False, f"Não foi possível publicar: {erro}"
+    salvar_estado(CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA, ATUALIZACAO_BOT_ID)
+    return True, "Atualização publicada com sucesso."
+
+
+async def publicar_atualizacao_automatica():
+    if obter_canal_atualizacoes_id() is None:
+        return
+    publicado, mensagem = await publicar_atualizacao_bot(forcar=False)
+    if publicado:
+        print(f"Atualização do bot publicada | versão={ATUALIZACAO_BOT_ID}")
+    elif mensagem != "Esta atualização já foi publicada.":
+        print(f"Atualização do bot não publicada | {mensagem}")
+
+
+# ==========================================================
 # IA DA RESENHA MÁXIMA — CONVERSA POR MENÇÃO / RESPOSTA
 # ==========================================================
 
@@ -6667,12 +6785,12 @@ FUNCOES_ATUAIS_CATEGORIAS = {
 }
 
 FUNCOES_ULTIMA_ATUALIZACAO = [
-    "🗂️ Comandos slash reorganizados em grupos /ia, /minecraft, /ban, /enquete, /canal e /funcoes",
-    "🎭 IA usa cargos em aproximadamente 60% das situações relevantes, sem repetir patente toda hora",
-    "🤖 IA responde em texto normal e não depende mais de JSON",
-    "⚡ Groq faz até 3 tentativas em caso de erro",
+    "📢 Novo canal de histórico de atualizações do bot",
+    "🆕 Cada versão pode publicar novidades, alterações e bugs corrigidos",
+    "🐛 Problemas conhecidos agora ficam registrados no changelog",
+    "⚙️ Novo grupo /atualizacao para definir canal, publicar e consultar status",
+    "🎭 IA usa cargos de forma menos repetitiva nas zoeiras",
     "😈 Modo IA causando funciona das 06:00 às 23:00",
-    "🛡️ Autodefesa da IA pode aplicar timeout por abuso insistente",
 ]
 
 FUNCOES_REMOVIDAS = [
@@ -6936,6 +7054,63 @@ minecraft_grupo = app_commands.Group(
     description="Ferramentas e cadastros do servidor Minecraft"
 )
 
+atualizacao_grupo = app_commands.Group(
+    name="atualizacao",
+    description="Configura e publica o histórico de atualizações do bot"
+)
+
+
+# ==========================================================
+# /ATUALIZACAO
+# ==========================================================
+
+@atualizacao_grupo.command(
+    name="definircanal",
+    description="Define o canal do histórico de atualizações do bot"
+)
+@app_commands.describe(canal="Canal que receberá as atualizações do bot")
+async def atualizacao_definir_canal(interaction: discord.Interaction, canal: discord.TextChannel):
+    if await negar_se_nao_admin(interaction):
+        return
+    salvar_estado(CHAVE_CANAL_ATUALIZACOES, str(canal.id))
+    await interaction.response.send_message(
+        f"✅ Canal de atualizações definido como {canal.mention}.\n\nA versão atual será publicada agora.",
+        ephemeral=True
+    )
+    publicado, mensagem = await publicar_atualizacao_bot(forcar=False)
+    if not publicado:
+        await interaction.followup.send(f"ℹ️ {mensagem}", ephemeral=True)
+
+
+@atualizacao_grupo.command(
+    name="publicar",
+    description="Publica novamente o changelog da versão atual"
+)
+async def atualizacao_publicar(interaction: discord.Interaction):
+    if await negar_se_nao_admin(interaction):
+        return
+    await interaction.response.defer(ephemeral=True)
+    publicado, mensagem = await publicar_atualizacao_bot(forcar=True)
+    await interaction.followup.send(("✅ " if publicado else "❌ ") + mensagem, ephemeral=True)
+
+
+@atualizacao_grupo.command(
+    name="status",
+    description="Mostra a configuração do canal de atualizações"
+)
+async def atualizacao_status(interaction: discord.Interaction):
+    if await negar_se_nao_admin(interaction):
+        return
+    canal_id = obter_canal_atualizacoes_id()
+    ultima = obter_estado(CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA)
+    await interaction.response.send_message(
+        "## 📢 Atualizações do Bot\n"
+        f"**Canal:** {f'<#{canal_id}>' if canal_id else 'Não configurado'}\n"
+        f"**Versão atual:** `{ATUALIZACAO_BOT_ID}`\n"
+        f"**Última versão publicada:** `{ultima or 'Nenhuma'}`",
+        ephemeral=True
+    )
+
 
 # ==========================================================
 # /FUNCOES DEFINIRCANAL
@@ -7063,6 +7238,13 @@ async def atualizarfuncoes(
 
 @bot.event
 async def on_ready():
+    if not getattr(bot, "_atualizacao_bot_verificada", False):
+        bot._atualizacao_bot_verificada = True
+        try:
+            await publicar_atualizacao_automatica()
+        except Exception as erro:
+            print(f"Erro ao verificar publicação automática da atualização: {erro}")
+
     if not ia_caos_automatico.is_running():
         ia_caos_automatico.start()
 
@@ -7678,6 +7860,10 @@ bot.tree.add_command(
 
 bot.tree.add_command(
     minecraft_grupo
+)
+
+bot.tree.add_command(
+    atualizacao_grupo
 )
 
 
