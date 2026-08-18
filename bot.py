@@ -913,6 +913,190 @@ class EnqueteModal(
         )
 
 
+
+# ==========================================================
+# ENQUETE SECRETA
+# ==========================================================
+
+def gerar_embed_enquete_secreta(
+    pergunta,
+    opcoes
+):
+    emojis = ["1️⃣", "2️⃣", "3️⃣"]
+
+    embed = discord.Embed(
+        title="🔒 Enquete secreta",
+        description=(
+            f"## {pergunta}\n\n"
+            "Os votos ficam ocultos durante a votação."
+        ),
+        color=discord.Color.dark_purple()
+    )
+
+    for indice, opcao in enumerate(opcoes):
+        embed.add_field(
+            name=f"{emojis[indice]} {opcao}",
+            value="Vote pelo botão abaixo.",
+            inline=False
+        )
+
+    embed.set_footer(
+        text="O placar não é exibido durante a votação."
+    )
+
+    return embed
+
+
+class EnqueteSecretaView(discord.ui.View):
+    def __init__(
+        self,
+        enquete_id,
+        pergunta,
+        opcoes
+    ):
+        super().__init__(timeout=None)
+
+        self.enquete_id = enquete_id
+        self.pergunta = pergunta
+        self.opcoes = opcoes
+
+        emojis = ["1️⃣", "2️⃣", "3️⃣"]
+
+        for indice, opcao in enumerate(opcoes):
+            botao = discord.ui.Button(
+                label=opcao,
+                emoji=emojis[indice],
+                style=discord.ButtonStyle.primary,
+                custom_id=(
+                    f"voto_secreto_{enquete_id}_{indice}"
+                )
+            )
+
+            async def votar(
+                interaction: discord.Interaction,
+                indice_opcao=indice
+            ):
+                registrar_voto(
+                    self.enquete_id,
+                    interaction.user.id,
+                    indice_opcao
+                )
+
+                await interaction.response.send_message(
+                    "🔒 Seu voto foi registrado em segredo.",
+                    ephemeral=True
+                )
+
+            botao.callback = votar
+            self.add_item(botao)
+
+        remover = discord.ui.Button(
+            label="Remover meu voto",
+            emoji="🗑️",
+            style=discord.ButtonStyle.danger,
+            custom_id=(
+                f"remover_secreto_{enquete_id}"
+            )
+        )
+
+        async def remover_callback(
+            interaction: discord.Interaction
+        ):
+            removido = remover_voto(
+                self.enquete_id,
+                interaction.user.id
+            )
+
+            await interaction.response.send_message(
+                (
+                    "🗑️ Seu voto secreto foi removido."
+                    if removido
+                    else "❌ Você ainda não votou."
+                ),
+                ephemeral=True
+            )
+
+        remover.callback = remover_callback
+        self.add_item(remover)
+
+
+class EnqueteSecretaModal(
+    discord.ui.Modal,
+    title="Criar enquete secreta"
+):
+    pergunta = discord.ui.TextInput(
+        label="Pergunta da enquete",
+        max_length=200
+    )
+
+    opcao1 = discord.ui.TextInput(
+        label="Opção 1",
+        max_length=80
+    )
+
+    opcao2 = discord.ui.TextInput(
+        label="Opção 2",
+        max_length=80
+    )
+
+    opcao3 = discord.ui.TextInput(
+        label="Opção 3 (opcional)",
+        required=False,
+        max_length=80
+    )
+
+    async def on_submit(
+        self,
+        interaction: discord.Interaction
+    ):
+        opcoes = [
+            self.opcao1.value,
+            self.opcao2.value
+        ]
+
+        if self.opcao3.value:
+            opcoes.append(
+                self.opcao3.value
+            )
+
+        enquete_id = (
+            uuid.uuid4().hex[:12]
+        )
+
+        salvar_enquete(
+            enquete_id,
+            self.pergunta.value,
+            opcoes
+        )
+
+        embed = gerar_embed_enquete_secreta(
+            self.pergunta.value,
+            opcoes
+        )
+
+        view = EnqueteSecretaView(
+            enquete_id,
+            self.pergunta.value,
+            opcoes
+        )
+
+        await interaction.response.send_message(
+            "✅ Enquete secreta criada!",
+            ephemeral=True
+        )
+
+        mensagem = await interaction.channel.send(
+            embed=embed,
+            view=view
+        )
+
+        atualizar_mensagem_enquete(
+            enquete_id,
+            interaction.channel.id,
+            mensagem.id
+        )
+
+
 # ==========================================================
 # BAN / HACKBAN - BANCO
 # ==========================================================
@@ -4198,7 +4382,7 @@ async def antes_da_limpeza_diaria():
 CHAVE_CANAL_FUNCOES_BOT = "canal_funcoes_bot_id"
 CHAVE_MENSAGEM_FUNCOES_BOT = "mensagem_funcoes_bot_id"
 
-DATA_ULTIMA_ATUALIZACAO_ISO = "2026-08-17T11:17:00-04:00"
+DATA_ULTIMA_ATUALIZACAO_ISO = "2026-08-17T22:42:00-04:00"
 
 FUNCOES_ATUAIS_CATEGORIAS = {
     "🎮 Minecraft": [
@@ -4223,9 +4407,9 @@ FUNCOES_ATUAIS_CATEGORIAS = {
 }
 
 FUNCOES_ULTIMA_ATUALIZACAO = [
-    "📱 Ficha de funções reorganizada para leitura no celular",
-    "🧹 Aviso após a limpeza do canal de comandos",
-    "3️⃣ O aviso de limpeza some após 3 novas mensagens",
+    "🔒 Nova enquete secreta com votos e placar ocultos",
+    "🤖 Ficha oficial renomeada para Funções do Bot",
+    "🧹 Aviso após a limpeza some depois de 3 novas mensagens",
 ]
 
 FUNCOES_REMOVIDAS = [
@@ -4284,7 +4468,7 @@ def criar_embeds_funcoes_bot():
     embeds = []
 
     apresentacao = discord.Embed(
-        title="🤖 Para que eu sirvo?",
+        title="🤖 Funções do Bot",
         description=(
             "Sou o bot oficial da **Resenha Máxima**.\n\n"
             "Automatizo sistemas, ajudo a equipe e mantenho o servidor organizado."
@@ -4804,6 +4988,28 @@ async def limparcomandos(
         f"({interaction.user.id})"
     )
 
+
+
+
+# ==========================================================
+# /ENQUETASECRETA
+# ==========================================================
+
+@bot.tree.command(
+    name="enquetasecreta",
+    description="Cria uma enquete com votos e placar ocultos"
+)
+async def enquetasecreta(
+    interaction: discord.Interaction
+):
+    if await negar_se_nao_admin(
+        interaction
+    ):
+        return
+
+    await interaction.response.send_modal(
+        EnqueteSecretaModal()
+    )
 
 
 # ==========================================================
