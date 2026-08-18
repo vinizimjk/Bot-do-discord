@@ -142,17 +142,15 @@ CONTEXTO DO SERVIDOR:
   limpeza de canal e outras automações.
 - Se não souber algo específico sobre o servidor, admita que não sabe.
 
-FORMATO OBRIGATÓRIO:
-Responda SOMENTE com um objeto JSON válido, sem markdown e sem texto fora dele.
-
-Para responder com texto:
-{"acao":"responder","texto":"sua resposta","emoji":""}
-
-Quando apenas reagir à mensagem fizer mais sentido:
-{"acao":"reagir","texto":"","emoji":"😂"}
-
-Use em "emoji" apenas UM destes:
-😂 💀 🤨 👀 👑 😭 🔥 🤝 😎 🫡 ❤️ 👍 😈 🙄 🤣
+FORMATO DE RESPOSTA:
+- Normalmente responda apenas com o texto que será enviado no Discord.
+- Não use JSON.
+- Não use markdown desnecessário.
+- Se achar que uma reação é melhor que uma resposta em texto,
+  responda EXATAMENTE neste formato:
+  REAGIR: 😂
+- Para reação, use apenas UM destes emojis:
+  😂 💀 🤨 👀 👑 😭 🔥 🤝 😎 🫡 ❤️ 👍 😈 🙄 🤣
 """.strip()
 
 groq_client = (
@@ -5122,64 +5120,53 @@ def contexto_social_ia(
 def extrair_resposta_ia(
     conteudo
 ):
+    """
+    A Groq agora responde em texto normal.
+    Se quiser apenas reagir, ela usa: REAGIR: 😂
+    """
     conteudo = str(
         conteudo or ""
     ).strip()
 
-    try:
-        dados = json.loads(
-            conteudo
-        )
-    except json.JSONDecodeError:
-        return {
-            "acao": "responder",
-            "texto": conteudo,
-            "emoji": "",
-        }
-
-    acao = str(
-        dados.get(
-            "acao",
-            "responder"
-        )
-    ).strip().lower()
-
-    texto = str(
-        dados.get(
-            "texto",
-            ""
-        )
-        or ""
-    ).strip()
-
-    emoji = str(
-        dados.get(
-            "emoji",
-            ""
-        )
-        or ""
-    ).strip()
-
-    if (
-        acao == "reagir"
-        and emoji in EMOJIS_REACAO_IA
-    ):
+    if not conteudo:
         return {
             "acao": "reagir",
             "texto": "",
-            "emoji": emoji,
+            "emoji": "🤨",
         }
 
-    if not texto:
-        texto = (
-            emoji
-            if emoji in EMOJIS_REACAO_IA
-            else "fala comigo direito que eu respondo 😂"
-        )
+    match = re.fullmatch(
+        r"REAGIR:\s*(\S+)",
+        conteudo,
+        flags=re.IGNORECASE
+    )
+
+    if match:
+        emoji = match.group(1).strip()
+
+        if emoji in EMOJIS_REACAO_IA:
+            return {
+                "acao": "reagir",
+                "texto": "",
+                "emoji": emoji,
+            }
+
+    # Remove cercas de código caso o modelo invente uma.
+    conteudo = re.sub(
+        r"^```(?:text)?\s*",
+        "",
+        conteudo,
+        flags=re.IGNORECASE
+    )
+    conteudo = re.sub(
+        r"\s*```$",
+        "",
+        conteudo
+    )
 
     return {
         "acao": "responder",
-        "texto": texto[
+        "texto": conteudo[
             :IA_MAX_RESPOSTA_CARACTERES
         ],
         "emoji": "",
@@ -5401,8 +5388,7 @@ async def responder_com_ia(
                         model=GROQ_MODEL,
                         messages=mensagens,
                         temperature=1.02,
-                        max_completion_tokens=300,
-                        response_format={"type": "json_object"},
+                        max_completion_tokens=650,
                     )
                     break
                 except Exception as erro:
@@ -5952,232 +5938,33 @@ async def antes_ia_caos_automatico():
 
 
 # ==========================================================
-# /CONFIGURARIA
+# /IA — COMANDOS ORGANIZADOS
 # ==========================================================
 
-@bot.tree.command(
-    name="configuraria",
-    description="Ativa, desativa ou configura a IA da Resenha Máxima"
+ia_grupo = app_commands.Group(
+    name="ia",
+    description="Configura a IA da Resenha Máxima"
 )
-@app_commands.describe(
-    acao="O que deseja fazer com a IA",
-    canal="Canal exclusivo para a IA (opcional)",
-    membro="Membro usado como próximo alvo manual (opcional)"
-)
-@app_commands.choices(
-    acao=[
-        app_commands.Choice(
-            name="Ativar IA",
-            value="ativar"
-        ),
-        app_commands.Choice(
-            name="Desativar IA",
-            value="desativar"
-        ),
-        app_commands.Choice(
-            name="Definir canal",
-            value="canal"
-        ),
-        app_commands.Choice(
-            name="Liberar em todos os canais",
-            value="todos"
-        ),
-        app_commands.Choice(
-            name="Ver status",
-            value="status"
-        ),
-        app_commands.Choice(
-            name="Limpar memória",
-            value="memoria"
-        ),
-        app_commands.Choice(
-            name="Ativar modo causando",
-            value="caos_on"
-        ),
-        app_commands.Choice(
-            name="Desativar modo causando",
-            value="caos_off"
-        ),
-        app_commands.Choice(
-            name="Definir próximo alvo",
-            value="alvo"
-        ),
-        app_commands.Choice(
-            name="Limpar próximo alvo",
-            value="alvo_limpar"
-        ),
-    ]
-)
-async def configuraria(
-    interaction: discord.Interaction,
-    acao: app_commands.Choice[str],
-    canal: discord.TextChannel | None = None,
-    membro: discord.Member | None = None
+
+
+async def verificar_admin_ia(
+    interaction: discord.Interaction
 ):
-    if await negar_se_nao_admin(
+    return not await negar_se_nao_admin(
+        interaction
+    )
+
+
+@ia_grupo.command(
+    name="status",
+    description="Mostra as configurações atuais da IA"
+)
+async def ia_status(
+    interaction: discord.Interaction
+):
+    if not await verificar_admin_ia(
         interaction
     ):
-        return
-
-    escolha = acao.value
-
-    if escolha == "ativar":
-        if not GROQ_API_KEY:
-            await interaction.response.send_message(
-                "❌ `GROQ_API_KEY` não foi encontrada "
-                "nas variáveis do bot.",
-                ephemeral=True
-            )
-            return
-
-        salvar_estado(
-            CHAVE_IA_ATIVA,
-            "1"
-        )
-
-        await interaction.response.send_message(
-            "🤖 IA da Resenha Máxima ativada.",
-            ephemeral=True
-        )
-        return
-
-    if escolha == "desativar":
-        salvar_estado(
-            CHAVE_IA_ATIVA,
-            "0"
-        )
-
-        await interaction.response.send_message(
-            "😴 IA da Resenha Máxima desativada.",
-            ephemeral=True
-        )
-        return
-
-    if escolha == "canal":
-        if canal is None:
-            await interaction.response.send_message(
-                "❌ Escolha também o canal.",
-                ephemeral=True
-            )
-            return
-
-        salvar_estado(
-            CHAVE_CANAL_IA,
-            str(canal.id)
-        )
-
-        await interaction.response.send_message(
-            f"✅ Agora a IA responde somente em "
-            f"{canal.mention}.",
-            ephemeral=True
-        )
-        return
-
-    if escolha == "todos":
-        salvar_estado(
-            CHAVE_CANAL_IA,
-            ""
-        )
-
-        await interaction.response.send_message(
-            "🌐 A IA pode responder em qualquer canal "
-            "quando for mencionada ou receber uma resposta.",
-            ephemeral=True
-        )
-        return
-
-    if escolha == "memoria":
-        _memoria_ia.clear()
-
-        await interaction.response.send_message(
-            "🧠 Memória curta da IA apagada.",
-            ephemeral=True
-        )
-        return
-
-    if escolha == "caos_on":
-        salvar_estado(
-            CHAVE_IA_CAOS_ATIVO,
-            "1"
-        )
-
-        await interaction.response.send_message(
-            "😈 Modo **IA causando** ativado. "
-            "Ele pode agir automaticamente das "
-            f"**{IA_CAOS_HORA_INICIO:02d}:00 às "
-            f"{IA_CAOS_HORA_FIM:02d}:00**.",
-            ephemeral=True
-        )
-        return
-
-    if escolha == "caos_off":
-        salvar_estado(
-            CHAVE_IA_CAOS_ATIVO,
-            "0"
-        )
-
-        task = _ia_caos_estado.get(
-            "task"
-        )
-
-        if (
-            task is not None
-            and not task.done()
-        ):
-            task.cancel()
-
-        limpar_estado_caos()
-
-        await interaction.response.send_message(
-            "😴 Modo **IA causando** desativado.",
-            ephemeral=True
-        )
-        return
-
-    if escolha == "alvo":
-        if membro is None:
-            await interaction.response.send_message(
-                "❌ Escolha também o membro que será "
-                "o próximo alvo.",
-                ephemeral=True
-            )
-            return
-
-        if membro.bot:
-            await interaction.response.send_message(
-                "❌ Bot zoando bot já é reunião de condomínio. "
-                "Escolha uma pessoa 😂",
-                ephemeral=True
-            )
-            return
-
-        salvar_estado(
-            CHAVE_IA_CAOS_PROXIMO_ALVO,
-            str(
-                membro.id
-            )
-        )
-
-        await interaction.response.send_message(
-            f"🎯 Próximo alvo manual definido: "
-            f"{membro.mention}.\n"
-            "Quando o modo causando puder agir e ele "
-            "estiver online... já era 💀",
-            ephemeral=True
-        )
-        return
-
-    if escolha == "alvo_limpar":
-        salvar_estado(
-            CHAVE_IA_CAOS_PROXIMO_ALVO,
-            ""
-        )
-
-        await interaction.response.send_message(
-            "🧹 Próximo alvo manual removido. "
-            "Voltei pro sorteio da vítima 😂",
-            ephemeral=True
-        )
         return
 
     canal_id = canal_ia_configurado()
@@ -6187,6 +5974,8 @@ async def configuraria(
         if canal_id
         else "Todos os canais"
     )
+
+    alvo_id = ia_caos_proximo_alvo_id()
 
     await interaction.response.send_message(
         (
@@ -6203,15 +5992,251 @@ async def configuraria(
             f"**Horário causando:** "
             f"{IA_CAOS_HORA_INICIO:02d}:00–"
             f"{IA_CAOS_HORA_FIM:02d}:00\n"
-            f"**Próximo alvo manual:** "
+            f"**Próximo alvo:** "
             + (
-                f"<@{ia_caos_proximo_alvo_id()}>"
-                if ia_caos_proximo_alvo_id()
+                f"<@{alvo_id}>"
+                if alvo_id
                 else "Nenhum"
             )
         ),
         ephemeral=True
     )
+
+
+@ia_grupo.command(
+    name="ativar",
+    description="Ativa as respostas da IA"
+)
+async def ia_ativar(
+    interaction: discord.Interaction
+):
+    if not await verificar_admin_ia(
+        interaction
+    ):
+        return
+
+    if not GROQ_API_KEY:
+        await interaction.response.send_message(
+            "❌ `GROQ_API_KEY` não foi encontrada "
+            "nas variáveis do bot.",
+            ephemeral=True
+        )
+        return
+
+    salvar_estado(
+        CHAVE_IA_ATIVA,
+        "1"
+    )
+
+    await interaction.response.send_message(
+        "🤖 IA da Resenha Máxima ativada.",
+        ephemeral=True
+    )
+
+
+@ia_grupo.command(
+    name="desativar",
+    description="Desativa as respostas da IA"
+)
+async def ia_desativar(
+    interaction: discord.Interaction
+):
+    if not await verificar_admin_ia(
+        interaction
+    ):
+        return
+
+    salvar_estado(
+        CHAVE_IA_ATIVA,
+        "0"
+    )
+
+    await interaction.response.send_message(
+        "😴 IA da Resenha Máxima desativada.",
+        ephemeral=True
+    )
+
+
+@ia_grupo.command(
+    name="canal",
+    description="Define um canal exclusivo para conversar com a IA"
+)
+@app_commands.describe(
+    canal="Canal em que a IA poderá responder"
+)
+async def ia_canal(
+    interaction: discord.Interaction,
+    canal: discord.TextChannel
+):
+    if not await verificar_admin_ia(
+        interaction
+    ):
+        return
+
+    salvar_estado(
+        CHAVE_CANAL_IA,
+        str(canal.id)
+    )
+
+    await interaction.response.send_message(
+        f"✅ A IA agora responde somente em "
+        f"{canal.mention}.",
+        ephemeral=True
+    )
+
+
+@ia_grupo.command(
+    name="todososcanais",
+    description="Libera a IA para responder em qualquer canal"
+)
+async def ia_todos_os_canais(
+    interaction: discord.Interaction
+):
+    if not await verificar_admin_ia(
+        interaction
+    ):
+        return
+
+    salvar_estado(
+        CHAVE_CANAL_IA,
+        ""
+    )
+
+    await interaction.response.send_message(
+        "🌐 A IA pode responder em qualquer canal "
+        "quando for mencionada ou receber reply.",
+        ephemeral=True
+    )
+
+
+@ia_grupo.command(
+    name="limparmemoria",
+    description="Apaga a memória curta das conversas da IA"
+)
+async def ia_limpar_memoria(
+    interaction: discord.Interaction
+):
+    if not await verificar_admin_ia(
+        interaction
+    ):
+        return
+
+    _memoria_ia.clear()
+
+    await interaction.response.send_message(
+        "🧠 Memória curta da IA apagada.",
+        ephemeral=True
+    )
+
+
+@ia_grupo.command(
+    name="causando",
+    description="Ativa ou desativa o modo IA causando"
+)
+@app_commands.describe(
+    ativar="True para ativar, False para desativar"
+)
+async def ia_causando(
+    interaction: discord.Interaction,
+    ativar: bool
+):
+    if not await verificar_admin_ia(
+        interaction
+    ):
+        return
+
+    salvar_estado(
+        CHAVE_IA_CAOS_ATIVO,
+        "1" if ativar else "0"
+    )
+
+    if not ativar:
+        task = _ia_caos_estado.get(
+            "task"
+        )
+
+        if (
+            task is not None
+            and not task.done()
+        ):
+            task.cancel()
+
+        limpar_estado_caos()
+
+    await interaction.response.send_message(
+        (
+            "😈 Modo **IA causando** ativado. "
+            f"Horário: {IA_CAOS_HORA_INICIO:02d}:00–"
+            f"{IA_CAOS_HORA_FIM:02d}:00."
+            if ativar
+            else "😴 Modo **IA causando** desativado."
+        ),
+        ephemeral=True
+    )
+
+
+@ia_grupo.command(
+    name="proximoalvo",
+    description="Escolhe manualmente o próximo alvo do modo causando"
+)
+@app_commands.describe(
+    membro="Membro que será o próximo alvo"
+)
+async def ia_proximo_alvo(
+    interaction: discord.Interaction,
+    membro: discord.Member
+):
+    if not await verificar_admin_ia(
+        interaction
+    ):
+        return
+
+    if membro.bot:
+        await interaction.response.send_message(
+            "❌ Escolha uma pessoa, não outro bot 😂",
+            ephemeral=True
+        )
+        return
+
+    salvar_estado(
+        CHAVE_IA_CAOS_PROXIMO_ALVO,
+        str(membro.id)
+    )
+
+    await interaction.response.send_message(
+        f"🎯 Próximo alvo: {membro.mention}. "
+        "Quando estiver online e o modo puder agir... já era 💀",
+        ephemeral=True
+    )
+
+
+@ia_grupo.command(
+    name="limparalvo",
+    description="Remove o próximo alvo manual do modo causando"
+)
+async def ia_limpar_alvo(
+    interaction: discord.Interaction
+):
+    if not await verificar_admin_ia(
+        interaction
+    ):
+        return
+
+    salvar_estado(
+        CHAVE_IA_CAOS_PROXIMO_ALVO,
+        ""
+    )
+
+    await interaction.response.send_message(
+        "🧹 Alvo manual removido. "
+        "O próximo volta a ser sorteado.",
+        ephemeral=True
+    )
+
+
+bot.tree.add_command(
+    ia_grupo
+)
 
 
 @bot.event
@@ -6546,12 +6571,13 @@ FUNCOES_ATUAIS_CATEGORIAS = {
 }
 
 FUNCOES_ULTIMA_ATUALIZACAO = [
-    "🤖 IA da Resenha Máxima responde quando é mencionada ou recebe reply",
-    "😂 IA pode conversar, zoar e reagir com emojis conforme o contexto",
-    "🧠 Memória curta mantém o contexto recente da conversa",
-    "⚙️ /configuraria controla ativação, canal e memória da IA",
+    "🤖 IA agora responde em texto normal, sem depender de JSON",
+    "⚡ Groq faz até 3 tentativas e tem mais espaço de resposta",
+    "🧭 Comandos da IA reorganizados no grupo /ia",
+    "🧠 IA reconhece nomes, apelidos e cargos reais dos membros",
+    "😈 Modo IA causando funciona das 06:00 às 23:00",
+    "🛡️ Autodefesa da IA pode aplicar timeout por abuso insistente",
     "📊 /criarenquete unifica enquetes Normal, Secreta e Temporária",
-    "🎮 Monitor Bedrock reforçado para evitar falso OFFLINE no Aternos",
 ]
 
 FUNCOES_REMOVIDAS = [
