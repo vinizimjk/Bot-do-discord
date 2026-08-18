@@ -5605,8 +5605,39 @@ def membro_esta_online_para_caos(
 
 
 async def escolher_canal_caos(
-    guild: discord.Guild
+    guild: discord.Guild,
+    alvo: discord.Member | None = None
 ):
+    """
+    Escolhe um canal em que o alvo consiga realmente responder.
+
+    Evita canais de entrada, regras, anúncios ou qualquer canal
+    em que o membro não tenha permissão de enviar mensagens.
+    """
+
+    def canal_valido(
+        canal
+    ):
+        if not isinstance(
+            canal,
+            discord.TextChannel
+        ):
+            return False
+
+        if alvo is None:
+            return True
+
+        permissoes = canal.permissions_for(
+            alvo
+        )
+
+        return (
+            permissoes.view_channel
+            and permissoes.read_message_history
+            and permissoes.send_messages
+        )
+
+    # 1) Canal configurado manualmente para a IA.
     canal_id = canal_ia_configurado()
 
     if canal_id:
@@ -5614,29 +5645,68 @@ async def escolher_canal_caos(
             canal_id
         )
 
-        if isinstance(
-            canal,
-            discord.TextChannel
+        if canal_valido(
+            canal
         ):
             return canal
 
-    # Se não houver canal exclusivo da IA,
-    # usa o chat geral já detectado pelo bot.
+    # 2) Procura explicitamente canais com nome de chat geral/resenha.
+    nomes_preferidos = (
+        "chat-da-resenha",
+        "chat da resenha",
+        "geral",
+        "chat-geral",
+        "chat geral",
+    )
+
+    for nome in nomes_preferidos:
+        for canal in guild.text_channels:
+            nome_canal = (
+                canal.name
+                .casefold()
+                .replace("_", "-")
+            )
+
+            if (
+                nome in nome_canal
+                and canal_valido(
+                    canal
+                )
+            ):
+                return canal
+
+    # 3) Usa o detector antigo somente se o alvo puder responder.
     canal = await obter_chat_geral(
         guild
     )
 
-    if isinstance(
-        canal,
-        discord.TextChannel
+    if canal_valido(
+        canal
     ):
         return canal
 
-    if isinstance(
-        guild.system_channel,
-        discord.TextChannel
-    ):
-        return guild.system_channel
+    # 4) Último recurso: primeiro canal normal onde o alvo pode falar.
+    for canal in guild.text_channels:
+        nome = canal.name.casefold()
+
+        if any(
+            termo in nome
+            for termo in (
+                "regra",
+                "entrada",
+                "anuncio",
+                "anúncio",
+                "log",
+                "ticket",
+                "status",
+            )
+        ):
+            continue
+
+        if canal_valido(
+            canal
+        ):
+            return canal
 
     return None
 
@@ -5933,7 +6003,8 @@ async def ia_caos_automatico():
             continue
 
         canal = await escolher_canal_caos(
-            guild
+            guild,
+            alvo
         )
 
         if canal is None:
@@ -6015,6 +6086,8 @@ async def ia_status(
             f"**Horário causando:** "
             f"{IA_CAOS_HORA_INICIO:02d}:00–"
             f"{IA_CAOS_HORA_FIM:02d}:00\n"
+            f"**Canal do causando:** "
+            f"{canal_texto} (somente se o alvo puder falar)\n"
             f"**Próximo alvo:** "
             + (
                 f"<@{alvo_id}>"
