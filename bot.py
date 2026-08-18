@@ -114,6 +114,10 @@ PERSONALIDADE:
   pode brincar com medo de tomar ban, tipo "tá maluco? o cara é ADM Geral,
   se eu xingar ele dá ban em nós dois 💀". Em outras vezes, pode zoar
   normalmente. Varie para não ficar injusto ou repetitivo.
+- NÃO fique repetindo o cargo da pessoa em toda resposta.
+- O contexto de cada mensagem dirá quando você pode mencionar cargos.
+  Quando disser para não mencionar, obedeça e não use termos como
+  "Sub civil", "ADM", "DEV" ou qualquer patente na resposta.
 - Se reconhecer um membro pelo nome/apelido fornecido no contexto,
   use a menção real <@ID> quando fizer sentido.
 - Ao mesmo tempo, quando a pergunta for séria, responda com inteligência,
@@ -5107,9 +5111,28 @@ def contexto_social_ia(
                 )
             )
 
+    # Para não jogar o cargo na cara em toda resposta:
+    # cerca de 60% das interações permitem citar cargo/hierarquia.
+    mencionar_cargo = (
+        random.random() < 0.60
+    )
+
+    if mencionar_cargo:
+        linhas.append(
+            "Nesta resposta, você PODE mencionar o cargo/hierarquia "
+            "de alguém se isso deixar a zoeira mais natural. "
+            "Não é obrigatório e não repita o cargo várias vezes."
+        )
+    else:
+        linhas.append(
+            "Nesta resposta, NÃO mencione cargo, patente, hierarquia "
+            "ou 'Sub civil'. Converse normalmente sem usar cargo na piada."
+        )
+
     linhas.append(
         "Os cargos acima são dados reais do Discord. "
-        "Use-os apenas como contexto social/hierárquico para a conversa."
+        "Use-os apenas como contexto; nunca transforme o cargo "
+        "no assunto principal de toda conversa."
     )
 
     return "\n".join(
@@ -6571,13 +6594,12 @@ FUNCOES_ATUAIS_CATEGORIAS = {
 }
 
 FUNCOES_ULTIMA_ATUALIZACAO = [
-    "🤖 IA agora responde em texto normal, sem depender de JSON",
-    "⚡ Groq faz até 3 tentativas e tem mais espaço de resposta",
-    "🧭 Comandos da IA reorganizados no grupo /ia",
-    "🧠 IA reconhece nomes, apelidos e cargos reais dos membros",
+    "🗂️ Comandos slash reorganizados em grupos /ia, /minecraft, /ban, /enquete, /canal e /funcoes",
+    "🎭 IA usa cargos em aproximadamente 60% das situações relevantes, sem repetir patente toda hora",
+    "🤖 IA responde em texto normal e não depende mais de JSON",
+    "⚡ Groq faz até 3 tentativas em caso de erro",
     "😈 Modo IA causando funciona das 06:00 às 23:00",
     "🛡️ Autodefesa da IA pode aplicar timeout por abuso insistente",
-    "📊 /criarenquete unifica enquetes Normal, Secreta e Temporária",
 ]
 
 FUNCOES_REMOVIDAS = [
@@ -6813,15 +6835,42 @@ async def antes_de_atualizar_funcoes_bot():
 
 
 # ==========================================================
-# /DEFINIRCANALFUNCOES
+# GRUPOS DE COMANDOS
 # ==========================================================
 
-@bot.tree.command(
-    name="definircanalfuncoes",
-    description=(
-        "Define o canal da ficha "
-        "de funções do bot"
-    )
+funcoes_grupo = app_commands.Group(
+    name="funcoes",
+    description="Configura a ficha de Funções do Bot"
+)
+
+canal_grupo = app_commands.Group(
+    name="canal",
+    description="Configura e limpa canais administrados pelo bot"
+)
+
+enquete_grupo = app_commands.Group(
+    name="enquete",
+    description="Cria e gerencia enquetes"
+)
+
+ban_grupo = app_commands.Group(
+    name="ban",
+    description="Ferramentas da equipe de Ban / Hackban"
+)
+
+minecraft_grupo = app_commands.Group(
+    name="minecraft",
+    description="Ferramentas e cadastros do servidor Minecraft"
+)
+
+
+# ==========================================================
+# /FUNCOES DEFINIRCANAL
+# ==========================================================
+
+@funcoes_grupo.command(
+    name="definircanal",
+    description="Define o canal da ficha de funções do bot"
 )
 @app_commands.describe(
     canal=(
@@ -6891,15 +6940,12 @@ async def definircanalfuncoes(
 
 
 # ==========================================================
-# /ATUALIZARFUNCOES
+# /FUNCOES ATUALIZAR
 # ==========================================================
 
-@bot.tree.command(
-    name="atualizarfuncoes",
-    description=(
-        "Atualiza manualmente "
-        "a ficha de funções do bot"
-    )
+@funcoes_grupo.command(
+    name="atualizar",
+    description="Atualiza manualmente a ficha de funções do bot"
 )
 async def atualizarfuncoes(
     interaction: discord.Interaction
@@ -7030,15 +7076,12 @@ async def on_ready():
 
 
 # ==========================================================
-# /DEFINIRCANALCOMANDOS
+# /CANAL DEFINIRCOMANDOS
 # ==========================================================
 
-@bot.tree.command(
-    name="definircanalcomandos",
-    description=(
-        "Define o canal que será limpo "
-        "automaticamente todos os dias"
-    )
+@canal_grupo.command(
+    name="definircomandos",
+    description="Define o canal limpo automaticamente todos os dias"
 )
 @app_commands.describe(
     canal=(
@@ -7095,15 +7138,12 @@ async def definircanalcomandos(
 
 
 # ==========================================================
-# /LIMPARCOMANDOS
+# /CANAL LIMPARCOMANDOS
 # ==========================================================
 
-@bot.tree.command(
+@canal_grupo.command(
     name="limparcomandos",
-    description=(
-        "Limpa manualmente o canal "
-        "de comandos configurado"
-    )
+    description="Limpa manualmente o canal de comandos configurado"
 )
 async def limparcomandos(
     interaction: discord.Interaction
@@ -7118,7 +7158,7 @@ async def limparcomandos(
     if canal is None:
         await interaction.response.send_message(
             "❌ O canal de comandos ainda não foi configurado.\n"
-            "Use `/definircanalcomandos` primeiro.",
+            "Use `/canal definircomandos` primeiro.",
             ephemeral=True
         )
         return
@@ -7166,11 +7206,11 @@ async def limparcomandos(
 
 
 # ==========================================================
-# /CRIAR_ENQUETE
+# /ENQUETE CRIAR
 # ==========================================================
 
-@bot.tree.command(
-    name="criarenquete",
+@enquete_grupo.command(
+    name="criar",
     description="Cria uma enquete normal, secreta ou temporária"
 )
 async def criarenquete(
@@ -7203,14 +7243,12 @@ async def criarenquete(
 
 
 # ==========================================================
-# /PAINELBAN
+# /BAN PAINEL
 # ==========================================================
 
-@bot.tree.command(
-    name="painelban",
-    description=(
-        "Envia o painel da Equipe de Ban"
-    )
+@ban_grupo.command(
+    name="painel",
+    description="Envia o painel da Equipe de Ban"
 )
 async def painelban(
     interaction: discord.Interaction
@@ -7255,11 +7293,11 @@ async def painelban(
 
 
 # ==========================================================
-# /SOLICITARBAN
+# /BAN SOLICITAR
 # ==========================================================
 
-@bot.tree.command(
-    name="solicitarban",
+@ban_grupo.command(
+    name="solicitar",
     description="Solicita um Ban diretamente"
 )
 @app_commands.describe(
@@ -7299,10 +7337,10 @@ async def solicitarban(
 
 
 # ==========================================================
-# /SINCRONIZARNICKS
+# /MINECRAFT SINCRONIZARNICKS
 # ==========================================================
 
-@bot.tree.command(
+@minecraft_grupo.command(
     name="sincronizarnicks",
     description="Verifica membros do cargo Minecraft sem nickname cadastrado"
 )
@@ -7318,15 +7356,12 @@ async def sincronizarnicks(interaction: discord.Interaction):
 
 
 # ==========================================================
-# /SOLICITARNICKNOVAMENTE
+# /MINECRAFT SOLICITARNICK
 # ==========================================================
 
-@bot.tree.command(
-    name="solicitarnicknovamente",
-    description=(
-        "Invalida o nickname atual "
-        "e pede um novo cadastro"
-    )
+@minecraft_grupo.command(
+    name="solicitarnick",
+    description="Invalida o nickname atual e pede um novo cadastro"
 )
 @app_commands.describe(
     usuario=(
@@ -7417,15 +7452,12 @@ async def solicitarnicknovamente(
 
 
 # ==========================================================
-# /ADICIONARNICKMANUAL
+# /MINECRAFT ADICIONARNICK
 # ==========================================================
 
-@bot.tree.command(
-    name="adicionarnickmanual",
-    description=(
-        "Cadastra um nickname manualmente "
-        "sem validação externa"
-    )
+@minecraft_grupo.command(
+    name="adicionarnick",
+    description="Cadastra um nickname manualmente sem validação externa"
 )
 @app_commands.describe(
     usuario="Membro que receberá o nickname",
@@ -7513,15 +7545,12 @@ async def adicionarnickmanual(
 
 
 # ==========================================================
-# /STATUSMINECRAFT
+# /MINECRAFT STATUS
 # ==========================================================
 
-@bot.tree.command(
-    name="statusminecraft",
-    description=(
-        "Verifica se o servidor Minecraft "
-        "está acessível agora"
-    )
+@minecraft_grupo.command(
+    name="status",
+    description="Verifica se o servidor Minecraft está acessível agora"
 )
 async def statusminecraft(
     interaction: discord.Interaction
@@ -7552,6 +7581,31 @@ async def statusminecraft(
         mensagem,
         ephemeral=True
     )
+
+
+# ==========================================================
+# REGISTRO DOS GRUPOS DE COMANDOS
+# ==========================================================
+
+bot.tree.add_command(
+    funcoes_grupo
+)
+
+bot.tree.add_command(
+    canal_grupo
+)
+
+bot.tree.add_command(
+    enquete_grupo
+)
+
+bot.tree.add_command(
+    ban_grupo
+)
+
+bot.tree.add_command(
+    minecraft_grupo
+)
 
 
 # ==========================================================
