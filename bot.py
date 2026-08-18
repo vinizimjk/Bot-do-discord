@@ -20,7 +20,7 @@ from mcstatus import JavaServer, BedrockServer
 
 DONO_ID = 1455937306400653344
 CANAL_APROVACAO_ID = 1536073451633254420
-PAINEL_MENU_URL = "https://painel-menu-bot-production.up.railway.app"
+PAINEL_MENU_URL = "https://resenha-maxima.up.railway.app"
 
 CARGO_MINECRAFT_ID = 1534006899371147304
 CANAL_STATUS_MINECRAFT_ID = 1538109074779144253
@@ -130,6 +130,23 @@ def criar_banco():
                 ativa INTEGER DEFAULT 1
             )
         """)
+
+        novas_colunas_enquete = {
+            "tipo": "TEXT DEFAULT 'normal'",
+            "encerra_em": "TEXT",
+            "finalizada_em": "TEXT",
+        }
+
+        for coluna, definicao in novas_colunas_enquete.items():
+            if not coluna_existe(
+                cursor,
+                "enquetes_v2",
+                coluna
+            ):
+                cursor.execute(
+                    "ALTER TABLE enquetes_v2 "
+                    f"ADD COLUMN {coluna} {definicao}"
+                )
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS votos_v2 (
@@ -425,13 +442,40 @@ def tem_ban_pendente_com_castigo(guild_id, usuario_id):
 
 
 # ==========================================================
-# ENQUETES - BANCO
+# ENQUETES — SISTEMA UNIFICADO
 # ==========================================================
+
+TIPOS_ENQUETE = {
+    "normal": {
+        "nome": "📊 Enquete Normal",
+        "descricao": (
+            "Os votos, porcentagens e o resultado "
+            "ficam visíveis durante a votação."
+        ),
+    },
+    "secreta": {
+        "nome": "🔒 Enquete Secreta",
+        "descricao": (
+            "Ninguém vê a quantidade de votos nem "
+            "quem está ganhando enquanto ela estiver aberta."
+        ),
+    },
+    "temporaria": {
+        "nome": "⏱️ Enquete Temporária",
+        "descricao": (
+            "Funciona por um tempo definido e é "
+            "encerrada automaticamente."
+        ),
+    },
+}
+
 
 def salvar_enquete(
     enquete_id,
     pergunta,
-    opcoes
+    opcoes,
+    tipo="normal",
+    encerra_em=None
 ):
     opcao3 = (
         opcoes[2]
@@ -448,19 +492,23 @@ def salvar_enquete(
                 opcao1,
                 opcao2,
                 opcao3,
-                ativa
+                ativa,
+                tipo,
+                encerra_em,
+                finalizada_em
             )
-            VALUES (?, ?, ?, ?, ?, 1)
+            VALUES (?, ?, ?, ?, ?, 1, ?, ?, NULL)
             """,
             (
                 enquete_id,
                 pergunta,
                 opcoes[0],
                 opcoes[1],
-                opcao3
+                opcao3,
+                tipo,
+                encerra_em
             )
         )
-
         banco.commit()
 
 
@@ -473,9 +521,7 @@ def atualizar_mensagem_enquete(
         banco.execute(
             """
             UPDATE enquetes_v2
-            SET
-                canal_id = ?,
-                mensagem_id = ?
+            SET canal_id = ?, mensagem_id = ?
             WHERE id = ?
             """,
             (
@@ -484,8 +530,30 @@ def atualizar_mensagem_enquete(
                 enquete_id
             )
         )
-
         banco.commit()
+
+
+def buscar_enquete(enquete_id):
+    with conectar_banco() as banco:
+        return banco.execute(
+            """
+            SELECT
+                id,
+                pergunta,
+                opcao1,
+                opcao2,
+                opcao3,
+                canal_id,
+                mensagem_id,
+                ativa,
+                COALESCE(tipo, 'normal') AS tipo,
+                encerra_em,
+                finalizada_em
+            FROM enquetes_v2
+            WHERE id = ?
+            """,
+            (enquete_id,)
+        ).fetchone()
 
 
 def registrar_voto(
@@ -493,6 +561,11 @@ def registrar_voto(
     usuario_id,
     opcao
 ):
+    enquete = buscar_enquete(enquete_id)
+
+    if enquete is None or not enquete["ativa"]:
+        return False
+
     with conectar_banco() as banco:
         banco.execute(
             """
@@ -516,30 +589,32 @@ def registrar_voto(
                 opcao
             )
         )
-
         banco.commit()
+
+    return True
 
 
 def remover_voto(
     enquete_id,
     usuario_id
 ):
+    enquete = buscar_enquete(enquete_id)
+
+    if enquete is None or not enquete["ativa"]:
+        return False
+
     with conectar_banco() as banco:
         cursor = banco.execute(
             """
             DELETE FROM votos_v2
-            WHERE
-                enquete_id = ?
-                AND usuario_id = ?
+            WHERE enquete_id = ? AND usuario_id = ?
             """,
             (
                 enquete_id,
                 usuario_id
             )
         )
-
         banco.commit()
-
         return cursor.rowcount > 0
 
 
@@ -552,9 +627,7 @@ def contar_votos(
     with conectar_banco() as banco:
         resultados = banco.execute(
             """
-            SELECT
-                opcao,
-                COUNT(*) AS quantidade
+            SELECT opcao, COUNT(*) AS quantidade
             FROM votos_v2
             WHERE enquete_id = ?
             GROUP BY opcao
@@ -564,7 +637,6 @@ def contar_votos(
 
     for linha in resultados:
         opcao = linha["opcao"]
-
         if 0 <= opcao < quantidade_opcoes:
             contagem[opcao] = linha["quantidade"]
 
@@ -575,14 +647,10 @@ def buscar_votos(enquete_id):
     with conectar_banco() as banco:
         return banco.execute(
             """
-            SELECT
-                usuario_id,
-                opcao
+            SELECT usuario_id, opcao
             FROM votos_v2
             WHERE enquete_id = ?
-            ORDER BY
-                opcao,
-                usuario_id
+            ORDER BY opcao, usuario_id
             """,
             (enquete_id,)
         ).fetchall()
@@ -599,23 +667,112 @@ def buscar_enquetes_ativas():
                 opcao2,
                 opcao3,
                 canal_id,
-                mensagem_id
+                mensagem_id,
+                COALESCE(tipo, 'normal') AS tipo,
+                encerra_em
             FROM enquetes_v2
-            WHERE
-                ativa = 1
-                AND mensagem_id IS NOT NULL
+            WHERE ativa = 1
+              AND mensagem_id IS NOT NULL
             """
         ).fetchall()
 
 
-# ==========================================================
-# ENQUETE - EMBED
-# ==========================================================
+def finalizar_enquete_banco(enquete_id):
+    with conectar_banco() as banco:
+        cursor = banco.execute(
+            """
+            UPDATE enquetes_v2
+            SET
+                ativa = 0,
+                finalizada_em = ?
+            WHERE id = ?
+              AND ativa = 1
+            """,
+            (
+                datetime.now(
+                    timezone.utc
+                ).isoformat(),
+                enquete_id
+            )
+        )
+        banco.commit()
+        return cursor.rowcount > 0
 
-def gerar_embed_enquete(
+
+def opcoes_da_enquete(linha):
+    opcoes = [
+        linha["opcao1"],
+        linha["opcao2"]
+    ]
+
+    if linha["opcao3"]:
+        opcoes.append(
+            linha["opcao3"]
+        )
+
+    return opcoes
+
+
+def parse_duracao_enquete(valor):
+    """
+    Aceita formatos como:
+    5m, 30m, 1h, 2h, 1d
+    """
+    texto = str(valor or "").strip().lower().replace(" ", "")
+
+    match = re.fullmatch(
+        r"(\d+)(m|min|h|d)",
+        texto
+    )
+
+    if not match:
+        raise ValueError(
+            "Use uma duração como `5m`, `30m`, `1h`, `2h` ou `1d`."
+        )
+
+    quantidade = int(
+        match.group(1)
+    )
+    unidade = match.group(2)
+
+    if quantidade <= 0:
+        raise ValueError(
+            "A duração precisa ser maior que zero."
+        )
+
+    if unidade in {"m", "min"}:
+        delta = timedelta(
+            minutes=quantidade
+        )
+    elif unidade == "h":
+        delta = timedelta(
+            hours=quantidade
+        )
+    else:
+        delta = timedelta(
+            days=quantidade
+        )
+
+    if delta < timedelta(minutes=1):
+        raise ValueError(
+            "A duração mínima é 1 minuto."
+        )
+
+    if delta > timedelta(days=7):
+        raise ValueError(
+            "A duração máxima é 7 dias."
+        )
+
+    return delta
+
+
+def gerar_embed_enquete_unificada(
     enquete_id,
     pergunta,
-    opcoes
+    opcoes,
+    tipo,
+    encerrada=False,
+    encerra_em=None
 ):
     emojis = [
         "1️⃣",
@@ -627,52 +784,139 @@ def gerar_embed_enquete(
         enquete_id,
         len(opcoes)
     )
-
     total = sum(contagem)
 
+    titulo_tipo = {
+        "normal": "📊 Enquete",
+        "secreta": "🔒 Enquete secreta",
+        "temporaria": "⏱️ Enquete temporária",
+    }.get(
+        tipo,
+        "📊 Enquete"
+    )
+
     embed = discord.Embed(
-        title="📊 Enquete",
+        title=(
+            f"{titulo_tipo} • Finalizada"
+            if encerrada
+            else titulo_tipo
+        ),
         description=f"## {pergunta}",
-        color=discord.Color.blurple()
+        color=(
+            discord.Color.dark_grey()
+            if encerrada
+            else (
+                discord.Color.dark_purple()
+                if tipo == "secreta"
+                else discord.Color.blurple()
+            )
+        )
+    )
+
+    ocultar_placar = (
+        tipo == "secreta"
+        and not encerrada
     )
 
     for indice, texto in enumerate(opcoes):
-        votos = contagem[indice]
-
-        porcentagem = (
-            votos / total * 100
-            if total
-            else 0
-        )
+        if ocultar_placar:
+            valor = "🔒 Votos ocultos"
+        else:
+            votos = contagem[indice]
+            porcentagem = (
+                votos / total * 100
+                if total
+                else 0
+            )
+            valor = (
+                f"**{votos} voto(s)** "
+                f"— {porcentagem:.1f}%"
+            )
 
         embed.add_field(
             name=f"{emojis[indice]} {texto}",
-            value=(
-                f"**{votos} voto(s)** "
-                f"— {porcentagem:.1f}%"
-            ),
+            value=valor,
             inline=False
         )
 
+    rodape = []
+
+    if ocultar_placar:
+        rodape.append(
+            "Placar oculto até o encerramento"
+        )
+    else:
+        rodape.append(
+            f"Total de votos: {total}"
+        )
+
+    if (
+        tipo == "temporaria"
+        and encerra_em
+        and not encerrada
+    ):
+        try:
+            data = datetime.fromisoformat(
+                encerra_em
+            )
+            rodape.append(
+                "Encerra "
+                + discord.utils.format_dt(
+                    data,
+                    style="R"
+                )
+            )
+        except ValueError:
+            pass
+
+    if encerrada:
+        rodape.append(
+            "Votação encerrada"
+        )
+
     embed.set_footer(
-        text=f"Total de votos: {total}"
+        text=" • ".join(rodape)
     )
 
     return embed
 
 
+async def usuario_pode_finalizar_enquete(
+    interaction
+):
+    if interaction.user.id == DONO_ID:
+        return True
 
-# ==========================================================
-# ENQUETE - VIEW
-# ==========================================================
+    if not isinstance(
+        interaction.user,
+        discord.Member
+    ):
+        return False
 
-class EnqueteView(discord.ui.View):
+    if (
+        interaction.user
+        .guild_permissions
+        .administrator
+    ):
+        return True
 
+    return any(
+        cargo.id == CARGO_DESENVOLVIMENTO_ID
+        for cargo in interaction.user.roles
+    )
+
+
+class EnqueteUnificadaView(
+    discord.ui.View
+):
     def __init__(
         self,
         enquete_id,
         pergunta,
-        opcoes
+        opcoes,
+        tipo="normal",
+        encerra_em=None,
+        encerrada=False
     ):
         super().__init__(
             timeout=None
@@ -681,6 +925,9 @@ class EnqueteView(discord.ui.View):
         self.enquete_id = enquete_id
         self.pergunta = pergunta
         self.opcoes = opcoes
+        self.tipo = tipo
+        self.encerra_em = encerra_em
+        self.encerrada = encerrada
 
         emojis = [
             "1️⃣",
@@ -693,23 +940,43 @@ class EnqueteView(discord.ui.View):
                 label=opcao,
                 emoji=emojis[indice],
                 style=discord.ButtonStyle.primary,
-                custom_id=f"voto_{enquete_id}_{indice}"
+                custom_id=(
+                    f"enquete_v7_{enquete_id}_{indice}"
+                ),
+                disabled=encerrada
             )
 
             async def votar(
                 interaction: discord.Interaction,
                 indice_opcao=indice
             ):
-                registrar_voto(
+                registrado = registrar_voto(
                     self.enquete_id,
                     interaction.user.id,
                     indice_opcao
                 )
 
-                embed = gerar_embed_enquete(
+                if not registrado:
+                    await interaction.response.send_message(
+                        "⌛ Esta enquete já foi encerrada.",
+                        ephemeral=True
+                    )
+                    return
+
+                if self.tipo == "secreta":
+                    await interaction.response.send_message(
+                        "🔒 Seu voto foi registrado em segredo.",
+                        ephemeral=True
+                    )
+                    return
+
+                embed = gerar_embed_enquete_unificada(
                     self.enquete_id,
                     self.pergunta,
-                    self.opcoes
+                    self.opcoes,
+                    self.tipo,
+                    encerrada=False,
+                    encerra_em=self.encerra_em
                 )
 
                 await interaction.response.edit_message(
@@ -729,7 +996,10 @@ class EnqueteView(discord.ui.View):
             label="Remover meu voto",
             emoji="🗑️",
             style=discord.ButtonStyle.danger,
-            custom_id=f"remover_{enquete_id}"
+            custom_id=(
+                f"enquete_remover_v7_{enquete_id}"
+            ),
+            disabled=encerrada
         )
 
         async def remover_callback(
@@ -741,16 +1011,39 @@ class EnqueteView(discord.ui.View):
             )
 
             if not removido:
+                enquete = buscar_enquete(
+                    self.enquete_id
+                )
+
+                texto = (
+                    "⌛ Esta enquete já foi encerrada."
+                    if (
+                        enquete is not None
+                        and not enquete["ativa"]
+                    )
+                    else "❌ Você ainda não votou."
+                )
+
                 await interaction.response.send_message(
-                    "❌ Você ainda não votou.",
+                    texto,
                     ephemeral=True
                 )
                 return
 
-            embed = gerar_embed_enquete(
+            if self.tipo == "secreta":
+                await interaction.response.send_message(
+                    "🗑️ Seu voto secreto foi removido.",
+                    ephemeral=True
+                )
+                return
+
+            embed = gerar_embed_enquete_unificada(
                 self.enquete_id,
                 self.pergunta,
-                self.opcoes
+                self.opcoes,
+                self.tipo,
+                encerrada=False,
+                encerra_em=self.encerra_em
             )
 
             await interaction.response.edit_message(
@@ -766,28 +1059,90 @@ class EnqueteView(discord.ui.View):
         remover.callback = remover_callback
         self.add_item(remover)
 
+        finalizar = discord.ui.Button(
+            label="Finalizar enquete",
+            emoji="🏁",
+            style=discord.ButtonStyle.secondary,
+            custom_id=(
+                f"enquete_finalizar_v7_{enquete_id}"
+            ),
+            disabled=encerrada
+        )
+
+        async def finalizar_callback(
+            interaction: discord.Interaction
+        ):
+            if not await usuario_pode_finalizar_enquete(
+                interaction
+            ):
+                await interaction.response.send_message(
+                    "❌ Apenas administradores ou a "
+                    "Equipe de Desenvolvimento podem finalizar.",
+                    ephemeral=True
+                )
+                return
+
+            finalizou = finalizar_enquete_banco(
+                self.enquete_id
+            )
+
+            if not finalizou:
+                await interaction.response.send_message(
+                    "ℹ️ Esta enquete já está finalizada.",
+                    ephemeral=True
+                )
+                return
+
+            view_final = EnqueteUnificadaView(
+                self.enquete_id,
+                self.pergunta,
+                self.opcoes,
+                self.tipo,
+                self.encerra_em,
+                encerrada=True
+            )
+
+            embed = gerar_embed_enquete_unificada(
+                self.enquete_id,
+                self.pergunta,
+                self.opcoes,
+                self.tipo,
+                encerrada=True,
+                encerra_em=self.encerra_em
+            )
+
+            await interaction.response.edit_message(
+                embed=embed,
+                view=view_final
+            )
+
+            await interaction.followup.send(
+                "🏁 Enquete finalizada com sucesso.",
+                ephemeral=True
+            )
+
+        finalizar.callback = finalizar_callback
+        self.add_item(finalizar)
+
         ver = discord.ui.Button(
             label="Ver votos",
             emoji="👁️",
             style=discord.ButtonStyle.secondary,
-            custom_id=f"ver_{enquete_id}"
+            custom_id=(
+                f"enquete_ver_v7_{enquete_id}"
+            ),
+            disabled=encerrada
         )
 
         async def ver_callback(
             interaction: discord.Interaction
         ):
-            if not (
-                isinstance(
-                    interaction.user,
-                    discord.Member
-                )
-                and interaction.user
-                .guild_permissions
-                .administrator
+            if not await usuario_pode_finalizar_enquete(
+                interaction
             ):
                 await interaction.response.send_message(
-                    "❌ Apenas administradores "
-                    "podem ver os votos.",
+                    "❌ Apenas administradores podem ver "
+                    "a lista individual de votos.",
                     ephemeral=True
                 )
                 return
@@ -821,7 +1176,7 @@ class EnqueteView(discord.ui.View):
                 texto = texto[:1900] + "\n..."
 
             await interaction.response.send_message(
-                "## 👁️ Votos\n\n"
+                "## 👁️ Votos da enquete\n\n"
                 + texto,
                 ephemeral=True
             )
@@ -830,49 +1185,108 @@ class EnqueteView(discord.ui.View):
         self.add_item(ver)
 
 
-# ==========================================================
-# ENQUETE - MODAL
-# ==========================================================
-
-class EnqueteModal(
-    discord.ui.Modal,
-    title="Criar enquete"
+class CriarEnqueteModal(
+    discord.ui.Modal
 ):
+    def __init__(
+        self,
+        tipo
+    ):
+        super().__init__(
+            title=(
+                "Criar enquete temporária"
+                if tipo == "temporaria"
+                else (
+                    "Criar enquete secreta"
+                    if tipo == "secreta"
+                    else "Criar enquete normal"
+                )
+            )
+        )
 
-    pergunta = discord.ui.TextInput(
-        label="Pergunta da enquete",
-        max_length=200
-    )
+        self.tipo = tipo
 
-    opcao1 = discord.ui.TextInput(
-        label="Opção 1",
-        max_length=80
-    )
+        self.pergunta = discord.ui.TextInput(
+            label="Pergunta da enquete",
+            max_length=200,
+            placeholder="Ex.: Qual cargo vocês preferem?"
+        )
 
-    opcao2 = discord.ui.TextInput(
-        label="Opção 2",
-        max_length=80
-    )
+        self.opcao1 = discord.ui.TextInput(
+            label="Opção 1",
+            max_length=80
+        )
 
-    opcao3 = discord.ui.TextInput(
-        label="Opção 3 (opcional)",
-        required=False,
-        max_length=80
-    )
+        self.opcao2 = discord.ui.TextInput(
+            label="Opção 2",
+            max_length=80
+        )
+
+        self.opcao3 = discord.ui.TextInput(
+            label="Opção 3 (opcional)",
+            required=False,
+            max_length=80
+        )
+
+        self.add_item(
+            self.pergunta
+        )
+        self.add_item(
+            self.opcao1
+        )
+        self.add_item(
+            self.opcao2
+        )
+        self.add_item(
+            self.opcao3
+        )
+
+        self.duracao = None
+
+        if tipo == "temporaria":
+            self.duracao = discord.ui.TextInput(
+                label="Duração",
+                placeholder="Ex.: 30m, 1h, 2h ou 1d",
+                max_length=10
+            )
+            self.add_item(
+                self.duracao
+            )
 
     async def on_submit(
         self,
         interaction: discord.Interaction
     ):
         opcoes = [
-            self.opcao1.value,
-            self.opcao2.value
+            self.opcao1.value.strip(),
+            self.opcao2.value.strip()
         ]
 
-        if self.opcao3.value:
+        if self.opcao3.value.strip():
             opcoes.append(
-                self.opcao3.value
+                self.opcao3.value.strip()
             )
+
+        encerra_em = None
+
+        if self.tipo == "temporaria":
+            try:
+                delta = parse_duracao_enquete(
+                    self.duracao.value
+                )
+            except ValueError as erro:
+                await interaction.response.send_message(
+                    f"❌ {erro}",
+                    ephemeral=True
+                )
+                return
+
+            encerra_em = (
+                datetime.now(
+                    timezone.utc
+                )
+                + delta
+            ).isoformat()
 
         enquete_id = (
             uuid.uuid4().hex[:12]
@@ -880,20 +1294,27 @@ class EnqueteModal(
 
         salvar_enquete(
             enquete_id,
-            self.pergunta.value,
-            opcoes
+            self.pergunta.value.strip(),
+            opcoes,
+            tipo=self.tipo,
+            encerra_em=encerra_em
         )
 
-        embed = gerar_embed_enquete(
+        embed = gerar_embed_enquete_unificada(
             enquete_id,
-            self.pergunta.value,
-            opcoes
+            self.pergunta.value.strip(),
+            opcoes,
+            self.tipo,
+            encerrada=False,
+            encerra_em=encerra_em
         )
 
-        view = EnqueteView(
+        view = EnqueteUnificadaView(
             enquete_id,
-            self.pergunta.value,
-            opcoes
+            self.pergunta.value.strip(),
+            opcoes,
+            self.tipo,
+            encerra_em
         )
 
         await interaction.response.send_message(
@@ -913,188 +1334,176 @@ class EnqueteModal(
         )
 
 
-
-# ==========================================================
-# ENQUETE SECRETA
-# ==========================================================
-
-def gerar_embed_enquete_secreta(
-    pergunta,
-    opcoes
+class EscolherTipoEnquete(
+    discord.ui.Select
 ):
-    emojis = ["1️⃣", "2️⃣", "3️⃣"]
-
-    embed = discord.Embed(
-        title="🔒 Enquete secreta",
-        description=(
-            f"## {pergunta}\n\n"
-            "Os votos ficam ocultos durante a votação."
-        ),
-        color=discord.Color.dark_purple()
-    )
-
-    for indice, opcao in enumerate(opcoes):
-        embed.add_field(
-            name=f"{emojis[indice]} {opcao}",
-            value="Vote pelo botão abaixo.",
-            inline=False
-        )
-
-    embed.set_footer(
-        text="O placar não é exibido durante a votação."
-    )
-
-    return embed
-
-
-class EnqueteSecretaView(discord.ui.View):
-    def __init__(
-        self,
-        enquete_id,
-        pergunta,
-        opcoes
-    ):
-        super().__init__(timeout=None)
-
-        self.enquete_id = enquete_id
-        self.pergunta = pergunta
-        self.opcoes = opcoes
-
-        emojis = ["1️⃣", "2️⃣", "3️⃣"]
-
-        for indice, opcao in enumerate(opcoes):
-            botao = discord.ui.Button(
-                label=opcao,
-                emoji=emojis[indice],
-                style=discord.ButtonStyle.primary,
-                custom_id=(
-                    f"voto_secreto_{enquete_id}_{indice}"
-                )
-            )
-
-            async def votar(
-                interaction: discord.Interaction,
-                indice_opcao=indice
-            ):
-                registrar_voto(
-                    self.enquete_id,
-                    interaction.user.id,
-                    indice_opcao
-                )
-
-                await interaction.response.send_message(
-                    "🔒 Seu voto foi registrado em segredo.",
-                    ephemeral=True
-                )
-
-            botao.callback = votar
-            self.add_item(botao)
-
-        remover = discord.ui.Button(
-            label="Remover meu voto",
-            emoji="🗑️",
-            style=discord.ButtonStyle.danger,
-            custom_id=(
-                f"remover_secreto_{enquete_id}"
-            )
-        )
-
-        async def remover_callback(
-            interaction: discord.Interaction
-        ):
-            removido = remover_voto(
-                self.enquete_id,
-                interaction.user.id
-            )
-
-            await interaction.response.send_message(
-                (
-                    "🗑️ Seu voto secreto foi removido."
-                    if removido
-                    else "❌ Você ainda não votou."
+    def __init__(self):
+        super().__init__(
+            placeholder="Escolha o tipo de enquete",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(
+                    label="Enquete Normal",
+                    value="normal",
+                    emoji="📊",
+                    description=(
+                        "Votos e placar ficam visíveis durante a votação."
+                    )
                 ),
-                ephemeral=True
-            )
+                discord.SelectOption(
+                    label="Enquete Secreta",
+                    value="secreta",
+                    emoji="🔒",
+                    description=(
+                        "Oculta votos e quem está ganhando até o fim."
+                    )
+                ),
+                discord.SelectOption(
+                    label="Enquete Temporária",
+                    value="temporaria",
+                    emoji="⏱️",
+                    description=(
+                        "Encerra sozinha depois do tempo escolhido."
+                    )
+                ),
+            ]
+        )
 
-        remover.callback = remover_callback
-        self.add_item(remover)
-
-
-class EnqueteSecretaModal(
-    discord.ui.Modal,
-    title="Criar enquete secreta"
-):
-    pergunta = discord.ui.TextInput(
-        label="Pergunta da enquete",
-        max_length=200
-    )
-
-    opcao1 = discord.ui.TextInput(
-        label="Opção 1",
-        max_length=80
-    )
-
-    opcao2 = discord.ui.TextInput(
-        label="Opção 2",
-        max_length=80
-    )
-
-    opcao3 = discord.ui.TextInput(
-        label="Opção 3 (opcional)",
-        required=False,
-        max_length=80
-    )
-
-    async def on_submit(
+    async def callback(
         self,
         interaction: discord.Interaction
     ):
-        opcoes = [
-            self.opcao1.value,
-            self.opcao2.value
-        ]
+        await interaction.response.send_modal(
+            CriarEnqueteModal(
+                self.values[0]
+            )
+        )
 
-        if self.opcao3.value:
-            opcoes.append(
-                self.opcao3.value
+
+class EscolherTipoEnqueteView(
+    discord.ui.View
+):
+    def __init__(self):
+        super().__init__(
+            timeout=180
+        )
+        self.add_item(
+            EscolherTipoEnquete()
+        )
+
+
+async def finalizar_enquete_temporaria(
+    linha
+):
+    enquete_id = linha["id"]
+
+    if not finalizar_enquete_banco(
+        enquete_id
+    ):
+        return
+
+    canal = bot.get_channel(
+        int(linha["canal_id"])
+    )
+
+    if canal is None:
+        try:
+            canal = await bot.fetch_channel(
+                int(linha["canal_id"])
+            )
+        except (
+            discord.NotFound,
+            discord.Forbidden,
+            discord.HTTPException
+        ):
+            return
+
+    try:
+        mensagem = await canal.fetch_message(
+            int(linha["mensagem_id"])
+        )
+    except (
+        discord.NotFound,
+        discord.Forbidden,
+        discord.HTTPException,
+        TypeError,
+        ValueError
+    ):
+        return
+
+    opcoes = opcoes_da_enquete(
+        linha
+    )
+
+    view = EnqueteUnificadaView(
+        enquete_id,
+        linha["pergunta"],
+        opcoes,
+        linha["tipo"],
+        linha["encerra_em"],
+        encerrada=True
+    )
+
+    embed = gerar_embed_enquete_unificada(
+        enquete_id,
+        linha["pergunta"],
+        opcoes,
+        linha["tipo"],
+        encerrada=True,
+        encerra_em=linha["encerra_em"]
+    )
+
+    await mensagem.edit(
+        embed=embed,
+        view=view
+    )
+
+
+@tasks.loop(seconds=20)
+async def verificar_enquetes_temporarias():
+    agora = datetime.now(
+        timezone.utc
+    )
+
+    for linha in buscar_enquetes_ativas():
+        if linha["tipo"] != "temporaria":
+            continue
+
+        encerra_em = linha["encerra_em"]
+
+        if not encerra_em:
+            continue
+
+        try:
+            data_fim = datetime.fromisoformat(
+                encerra_em
+            )
+        except ValueError:
+            continue
+
+        if data_fim.tzinfo is None:
+            data_fim = data_fim.replace(
+                tzinfo=timezone.utc
             )
 
-        enquete_id = (
-            uuid.uuid4().hex[:12]
-        )
+        if agora >= data_fim.astimezone(
+            timezone.utc
+        ):
+            try:
+                await finalizar_enquete_temporaria(
+                    linha
+                )
+            except Exception as erro:
+                print(
+                    "Erro ao finalizar enquete "
+                    f"temporária {linha['id']}: {erro}"
+                )
 
-        salvar_enquete(
-            enquete_id,
-            self.pergunta.value,
-            opcoes
-        )
 
-        embed = gerar_embed_enquete_secreta(
-            self.pergunta.value,
-            opcoes
-        )
-
-        view = EnqueteSecretaView(
-            enquete_id,
-            self.pergunta.value,
-            opcoes
-        )
-
-        await interaction.response.send_message(
-            "✅ Enquete secreta criada!",
-            ephemeral=True
-        )
-
-        mensagem = await interaction.channel.send(
-            embed=embed,
-            view=view
-        )
-
-        atualizar_mensagem_enquete(
-            enquete_id,
-            interaction.channel.id,
-            mensagem.id
-        )
+@verificar_enquetes_temporarias.before_loop
+async def antes_de_verificar_enquetes_temporarias():
+    await bot.wait_until_ready()
 
 
 # ==========================================================
@@ -3031,62 +3440,135 @@ async def atualizar_mensagem_status_minecraft(
 
 async def minecraft_esta_online():
     """
-    Verifica exclusivamente o servidor Bedrock do Aternos.
+    Detecta o Aternos Bedrock com mais de um sinal.
 
-    O Aternos pode responder ao ping mesmo desligado.
-    Quando isso acontece, o MOTD retorna "Offline".
+    O proxy offline do Aternos costuma responder com:
+    - MOTD contendo "Offline"
+    - 0 jogadores
+    - limite máximo de 1 jogador
+
+    Quando o servidor real está online, qualquer um destes sinais
+    fortes confirma ONLINE:
+    - existe jogador conectado;
+    - max_players é maior que 1;
+    - o MOTD não contém "offline".
+
+    São feitas até 3 leituras para reduzir falso OFFLINE.
     """
-    try:
-        servidor = BedrockServer(
-            MINECRAFT_HOST,
-            MINECRAFT_PORTA,
-            timeout=5
-        )
+    ultimo_erro = None
 
-        status = await asyncio.wait_for(
-            servidor.async_status(
-                tries=1
-            ),
-            timeout=7
-        )
-
-        motd = str(
-            status.motd
-        ).strip().casefold()
-
-        if "offline" in motd:
-            print(
-                "Ping Bedrock respondeu, "
-                "mas o MOTD indica OFFLINE."
+    for tentativa in range(
+        1,
+        4
+    ):
+        try:
+            servidor = BedrockServer(
+                MINECRAFT_HOST,
+                MINECRAFT_PORTA,
+                timeout=5
             )
-            return False
 
+            status = await asyncio.wait_for(
+                servidor.async_status(
+                    tries=1
+                ),
+                timeout=7
+            )
+
+            motd = str(
+                status.motd
+            ).strip().casefold()
+
+            jogadores_online = int(
+                getattr(
+                    status.players,
+                    "online",
+                    0
+                )
+                or 0
+            )
+
+            jogadores_max = int(
+                getattr(
+                    status.players,
+                    "max",
+                    0
+                )
+                or 0
+            )
+
+            motd_offline = (
+                "offline" in motd
+            )
+
+            online = (
+                jogadores_online > 0
+                or jogadores_max > 1
+                or not motd_offline
+            )
+
+            print(
+                "Ping Bedrock | "
+                f"tentativa={tentativa}/3 | "
+                f"online={jogadores_online} | "
+                f"max={jogadores_max} | "
+                f"MOTD={status.motd} | "
+                f"resultado={'ONLINE' if online else 'OFFLINE'}"
+            )
+
+            if online:
+                return True
+
+            if tentativa < 3:
+                await asyncio.sleep(
+                    1.5
+                )
+
+        except (
+            asyncio.TimeoutError,
+            TimeoutError,
+            ConnectionError,
+            OSError
+        ) as erro:
+            ultimo_erro = erro
+
+            print(
+                "Ping Minecraft Bedrock falhou | "
+                f"tentativa={tentativa}/3 | "
+                f"{type(erro).__name__}: {erro}"
+            )
+
+            if tentativa < 3:
+                await asyncio.sleep(
+                    1.5
+                )
+
+        except Exception as erro:
+            ultimo_erro = erro
+
+            print(
+                "Erro no ping Minecraft Bedrock | "
+                f"tentativa={tentativa}/3 | "
+                f"{type(erro).__name__}: {erro}"
+            )
+
+            if tentativa < 3:
+                await asyncio.sleep(
+                    1.5
+                )
+
+    if ultimo_erro is not None:
         print(
-            "Ping Minecraft Bedrock OK | "
-            f"{MINECRAFT_HOST}:{MINECRAFT_PORTA} | "
-            f"MOTD: {status.motd}"
+            "Minecraft Bedrock considerado OFFLINE "
+            "após 3 tentativas."
+        )
+    else:
+        print(
+            "Proxy Aternos respondeu OFFLINE "
+            "nas 3 tentativas."
         )
 
-        return True
-
-    except (
-        asyncio.TimeoutError,
-        TimeoutError,
-        ConnectionError,
-        OSError
-    ) as erro:
-        print(
-            "Ping Minecraft Bedrock falhou | "
-            f"{type(erro).__name__}: {erro}"
-        )
-        return False
-
-    except Exception as erro:
-        print(
-            "Erro no ping Minecraft Bedrock | "
-            f"{type(erro).__name__}: {erro}"
-        )
-        return False
+    return False
 
 
 falhas_minecraft = 0
@@ -3094,49 +3576,114 @@ sucessos_minecraft = 0
 status_minecraft_inicializado = False
 
 
-@tasks.loop(seconds=INTERVALO_MINECRAFT_SEGUNDOS)
+@tasks.loop(
+    seconds=INTERVALO_MINECRAFT_SEGUNDOS
+)
 async def monitorar_minecraft():
-    global falhas_minecraft, sucessos_minecraft, status_minecraft_inicializado
+    global falhas_minecraft
+    global sucessos_minecraft
+    global status_minecraft_inicializado
 
     online_agora = await minecraft_esta_online()
-    estado_salvo = obter_estado('minecraft_online')
+
+    estado_salvo = obter_estado(
+        "minecraft_online"
+    )
 
     if estado_salvo is None:
-        salvar_estado('minecraft_online', '1' if online_agora else '0')
+        estado_final = online_agora
+
+        salvar_estado(
+            "minecraft_online",
+            "1" if estado_final else "0"
+        )
+
+        falhas_minecraft = 0
+        sucessos_minecraft = 0
         status_minecraft_inicializado = True
-        await atualizar_mensagem_status_minecraft(online_agora)
+
+        await atualizar_mensagem_status_minecraft(
+            estado_final
+        )
         return
 
-    estava_online = estado_salvo == '1'
-    if not status_minecraft_inicializado:
-        status_minecraft_inicializado = True
-        await atualizar_mensagem_status_minecraft(estava_online)
+    estava_online = (
+        estado_salvo == "1"
+    )
+
+    estado_final = estava_online
 
     if online_agora:
         falhas_minecraft = 0
+
         if estava_online:
             sucessos_minecraft = 0
-            return
-        sucessos_minecraft += 1
-        if sucessos_minecraft < SUCESSOS_ONLINE_NECESSARIOS:
-            return
-        sucessos_minecraft = 0
-        salvar_estado('minecraft_online', '1')
-        await atualizar_mensagem_status_minecraft(True)
-        print('Minecraft mudou de OFFLINE para ONLINE.')
-        return
 
-    sucessos_minecraft = 0
-    if not estava_online:
-        falhas_minecraft = 0
-        return
-    falhas_minecraft += 1
-    if falhas_minecraft < FALHAS_OFFLINE_NECESSARIAS:
-        return
-    falhas_minecraft = 0
-    salvar_estado('minecraft_online', '0')
-    await atualizar_mensagem_status_minecraft(False)
-    print('Minecraft mudou de ONLINE para OFFLINE.')
+        else:
+            sucessos_minecraft += 1
+
+            print(
+                "Confirmação ONLINE Bedrock: "
+                f"{sucessos_minecraft}/"
+                f"{SUCESSOS_ONLINE_NECESSARIOS}"
+            )
+
+            if (
+                sucessos_minecraft
+                >= SUCESSOS_ONLINE_NECESSARIOS
+            ):
+                sucessos_minecraft = 0
+                estado_final = True
+
+                salvar_estado(
+                    "minecraft_online",
+                    "1"
+                )
+
+                print(
+                    "Minecraft mudou de "
+                    "OFFLINE para ONLINE."
+                )
+
+    else:
+        sucessos_minecraft = 0
+
+        if not estava_online:
+            falhas_minecraft = 0
+
+        else:
+            falhas_minecraft += 1
+
+            print(
+                "Confirmação OFFLINE Bedrock: "
+                f"{falhas_minecraft}/"
+                f"{FALHAS_OFFLINE_NECESSARIAS}"
+            )
+
+            if (
+                falhas_minecraft
+                >= FALHAS_OFFLINE_NECESSARIAS
+            ):
+                falhas_minecraft = 0
+                estado_final = False
+
+                salvar_estado(
+                    "minecraft_online",
+                    "0"
+                )
+
+                print(
+                    "Minecraft mudou de "
+                    "ONLINE para OFFLINE."
+                )
+
+    status_minecraft_inicializado = True
+
+    # Atualiza o painel em TODA verificação.
+    # Assim o horário nunca fica parado por horas.
+    await atualizar_mensagem_status_minecraft(
+        estado_final
+    )
 
 
 @monitorar_minecraft.before_loop
@@ -3939,21 +4486,17 @@ class MeuBot(commands.Bot):
         # --------------------------------------------------
 
         for linha in buscar_enquetes_ativas():
-            opcoes = [
-                linha["opcao1"],
-                linha["opcao2"]
-            ]
-
-            if linha["opcao3"]:
-                opcoes.append(
-                    linha["opcao3"]
-                )
+            opcoes = opcoes_da_enquete(
+                linha
+            )
 
             self.add_view(
-                EnqueteView(
+                EnqueteUnificadaView(
                     linha["id"],
                     linha["pergunta"],
-                    opcoes
+                    opcoes,
+                    linha["tipo"],
+                    linha["encerra_em"]
                 ),
                 message_id=(
                     linha["mensagem_id"]
@@ -4382,7 +4925,7 @@ async def antes_da_limpeza_diaria():
 CHAVE_CANAL_FUNCOES_BOT = "canal_funcoes_bot_id"
 CHAVE_MENSAGEM_FUNCOES_BOT = "mensagem_funcoes_bot_id"
 
-DATA_ULTIMA_ATUALIZACAO_ISO = "2026-08-17T22:42:00-04:00"
+DATA_ULTIMA_ATUALIZACAO_ISO = "2026-08-18T00:08:57-04:00"
 
 FUNCOES_ATUAIS_CATEGORIAS = {
     "🎮 Minecraft": [
@@ -4407,9 +4950,10 @@ FUNCOES_ATUAIS_CATEGORIAS = {
 }
 
 FUNCOES_ULTIMA_ATUALIZACAO = [
-    "🔒 Nova enquete secreta com votos e placar ocultos",
-    "🤖 Ficha oficial renomeada para Funções do Bot",
-    "🧹 Aviso após a limpeza some depois de 3 novas mensagens",
+    "📊 /criarenquete unifica enquetes Normal, Secreta e Temporária",
+    "🏁 Todas as enquetes agora podem ser finalizadas manualmente",
+    "⏱️ Enquetes temporárias encerram automaticamente",
+    "🎮 Monitor Bedrock reforçado para evitar falso OFFLINE no Aternos",
 ]
 
 FUNCOES_REMOVIDAS = [
@@ -4708,7 +5252,7 @@ async def definircanalfuncoes(
         await interaction.followup.send(
             "✅ Canal de funções configurado: "
             f"{canal_escolhido.mention}\n"
-            "A ficha **Para que eu sirvo?** "
+            "A ficha **Funções do Bot** "
             "já foi criada/atualizada.",
             ephemeral=True
         )
@@ -4776,6 +5320,9 @@ async def atualizarfuncoes(
 
 @bot.event
 async def on_ready():
+    if not verificar_enquetes_temporarias.is_running():
+        verificar_enquetes_temporarias.start()
+
     if not (
         atualizar_funcoes_bot_periodicamente
         .is_running()
@@ -4992,14 +5539,14 @@ async def limparcomandos(
 
 
 # ==========================================================
-# /ENQUETASECRETA
+# /CRIAR_ENQUETE
 # ==========================================================
 
 @bot.tree.command(
-    name="enquetasecreta",
-    description="Cria uma enquete com votos e placar ocultos"
+    name="criarenquete",
+    description="Cria uma enquete normal, secreta ou temporária"
 )
-async def enquetasecreta(
+async def criarenquete(
     interaction: discord.Interaction
 ):
     if await negar_se_nao_admin(
@@ -5007,27 +5554,24 @@ async def enquetasecreta(
     ):
         return
 
-    await interaction.response.send_modal(
-        EnqueteSecretaModal()
+    embed = discord.Embed(
+        title="📊 Criar enquete",
+        description=(
+            "Escolha abaixo o tipo de enquete.\n\n"
+            "📊 **Normal** — votos e placar ficam visíveis.\n\n"
+            "🔒 **Secreta** — placar oculto até a enquete terminar.\n\n"
+            "⏱️ **Temporária** — encerra automaticamente "
+            "depois do tempo definido.\n\n"
+            "💡 Todas podem ser finalizadas manualmente "
+            "por um administrador."
+        ),
+        color=discord.Color.blurple()
     )
 
-
-# ==========================================================
-# /ENQUETE
-# ==========================================================
-
-@bot.tree.command(
-    name="enquete",
-    description="Cria uma enquete"
-)
-async def enquete(
-    interaction: discord.Interaction
-):
-    if await negar_se_nao_admin(interaction):
-        return
-
-    await interaction.response.send_modal(
-        EnqueteModal()
+    await interaction.response.send_message(
+        embed=embed,
+        view=EscolherTipoEnqueteView(),
+        ephemeral=True
     )
 
 
