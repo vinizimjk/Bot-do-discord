@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import random
 import sqlite3
 import uuid
 from collections import deque
@@ -61,9 +62,20 @@ GROQ_MODEL = os.getenv(
 CHAVE_IA_ATIVA = "ia_resenha_ativa"
 CHAVE_CANAL_IA = "ia_resenha_canal_id"
 
+CHAVE_IA_CAOS_ATIVO = "ia_caos_ativo"
+CHAVE_IA_CAOS_PROXIMO_ALVO = "ia_caos_proximo_alvo"
+CHAVE_IA_CAOS_ULTIMA_ACAO = "ia_caos_ultima_acao"
+
 IA_MEMORIA_MENSAGENS = 10
 IA_MAX_RESPOSTA_CARACTERES = 1600
 IA_COOLDOWN_SEGUNDOS = 8
+
+# Modo "IA causando"
+IA_CAOS_HORA_INICIO = 6
+IA_CAOS_HORA_FIM = 23
+IA_CAOS_MIN_INTERVALO_MINUTOS = 120
+IA_CAOS_CHANCE_POR_CICLO = 0.12
+IA_CAOS_MAX_ESPERA_RESPOSTA = 300
 
 EMOJIS_REACAO_IA = {
     "😂", "💀", "🤨", "👀", "👑",
@@ -82,6 +94,15 @@ PERSONALIDADE:
   claramente for brincadeira.
 - Se alguém pedir para zoar ou xingar outro membro em contexto de resenha,
   você pode entrar na brincadeira.
+- Você receberá nome, ID, apelido e cargos reais de membros do Discord
+  quando forem relevantes. Use isso para entender quem é quem.
+- A hierarquia dos cargos pode influenciar a piada, MAS não protege ninguém
+  sempre. Se pedirem para zoar alguém com cargo muito alto, às vezes você
+  pode brincar com medo de tomar ban, tipo "tá maluco? o cara é ADM Geral,
+  se eu xingar ele dá ban em nós dois 💀". Em outras vezes, pode zoar
+  normalmente. Varie para não ficar injusto ou repetitivo.
+- Se reconhecer um membro pelo nome/apelido fornecido no contexto,
+  use a menção real <@ID> quando fizer sentido.
 - Ao mesmo tempo, quando a pergunta for séria, responda com inteligência,
   clareza e informação útil.
 - Não explique piadas e não fique colocando avisos desnecessários.
@@ -127,6 +148,16 @@ groq_client = (
 
 _memoria_ia = {}
 _cooldown_ia = {}
+
+# Estado temporário do modo "IA causando".
+_ia_caos_estado = {
+    "ativo": False,
+    "guild_id": None,
+    "canal_id": None,
+    "alvo_id": None,
+    "evento_resposta": None,
+    "task": None,
+}
 
 # Nicknames que já tinham sido informados antes da automação.
 # O bot importa esses cadastros uma única vez no banco e avisa por DM.
@@ -4551,6 +4582,7 @@ intents = discord.Intents.default()
 
 intents.members = True
 intents.message_content = True
+intents.presences = True
 
 
 # ==========================================================
@@ -4894,13 +4926,60 @@ def usuario_em_cooldown_ia(
     return False, 0
 
 
-def contexto_mencoes_ia(
+def descrever_membro_para_ia(
+    membro: discord.Member
+):
+    cargos = [
+        cargo
+        for cargo in membro.roles
+        if cargo.name != "@everyone"
+    ]
+
+    cargos_ordenados = sorted(
+        cargos,
+        key=lambda cargo: cargo.position,
+        reverse=True
+    )
+
+    nomes_cargos = [
+        cargo.name
+        for cargo in cargos_ordenados[:10]
+    ]
+
+    cargo_topo = (
+        cargos_ordenados[0].name
+        if cargos_ordenados
+        else "sem cargo relevante"
+    )
+
+    return (
+        f"<@{membro.id}> = "
+        f"nome={membro.name}; "
+        f"apelido={membro.display_name}; "
+        f"cargo mais alto={cargo_topo}; "
+        f"cargos={', '.join(nomes_cargos) if nomes_cargos else 'nenhum'}"
+    )
+
+
+def membros_citados_por_nome(
     message: discord.Message
 ):
-    if not message.mentions:
-        return ""
+    """
+    Resolve nomes/apelidos escritos no texto mesmo sem menção.
+    Limita a poucos membros para não inflar o prompt.
+    """
+    if message.guild is None:
+        return []
 
-    linhas = []
+    texto = (
+        limpar_mencao_do_bot(
+            message.content
+        )
+        .casefold()
+    )
+
+    encontrados = []
+    ids_encontrados = set()
 
     for membro in message.mentions:
         if (
@@ -4909,19 +4988,116 @@ def contexto_mencoes_ia(
         ):
             continue
 
-        linhas.append(
-            f"<@{membro.id}> = "
-            f"{membro.display_name}"
+        if isinstance(
+            membro,
+            discord.Member
+        ):
+            encontrados.append(
+                membro
+            )
+            ids_encontrados.add(
+                membro.id
+            )
+
+    # Procura por nomes/apelidos com pelo menos 3 caracteres.
+    candidatos = []
+
+    for membro in message.guild.members:
+        if membro.bot:
+            continue
+
+        if membro.id in ids_encontrados:
+            continue
+
+        nomes = {
+            str(membro.name).strip(),
+            str(membro.display_name).strip(),
+            str(membro.global_name or "").strip(),
+        }
+
+        nomes = {
+            nome
+            for nome in nomes
+            if len(nome) >= 3
+        }
+
+        melhor = None
+
+        for nome in nomes:
+            if nome.casefold() in texto:
+                if (
+                    melhor is None
+                    or len(nome) > len(melhor)
+                ):
+                    melhor = nome
+
+        if melhor:
+            candidatos.append(
+                (
+                    len(melhor),
+                    membro
+                )
+            )
+
+    candidatos.sort(
+        key=lambda item: item[0],
+        reverse=True
+    )
+
+    for _, membro in candidatos[:5]:
+        encontrados.append(
+            membro
+        )
+        ids_encontrados.add(
+            membro.id
         )
 
-    if not linhas:
-        return ""
+    return encontrados
 
-    return (
-        "\nMembros mencionados nesta mensagem:\n"
-        + "\n".join(linhas)
-        + "\nPreserve o formato <@ID> se quiser mencionar "
-        "a mesma pessoa na resposta."
+
+def contexto_social_ia(
+    message: discord.Message
+):
+    linhas = [
+        "",
+        "CONTEXTO SOCIAL REAL DO DISCORD:",
+    ]
+
+    if isinstance(
+        message.author,
+        discord.Member
+    ):
+        linhas.append(
+            "Quem falou: "
+            + descrever_membro_para_ia(
+                message.author
+            )
+        )
+
+    citados = membros_citados_por_nome(
+        message
+    )
+
+    if citados:
+        linhas.append(
+            "Membros citados/reconhecidos:"
+        )
+
+        for membro in citados:
+            linhas.append(
+                "- "
+                + descrever_membro_para_ia(
+                    membro
+                )
+            )
+
+    linhas.append(
+        "Os cargos acima são dados reais do Discord. "
+        "Use-os apenas como contexto social/hierárquico para a conversa."
+    )
+
+    return "\n".join(
+        linhas
     )
 
 
@@ -5045,7 +5221,7 @@ async def responder_com_ia(
             item
         )
 
-    contexto_mencoes = contexto_mencoes_ia(
+    contexto_social = contexto_social_ia(
         message
     )
 
@@ -5056,7 +5232,7 @@ async def responder_com_ia(
                 f"Autor: {message.author.display_name} "
                 f"(<@{message.author.id}>)\n"
                 f"Mensagem: {pergunta}"
-                f"{contexto_mencoes}"
+                f"{contexto_social}"
             ),
         }
     )
@@ -5167,6 +5343,460 @@ async def responder_com_ia(
     return True
 
 
+
+# ==========================================================
+# IA CAUSANDO — PINGS ALEATÓRIOS / ALVO MANUAL
+# ==========================================================
+
+def ia_caos_esta_ativo():
+    valor = obter_estado(
+        CHAVE_IA_CAOS_ATIVO
+    )
+
+    # Ativo por padrão.
+    if valor is None:
+        return True
+
+    return str(valor) == "1"
+
+
+def ia_caos_dentro_do_horario():
+    agora = datetime.now(
+        FUSO_SERVIDOR
+    )
+
+    return (
+        IA_CAOS_HORA_INICIO
+        <= agora.hour
+        < IA_CAOS_HORA_FIM
+    )
+
+
+def ia_caos_proximo_alvo_id():
+    valor = obter_estado(
+        CHAVE_IA_CAOS_PROXIMO_ALVO
+    )
+
+    if not valor:
+        return None
+
+    try:
+        return int(
+            valor
+        )
+    except (
+        TypeError,
+        ValueError
+    ):
+        return None
+
+
+def ia_caos_intervalo_liberado():
+    valor = obter_estado(
+        CHAVE_IA_CAOS_ULTIMA_ACAO
+    )
+
+    if not valor:
+        return True
+
+    try:
+        ultima = float(
+            valor
+        )
+    except (
+        TypeError,
+        ValueError
+    ):
+        return True
+
+    agora = datetime.now(
+        timezone.utc
+    ).timestamp()
+
+    minimo = (
+        IA_CAOS_MIN_INTERVALO_MINUTOS
+        * 60
+    )
+
+    return (
+        agora - ultima
+        >= minimo
+    )
+
+
+def membro_esta_online_para_caos(
+    membro: discord.Member
+):
+    if membro.bot:
+        return False
+
+    # Presença real quando o Presence Intent está ativo.
+    if membro.status != discord.Status.offline:
+        return True
+
+    # Usuário conectado em voz também conta como ativo.
+    if membro.voice is not None:
+        return True
+
+    return False
+
+
+async def escolher_canal_caos(
+    guild: discord.Guild
+):
+    canal_id = canal_ia_configurado()
+
+    if canal_id:
+        canal = guild.get_channel(
+            canal_id
+        )
+
+        if isinstance(
+            canal,
+            discord.TextChannel
+        ):
+            return canal
+
+    # Se não houver canal exclusivo da IA,
+    # usa o chat geral já detectado pelo bot.
+    canal = await obter_chat_geral(
+        guild
+    )
+
+    if isinstance(
+        canal,
+        discord.TextChannel
+    ):
+        return canal
+
+    if isinstance(
+        guild.system_channel,
+        discord.TextChannel
+    ):
+        return guild.system_channel
+
+    return None
+
+
+def escolher_alvo_caos(
+    guild: discord.Guild
+):
+    alvo_manual_id = (
+        ia_caos_proximo_alvo_id()
+    )
+
+    if alvo_manual_id:
+        alvo_manual = guild.get_member(
+            alvo_manual_id
+        )
+
+        if (
+            alvo_manual is not None
+            and membro_esta_online_para_caos(
+                alvo_manual
+            )
+        ):
+            return (
+                alvo_manual,
+                True
+            )
+
+        # Alvo manual continua salvo até ficar online.
+        return (
+            None,
+            True
+        )
+
+    candidatos = [
+        membro
+        for membro in guild.members
+        if (
+            membro.id != DONO_ID
+            and membro_esta_online_para_caos(
+                membro
+            )
+        )
+    ]
+
+    # O dono também pode virar alvo aleatório;
+    # só entra separado para não ter "imunidade".
+    dono = guild.get_member(
+        DONO_ID
+    )
+
+    if (
+        dono is not None
+        and membro_esta_online_para_caos(
+            dono
+        )
+    ):
+        candidatos.append(
+            dono
+        )
+
+    if not candidatos:
+        return (
+            None,
+            False
+        )
+
+    return (
+        random.choice(
+            candidatos
+        ),
+        False
+    )
+
+
+def limpar_estado_caos():
+    _ia_caos_estado[
+        "ativo"
+    ] = False
+
+    _ia_caos_estado[
+        "guild_id"
+    ] = None
+
+    _ia_caos_estado[
+        "canal_id"
+    ] = None
+
+    _ia_caos_estado[
+        "alvo_id"
+    ] = None
+
+    _ia_caos_estado[
+        "evento_resposta"
+    ] = None
+
+    _ia_caos_estado[
+        "task"
+    ] = None
+
+
+async def executar_caos(
+    guild: discord.Guild,
+    canal: discord.TextChannel,
+    alvo: discord.Member,
+    alvo_manual=False
+):
+    if _ia_caos_estado[
+        "ativo"
+    ]:
+        return
+
+    evento = asyncio.Event()
+
+    _ia_caos_estado.update(
+        {
+            "ativo": True,
+            "guild_id": guild.id,
+            "canal_id": canal.id,
+            "alvo_id": alvo.id,
+            "evento_resposta": evento,
+            "task": asyncio.current_task(),
+        }
+    )
+
+    salvar_estado(
+        CHAVE_IA_CAOS_ULTIMA_ACAO,
+        str(
+            datetime.now(
+                timezone.utc
+            ).timestamp()
+        )
+    )
+
+    if alvo_manual:
+        # Consome o alvo manual somente quando a zoeira realmente começou.
+        salvar_estado(
+            CHAVE_IA_CAOS_PROXIMO_ALVO,
+            ""
+        )
+
+    try:
+        for numero_ping in range(
+            1,
+            4
+        ):
+            if evento.is_set():
+                break
+
+            await canal.send(
+                alvo.mention,
+                allowed_mentions=discord.AllowedMentions(
+                    users=True,
+                    roles=False,
+                    everyone=False
+                )
+            )
+
+            if numero_ping < 3:
+                try:
+                    await asyncio.wait_for(
+                        evento.wait(),
+                        timeout=random.randint(
+                            22,
+                            38
+                        )
+                    )
+                except asyncio.TimeoutError:
+                    pass
+
+        if not evento.is_set():
+            try:
+                await asyncio.wait_for(
+                    evento.wait(),
+                    timeout=IA_CAOS_MAX_ESPERA_RESPOSTA
+                )
+            except asyncio.TimeoutError:
+                pass
+
+        if evento.is_set():
+            respostas = [
+                "nada não",
+                "nada não KKKKK 💀",
+                "esqueci já",
+                "só vendo se tu tava vivo 😂",
+                "relaxa, era nada não 🤝",
+            ]
+
+            await canal.send(
+                f"{alvo.mention} "
+                + random.choice(
+                    respostas
+                ),
+                allowed_mentions=discord.AllowedMentions(
+                    users=True,
+                    roles=False,
+                    everyone=False
+                )
+            )
+
+    except asyncio.CancelledError:
+        raise
+
+    except (
+        discord.Forbidden,
+        discord.HTTPException
+    ) as erro:
+        print(
+            "Erro no modo IA causando | "
+            f"{type(erro).__name__}: {erro}"
+        )
+
+    finally:
+        limpar_estado_caos()
+
+
+async def processar_resposta_caos(
+    message: discord.Message
+):
+    if not _ia_caos_estado[
+        "ativo"
+    ]:
+        return False
+
+    if (
+        message.author.id
+        != _ia_caos_estado[
+            "alvo_id"
+        ]
+    ):
+        return False
+
+    if (
+        message.channel.id
+        != _ia_caos_estado[
+            "canal_id"
+        ]
+    ):
+        return False
+
+    evento = _ia_caos_estado.get(
+        "evento_resposta"
+    )
+
+    if evento is not None:
+        evento.set()
+        return True
+
+    return False
+
+
+@tasks.loop(
+    minutes=10
+)
+async def ia_caos_automatico():
+    if not ia_esta_ativa():
+        return
+
+    if not ia_caos_esta_ativo():
+        return
+
+    if not ia_caos_dentro_do_horario():
+        return
+
+    if _ia_caos_estado[
+        "ativo"
+    ]:
+        return
+
+    if not ia_caos_intervalo_liberado():
+        return
+
+    alvo_manual = (
+        ia_caos_proximo_alvo_id()
+        is not None
+    )
+
+    # Se existe alvo manual, tenta assim que o intervalo liberar.
+    # Sem alvo manual, usa chance aleatória para não virar spam.
+    if (
+        not alvo_manual
+        and random.random()
+        > IA_CAOS_CHANCE_POR_CICLO
+    ):
+        return
+
+    for guild in bot.guilds:
+        alvo, era_manual = (
+            escolher_alvo_caos(
+                guild
+            )
+        )
+
+        if alvo is None:
+            continue
+
+        canal = await escolher_canal_caos(
+            guild
+        )
+
+        if canal is None:
+            continue
+
+        task = asyncio.create_task(
+            executar_caos(
+                guild,
+                canal,
+                alvo,
+                alvo_manual=era_manual
+            )
+        )
+
+        _ia_caos_estado[
+            "task"
+        ] = task
+
+        break
+
+
+@ia_caos_automatico.before_loop
+async def antes_ia_caos_automatico():
+    await bot.wait_until_ready()
+
+
 # ==========================================================
 # /CONFIGURARIA
 # ==========================================================
@@ -5177,7 +5807,8 @@ async def responder_com_ia(
 )
 @app_commands.describe(
     acao="O que deseja fazer com a IA",
-    canal="Canal exclusivo para a IA (opcional)"
+    canal="Canal exclusivo para a IA (opcional)",
+    membro="Membro usado como próximo alvo manual (opcional)"
 )
 @app_commands.choices(
     acao=[
@@ -5205,12 +5836,29 @@ async def responder_com_ia(
             name="Limpar memória",
             value="memoria"
         ),
+        app_commands.Choice(
+            name="Ativar modo causando",
+            value="caos_on"
+        ),
+        app_commands.Choice(
+            name="Desativar modo causando",
+            value="caos_off"
+        ),
+        app_commands.Choice(
+            name="Definir próximo alvo",
+            value="alvo"
+        ),
+        app_commands.Choice(
+            name="Limpar próximo alvo",
+            value="alvo_limpar"
+        ),
     ]
 )
 async def configuraria(
     interaction: discord.Interaction,
     acao: app_commands.Choice[str],
-    canal: discord.TextChannel | None = None
+    canal: discord.TextChannel | None = None,
+    membro: discord.Member | None = None
 ):
     if await negar_se_nao_admin(
         interaction
@@ -5293,6 +5941,91 @@ async def configuraria(
         )
         return
 
+    if escolha == "caos_on":
+        salvar_estado(
+            CHAVE_IA_CAOS_ATIVO,
+            "1"
+        )
+
+        await interaction.response.send_message(
+            "😈 Modo **IA causando** ativado. "
+            "Ele pode agir automaticamente das "
+            f"**{IA_CAOS_HORA_INICIO:02d}:00 às "
+            f"{IA_CAOS_HORA_FIM:02d}:00**.",
+            ephemeral=True
+        )
+        return
+
+    if escolha == "caos_off":
+        salvar_estado(
+            CHAVE_IA_CAOS_ATIVO,
+            "0"
+        )
+
+        task = _ia_caos_estado.get(
+            "task"
+        )
+
+        if (
+            task is not None
+            and not task.done()
+        ):
+            task.cancel()
+
+        limpar_estado_caos()
+
+        await interaction.response.send_message(
+            "😴 Modo **IA causando** desativado.",
+            ephemeral=True
+        )
+        return
+
+    if escolha == "alvo":
+        if membro is None:
+            await interaction.response.send_message(
+                "❌ Escolha também o membro que será "
+                "o próximo alvo.",
+                ephemeral=True
+            )
+            return
+
+        if membro.bot:
+            await interaction.response.send_message(
+                "❌ Bot zoando bot já é reunião de condomínio. "
+                "Escolha uma pessoa 😂",
+                ephemeral=True
+            )
+            return
+
+        salvar_estado(
+            CHAVE_IA_CAOS_PROXIMO_ALVO,
+            str(
+                membro.id
+            )
+        )
+
+        await interaction.response.send_message(
+            f"🎯 Próximo alvo manual definido: "
+            f"{membro.mention}.\n"
+            "Quando o modo causando puder agir e ele "
+            "estiver online... já era 💀",
+            ephemeral=True
+        )
+        return
+
+    if escolha == "alvo_limpar":
+        salvar_estado(
+            CHAVE_IA_CAOS_PROXIMO_ALVO,
+            ""
+        )
+
+        await interaction.response.send_message(
+            "🧹 Próximo alvo manual removido. "
+            "Voltei pro sorteio da vítima 😂",
+            ephemeral=True
+        )
+        return
+
     canal_id = canal_ia_configurado()
 
     canal_texto = (
@@ -5310,7 +6043,18 @@ async def configuraria(
             f"**Modelo:** `{GROQ_MODEL}`\n"
             f"**Canal:** {canal_texto}\n"
             f"**Memória:** últimas "
-            f"{IA_MEMORIA_MENSAGENS} mensagens"
+            f"{IA_MEMORIA_MENSAGENS} mensagens\n"
+            f"**Modo causando:** "
+            f"{'Ativo' if ia_caos_esta_ativo() else 'Desativado'}\n"
+            f"**Horário causando:** "
+            f"{IA_CAOS_HORA_INICIO:02d}:00–"
+            f"{IA_CAOS_HORA_FIM:02d}:00\n"
+            f"**Próximo alvo manual:** "
+            + (
+                f"<@{ia_caos_proximo_alvo_id()}>"
+                if ia_caos_proximo_alvo_id()
+                else "Nenhum"
+            )
         ),
         ephemeral=True
     )
@@ -5386,9 +6130,14 @@ async def on_message(
         message
     )
 
-    await responder_com_ia(
+    caiu_na_pegadinha = await processar_resposta_caos(
         message
     )
+
+    if not caiu_na_pegadinha:
+        await responder_com_ia(
+            message
+        )
 
     await bot.process_commands(
         message
@@ -6011,6 +6760,9 @@ async def atualizarfuncoes(
 
 @bot.event
 async def on_ready():
+    if not ia_caos_automatico.is_running():
+        ia_caos_automatico.start()
+
     if not verificar_enquetes_temporarias.is_running():
         verificar_enquetes_temporarias.start()
 
