@@ -83,6 +83,16 @@ ENTRADAS_HISTORICO_LIMITE = 100
 # "fatos" = informação fornecida pelo programador.
 # "piadas" = piadas internas; a IA não deve confundir com fatos.
 MEMORIA_SOCIAL_RESENHA = {
+    1455937306400653344: {
+        "apelidos": ["Vini"],
+        "fatos": [
+            "É o programador/criador do bot RESENHA MÁXIMA.",
+            "Em conversa casual, prefira chamá-lo de Vini em vez do nome de usuário do Discord.",
+        ],
+        "piadas": [
+            "Pode zoar o Vini normalmente quando o contexto for de resenha.",
+        ],
+    },
     1089629818628349962: {
         "apelidos": ["Shelby"],
         "fatos": [
@@ -130,11 +140,11 @@ MEMORIA_SOCIAL_RESENHA = {
     927746687605280809: {
         "apelidos": ["Drax", "Draxz"],
         "fatos": [
-            "Saiu do Brasil e mora na Itália.",
+            "Saiu do Brasil e mora na Itália, mas isso é apenas contexto e não deve ser mencionado espontaneamente.",
         ],
         "piadas": [
-            "A piada interna do grupo é insistir que ele mora em Angola.",
-            "A IA deve saber que Angola é piada e Itália é o fato.",
+            "A piada interna do grupo é dizer que ele mora em Angola, mas essa referência deve ser RARA.",
+            "Não mencione Itália espontaneamente e não repita Angola em respostas próximas.",
         ],
     },
 }
@@ -185,7 +195,7 @@ RESPOSTAS_RAPIDAS_IA = {
     ],
 }
 
-ATUALIZACAO_BOT_ID = "2026-08-19-02"
+ATUALIZACAO_BOT_ID = "2026-08-19-04"
 ATUALIZACAO_BOT_TITULO = "Atualização da Resenha Máxima"
 
 # Respostas de personagem para recusas genéricas da IA.
@@ -208,27 +218,25 @@ IA_RECUSAS_GENERICAS = (
 )
 
 ATUALIZACAO_NOVIDADES = [
-    '🧠 IA entende melhor frases com erros, palavras faltando e gramática quebrada',
-    '💬 Cerca de 50% das respostas podem usar abreviações naturais de chat',
-    '🤬 Palavrões agora acompanham o tom da mensagem: usuário xingou, a IA pode xingar de volta',
-    '😈 Menções repetidas deixam de gerar resposta de atendente e podem virar zoeira',
+    "🗣️ O criador do bot passa a ser chamado de Vini nas conversas casuais",
+    "🧠 Memória curta de respostas prontas evita repetir a mesma frase em sequência",
 ]
 
 ATUALIZACAO_CORRECOES = [
-    "🎯 Menos repetição de 'tô ouvindo', 'o que manda?' e respostas genéricas",
-    "😂 'Nada não' agora é reconhecido como oportunidade de zoeira",
-    '📚 Notas antigas de atualização deixam de ser apagadas ao publicar uma nova versão',
+    "🌍 Draxz: Itália deixa de ser assunto espontâneo e Angola vira apenas uma piada rara",
+    "🧠 Memórias sociais passam a servir como contexto, sem dominar a conversa",
+    "🔁 Corrigida repetição de respostas como 'vai ficar me marcando até amanhã?'",
+    "🤬 'Corno' agora é reconhecido como tom de xingamento para a IA acompanhar a resenha",
+    "📢 Ao lançar uma atualização, o bot remove somente a mensagem de futuras atualizações",
 ]
 
 ATUALIZACAO_ALTERACOES = [
-    '📢 Canal oficial de atualizações passa a usar 1539378586123898882 como padrão',
-    '🧭 Resposta da IA tenta interpretar intenção em vez de corrigir português ruim',
-    '🗣️ Abreviações são aplicadas de forma leve para não deixar a mensagem ilegível',
+    "📚 Notas de atualizações já lançadas continuam preservadas no canal",
+    "🔮 Futuras/Próximas atualizações são tratadas como mensagem temporária até o lançamento",
 ]
 
 ATUALIZACAO_PROBLEMAS_CONHECIDOS = [
-    '🖼️ IA ainda não interpreta visualmente imagens ou o conteúdo real das figurinhas',
-    '🎨 Geração de imagens pela IA ainda não foi implementada',
+    "🖼️ IA ainda não interpreta visualmente imagens ou o conteúdo real das figurinhas",
 ]
 
 IA_MEMORIA_MENSAGENS = 10
@@ -311,7 +319,7 @@ LIMITES DE PERSONALIDADE:
 CONTEXTO DO SERVIDOR:
 - Seu nome é RESENHA MÁXIMA.
 - Você é o bot oficial da Resenha Máxima.
-- O programador é <@1455937306400653344>.
+- O programador é <@1455937306400653344> e o nome/apelido que você deve usar para ele em conversa casual é Vini.
 - Você possui sistemas de moderação, enquetes, Minecraft, nicknames,
   limpeza de canal e outras automações.
 - Se não souber algo específico sobre o servidor, admita que não sabe.
@@ -338,8 +346,10 @@ _cooldown_ia = {}
 
 # Menções vazias/repetidas: evita resposta de atendente em loop.
 _ia_mencoes_recentes = {}
+_ia_respostas_rapidas_recentes = {}
 IA_MENCAO_REPETIDA_JANELA = 45
 IA_MENCAO_REPETIDA_LIMITE = 2
+IA_RESPOSTAS_RAPIDAS_MEMORIA = 4
 
 # Histórico em memória de ofensas insistentes direcionadas ao bot.
 _ia_abuso = {}
@@ -5358,6 +5368,38 @@ async def remover_atualizacoes_antigas(canal):
     return removidas
 
 
+def mensagem_e_atualizacao_pendente(mensagem: discord.Message):
+    if bot.user is None:
+        return False
+    if mensagem.author.id != bot.user.id:
+        return False
+
+    conteudo = str(mensagem.content or "").casefold()
+    marcadores = (
+        "futuras atualizações",
+        "futuras atualizacoes",
+        "próximas atualizações",
+        "proximas atualizacoes",
+    )
+    return any(marcador in conteudo for marcador in marcadores)
+
+
+async def remover_atualizacoes_pendentes(canal):
+    removidas = 0
+    try:
+        async for mensagem in canal.history(limit=100):
+            if not mensagem_e_atualizacao_pendente(mensagem):
+                continue
+            try:
+                await mensagem.delete()
+                removidas += 1
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+    return removidas
+
+
 async def publicar_atualizacao_bot(*, forcar=False):
     canal = await obter_canal_atualizacoes()
     if canal is None:
@@ -5369,13 +5411,26 @@ async def publicar_atualizacao_bot(*, forcar=False):
     # Mantém o histórico: notas de versões anteriores NÃO são apagadas.
     # A prévia de "Futuras atualizações" é gerenciada separadamente pelo site.
     try:
-        for parte in dividir_mensagem_discord(criar_texto_atualizacao_bot()):
+        for parte in dividir_mensagem_discord(
+            criar_texto_atualizacao_bot()
+        ):
             await canal.send(parte)
     except (discord.Forbidden, discord.HTTPException) as erro:
         return False, f"Não foi possível publicar: {erro}"
 
-    salvar_estado(CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA, ATUALIZACAO_BOT_ID)
-    return True, "Atualização publicada como mensagem normal. O histórico anterior foi mantido."
+    pendentes_removidas = await remover_atualizacoes_pendentes(canal)
+
+    salvar_estado(
+        CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA,
+        ATUALIZACAO_BOT_ID
+    )
+
+    return (
+        True,
+        "Atualização publicada. "
+        f"{pendentes_removidas} mensagem(ns) de futuras atualizações removida(s). "
+        "As notas antigas foram mantidas."
+    )
 
 
 async def publicar_atualizacao_automatica():
@@ -5843,7 +5898,10 @@ def contexto_social_ia(
 
         linhas.append(
             "Nunca trate PIADA INTERNA como fato real. "
-            "Use essas referências ocasionalmente, sem repetir toda hora."
+            "Use essas referências ocasionalmente, sem repetir toda hora. "
+            "Memória social é tempero, não assunto: responda principalmente ao que a pessoa acabou de dizer. "
+            "Não puxe país, cidade, cargo, rotina ou piada cadastrada só porque reconheceu o membro. "
+            "Para Draxz, não mencione Itália espontaneamente; Angola é uma piada rara e não deve aparecer em respostas próximas."
         )
 
     linhas.append(
@@ -6040,7 +6098,7 @@ async def processar_autodefesa_ia(message: discord.Message):
 PADROES_PALAVRAO_IA = (
     r"\bcaralh[oa]?\b", r"\bporra\b", r"\bmerda\b", r"\bbosta\b",
     r"\bfod(?:a|e|er|eu|ido|ida)\b", r"\bdesgra[cç]a(?:do|da)?\b",
-    r"\barromb(?:ado|ada)?\b", r"\bcu\b", r"\bputa\b", r"\bpqp\b", r"\bvsf\b",
+    r"\barromb(?:ado|ada)?\b", r"\bcorno\b", r"\bcu\b", r"\bputa\b", r"\bpqp\b", r"\bvsf\b",
 )
 
 
@@ -6060,6 +6118,25 @@ def abreviar_texto_ia(texto):
         if random.random() < 0.55:
             resultado = re.sub(padrao, troca, resultado, flags=re.IGNORECASE)
     return resultado
+
+
+def escolher_sem_repetir_ia(usuario_id, opcoes):
+    opcoes = list(dict.fromkeys(str(item) for item in opcoes if str(item).strip()))
+    if not opcoes:
+        return ""
+
+    historico = _ia_respostas_rapidas_recentes.setdefault(
+        usuario_id,
+        deque(maxlen=IA_RESPOSTAS_RAPIDAS_MEMORIA)
+    )
+
+    disponiveis = [item for item in opcoes if item not in historico]
+    if not disponiveis:
+        disponiveis = opcoes
+
+    escolhida = random.choice(disponiveis)
+    historico.append(escolhida)
+    return escolhida
 
 
 def contar_mencao_repetida_ia(message: discord.Message):
@@ -6102,25 +6179,46 @@ def escolher_resposta_rapida_ia(message: discord.Message):
     texto = texto_original.casefold()
 
     if re.fullmatch(r"(?:nada|nd)\s*(?:n[aã]o|n|nao)?[.!? ]*", texto):
-        return random.choice(RESPOSTAS_RAPIDAS_IA["nada_nao"])
+        return escolher_sem_repetir_ia(
+            message.author.id,
+            RESPOSTAS_RAPIDAS_IA["nada_nao"]
+        )
 
     if message.stickers and random.random() < 0.65:
-        return random.choice(RESPOSTAS_RAPIDAS_IA["sticker"])
+        return escolher_sem_repetir_ia(
+            message.author.id,
+            RESPOSTAS_RAPIDAS_IA["sticker"]
+        )
 
     if not texto:
         quantidade = contar_mencao_repetida_ia(message)
         if quantidade >= IA_MENCAO_REPETIDA_LIMITE:
-            return random.choice(RESPOSTAS_RAPIDAS_IA["mencao_repetida"])
+            return escolher_sem_repetir_ia(
+            message.author.id,
+            RESPOSTAS_RAPIDAS_IA["mencao_repetida"]
+        )
         if random.random() < 0.35:
-            return random.choice(RESPOSTAS_RAPIDAS_IA["so_mencao"])
+            return escolher_sem_repetir_ia(
+            message.author.id,
+            RESPOSTAS_RAPIDAS_IA["so_mencao"]
+        )
         return None
 
     if texto.startswith(("iae", "eae", "salve", "fala")) and random.random() < 0.30:
-        return random.choice(RESPOSTAS_RAPIDAS_IA["saudacao"])
+        return escolher_sem_repetir_ia(
+            message.author.id,
+            RESPOSTAS_RAPIDAS_IA["saudacao"]
+        )
     if "bom dia" in texto and random.random() < 0.30:
-        return random.choice(RESPOSTAS_RAPIDAS_IA["bom_dia"])
+        return escolher_sem_repetir_ia(
+            message.author.id,
+            RESPOSTAS_RAPIDAS_IA["bom_dia"]
+        )
     if "boa noite" in texto and random.random() < 0.30:
-        return random.choice(RESPOSTAS_RAPIDAS_IA["boa_noite"])
+        return escolher_sem_repetir_ia(
+            message.author.id,
+            RESPOSTAS_RAPIDAS_IA["boa_noite"]
+        )
     return None
 
 
@@ -6134,10 +6232,17 @@ async def enviar_resposta_rapida_ia(message: discord.Message, texto):
     # Fora da piada especial "nada não", palavrão pronto só se o usuário abriu esse tom.
     if not mensagem_tem_palavrao_ia(texto_original) and not eh_nada_nao:
         if mensagem_tem_palavrao_ia(texto):
-            texto = random.choice([
-                "fala", "q foi?", "já vai começar?", "manda logo",
-                "tu tá testando minha paciência né", "me invocou de novo pra quê?",
-            ])
+            texto = escolher_sem_repetir_ia(
+                message.author.id,
+                [
+                    "fala",
+                    "q foi?",
+                    "já vai começar?",
+                    "manda logo",
+                    "tu tá testando minha paciência né",
+                    "me invocou de novo pra quê?",
+                ]
+            )
 
     if random.random() < 0.50:
         texto = abreviar_texto_ia(texto)
