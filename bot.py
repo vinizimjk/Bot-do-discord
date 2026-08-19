@@ -74,7 +74,104 @@ CHAVE_IA_CAOS_ULTIMA_ACAO = "ia_caos_ultima_acao"
 CHAVE_CANAL_ATUALIZACOES = "canal_atualizacoes_bot_id"
 CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA = "ultima_atualizacao_bot_publicada"
 
-ATUALIZACAO_BOT_ID = "2026-08-18-02"
+# Controle de entrada por convites do Discord.
+# O bot precisa da permissão "Gerenciar Servidor" para consultar convites.
+ENTRADAS_HISTORICO_LIMITE = 100
+
+# Memória social manual da Resenha Máxima.
+# "fatos" = informação fornecida pelo programador.
+# "piadas" = piadas internas; a IA não deve confundir com fatos.
+MEMORIA_SOCIAL_RESENHA = {
+    1089629818628349962: {
+        "apelidos": ["Shelby"],
+        "fatos": [
+            "É o dono do servidor de Minecraft da Resenha Máxima.",
+            "Costuma aparecer pouco no servidor/chat.",
+        ],
+        "piadas": [
+            "A piada interna é que ele aparece de 4 em 4 anos.",
+            "A palavra recorrente da zoeira com ele é 'offline'.",
+        ],
+    },
+    595754985875308565: {
+        "apelidos": ["PK"],
+        "fatos": [
+            "É um dos jogadores de Minecraft mais ativos da Resenha.",
+            "Costuma ficar mais ativo em call do que no chat de texto.",
+            "Normalmente leva bem zoeira de resenha.",
+        ],
+        "piadas": [
+            "Pode zoar dizendo que ele mora na call.",
+        ],
+    },
+    1467263535972225165: {
+        "apelidos": ["Fael", "Faelzinho"],
+        "fatos": [
+            "Já foi mais ativo no servidor e hoje tem mais responsabilidades fora.",
+            "Entra na brincadeira quando o clima é de brincadeira.",
+            "Quando está falando sério, prefere que o assunto seja tratado sério.",
+            "Gosta da brincadeira do 'nada não'.",
+        ],
+        "piadas": [
+            "No modo causando, 'nada não' combina especialmente com ele.",
+        ],
+    },
+    1174877728281985124: {
+        "apelidos": ["M7"],
+        "fatos": [
+            "É carioca.",
+            "Usa muitos xingamentos como parte do jeito normal de conversar.",
+        ],
+        "piadas": [
+            "A piada interna é que a cada 3 palavras dele, 4 são insultos.",
+        ],
+    },
+    927746687605280809: {
+        "apelidos": ["Drax", "Draxz"],
+        "fatos": [
+            "Saiu do Brasil e mora na Itália.",
+        ],
+        "piadas": [
+            "A piada interna do grupo é insistir que ele mora em Angola.",
+            "A IA deve saber que Angola é piada e Itália é o fato.",
+        ],
+    },
+}
+
+# Respostas rápidas: usadas com chance, antes da Groq, para deixar o bot
+# menos dependente da API e mais com cara de membro da Resenha.
+RESPOSTAS_RAPIDAS_IA = {
+    "saudacao": [
+        "chora na tora zz",
+        "fala desgraça",
+        "que foi agora?",
+        "tô aqui, infelizmente",
+    ],
+    "so_mencao": [
+        "fala",
+        "que foi?",
+        "tô ouvindo",
+        "já vai começar?",
+    ],
+    "bom_dia": [
+        "bom dia é o caralho, já começou os problemas?",
+        "bom dia pra quem? eu já acordei trabalhando",
+        "dia nem começou e vocês já tão me chamando",
+    ],
+    "boa_noite": [
+        "vai dormir então porra",
+        "boa noite, agora some",
+        "dorme logo antes que inventem atualização pra mim",
+    ],
+    "sticker": [
+        "que porra é essa figurinha?",
+        "isso era pra fazer sentido?",
+        "vou fingir que entendi essa figurinha",
+        "que isso? foto do teu pau? pequena demais, baixa de novo",
+    ],
+}
+
+ATUALIZACAO_BOT_ID = "2026-08-19-01"
 ATUALIZACAO_BOT_TITULO = "Atualização da Resenha Máxima"
 
 # Respostas de personagem para recusas genéricas da IA.
@@ -97,33 +194,31 @@ IA_RECUSAS_GENERICAS = (
 )
 
 ATUALIZACAO_NOVIDADES = [
-    "🤖 IA da Resenha Máxima integrada ao Discord",
-    "🧠 IA reconhece nomes, apelidos e cargos reais dos membros",
-    "😈 Modo IA causando com alvo aleatório ou manual",
-    "📊 Enquetes organizadas em Normal, Secreta e Temporária",
-    "🗂️ Slash commands reorganizados por grupos",
-    "📢 Novo canal de histórico de atualizações do bot",
+    "📥 Controle de entrada por links de convite do Discord",
+    "📊 Histórico e ranking de quem trouxe novos membros",
+    "🧠 Memória social da IA para Shelby, PK, Faelzinho, M7 e Draxz",
+    "💬 Respostas rápidas de personalidade sem gastar Groq em todas as interações",
+    "📢 Notas de atualização em formato de patch notes, separadas do canal Funções do Bot",
 ]
 
 ATUALIZACAO_CORRECOES = [
-    "🎮 Corrigido falso OFFLINE no monitor do Minecraft Bedrock",
-    "📍 Corrigido modo causando usando canal onde o alvo não podia responder",
-    "⚡ Corrigidas falhas de JSON nas respostas da Groq",
-    "🧯 Reduzido o fallback repetitivo de 'tela azul' da IA",
+    "📍 Modo causando continua evitando canais onde o alvo não pode responder",
+    "💬 Resposta do alvo no modo causando tem prioridade sobre conversa normal da IA",
+    "⚡ Mantidas tentativas automáticas para reduzir falhas temporárias da Groq",
+    "🎮 Mantida correção do falso OFFLINE do Minecraft Bedrock",
 ]
 
 ATUALIZACAO_ALTERACOES = [
-    "🎭 IA usa cargos de forma menos repetitiva nas zoeiras",
-    "😂 IA usa menos emojis no fim de cada resposta",
-    "🔐 Modo causando só usa canais onde o alvo pode enviar mensagens",
-    "🧭 Comandos agora ficam agrupados em /ia, /minecraft, /ban, /enquete, /canal e /funcoes",
-    "📚 Canal de Funções/Sobre mim foi separado definitivamente do histórico de atualizações",
-    "🎭 Recusas genéricas da IA agora viram respostas de personagem alternando Shelby, PK e Draxz",
+    "🎭 IA usa cargos como contexto sem repetir patente em toda resposta",
+    "🧭 Funções do Bot e Histórico de Atualizações permanecem completamente separados",
+    "😂 Stickers podem receber respostas genéricas mesmo sem visão artificial",
+    "🔗 Entradas não identificáveis são salvas como origem desconhecida, sem inventar convidador",
 ]
 
 ATUALIZACAO_PROBLEMAS_CONHECIDOS = [
-    "🖼️ IA ainda não interpreta visualmente imagens e figurinhas",
+    "🖼️ IA ainda não interpreta visualmente imagens ou o conteúdo real das figurinhas",
     "🎨 Geração de imagens pela IA ainda não foi implementada",
+    "🔐 Controle de convites precisa da permissão Gerenciar Servidor para identificar quem convidou",
 ]
 
 IA_MEMORIA_MENSAGENS = 10
@@ -407,6 +502,35 @@ def criar_banco():
             WHERE
                 status = 'pendente'
                 AND modo_motivo = 'call'
+        """)
+
+        # --------------------------------------------------
+        # CONTROLE DE ENTRADA / CONVITES
+        # --------------------------------------------------
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS entradas_convites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                usuario_id INTEGER NOT NULL,
+                usuario_nome TEXT,
+                convidador_id INTEGER,
+                convidador_nome TEXT,
+                codigo_convite TEXT,
+                entrou_em TEXT NOT NULL,
+                origem TEXT NOT NULL DEFAULT 'convite',
+                UNIQUE (guild_id, usuario_id, entrou_em)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_entradas_convites_guild_data
+            ON entradas_convites (guild_id, entrou_em DESC)
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_entradas_convites_convidador
+            ON entradas_convites (guild_id, convidador_id)
         """)
 
         # --------------------------------------------------
@@ -4782,11 +4906,308 @@ async def antes_de_renovar():
 
 
 # ==========================================================
+# CONTROLE DE ENTRADA — CONVITES DO DISCORD
+# ==========================================================
+
+_cache_convites = {}
+
+
+def salvar_entrada_convite(
+    guild_id,
+    usuario_id,
+    usuario_nome,
+    convidador_id=None,
+    convidador_nome=None,
+    codigo_convite=None,
+    origem="desconhecida"
+):
+    with conectar_banco() as banco:
+        banco.execute(
+            """
+            INSERT INTO entradas_convites (
+                guild_id,
+                usuario_id,
+                usuario_nome,
+                convidador_id,
+                convidador_nome,
+                codigo_convite,
+                entrou_em,
+                origem
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                guild_id,
+                usuario_id,
+                usuario_nome,
+                convidador_id,
+                convidador_nome,
+                codigo_convite,
+                datetime.now(
+                    timezone.utc
+                ).isoformat(),
+                origem
+            )
+        )
+        banco.commit()
+
+
+def buscar_entradas_convites(
+    guild_id,
+    limite=20
+):
+    limite = max(
+        1,
+        min(
+            int(limite),
+            ENTRADAS_HISTORICO_LIMITE
+        )
+    )
+
+    with conectar_banco() as banco:
+        return banco.execute(
+            """
+            SELECT *
+            FROM entradas_convites
+            WHERE guild_id = ?
+            ORDER BY entrou_em DESC
+            LIMIT ?
+            """,
+            (
+                guild_id,
+                limite
+            )
+        ).fetchall()
+
+
+def ranking_convites(
+    guild_id,
+    limite=10
+):
+    with conectar_banco() as banco:
+        return banco.execute(
+            """
+            SELECT
+                convidador_id,
+                MAX(convidador_nome) AS convidador_nome,
+                COUNT(*) AS quantidade
+            FROM entradas_convites
+            WHERE
+                guild_id = ?
+                AND convidador_id IS NOT NULL
+            GROUP BY convidador_id
+            ORDER BY quantidade DESC, convidador_nome ASC
+            LIMIT ?
+            """,
+            (
+                guild_id,
+                max(
+                    1,
+                    min(
+                        int(limite),
+                        25
+                    )
+                )
+            )
+        ).fetchall()
+
+
+async def obter_convites_guild(
+    guild: discord.Guild
+):
+    try:
+        convites = await guild.invites()
+    except discord.Forbidden:
+        print(
+            "Controle de entrada | "
+            f"Sem permissão para consultar convites em {guild.name}. "
+            "Dê ao bot a permissão Gerenciar Servidor."
+        )
+        return None
+    except discord.HTTPException as erro:
+        print(
+            "Controle de entrada | "
+            f"Erro ao consultar convites: {erro}"
+        )
+        return None
+
+    return {
+        convite.code: {
+            "uses": int(
+                convite.uses
+                or 0
+            ),
+            "inviter_id": (
+                convite.inviter.id
+                if convite.inviter
+                else None
+            ),
+            "inviter_name": (
+                str(convite.inviter)
+                if convite.inviter
+                else None
+            ),
+        }
+        for convite in convites
+    }
+
+
+async def atualizar_cache_convites(
+    guild: discord.Guild
+):
+    atual = await obter_convites_guild(
+        guild
+    )
+
+    if atual is not None:
+        _cache_convites[
+            guild.id
+        ] = atual
+
+    return atual
+
+
+async def identificar_convite_usado(
+    guild: discord.Guild
+):
+    anterior = _cache_convites.get(
+        guild.id,
+        {}
+    )
+
+    atual = await obter_convites_guild(
+        guild
+    )
+
+    if atual is None:
+        return (
+            None,
+            None,
+            None,
+            "desconhecida"
+        )
+
+    usado = None
+
+    # O convite usado normalmente é o que teve aumento no contador.
+    for codigo, dados in atual.items():
+        anterior_uses = int(
+            anterior.get(
+                codigo,
+                {}
+            ).get(
+                "uses",
+                0
+            )
+            or 0
+        )
+
+        if dados["uses"] > anterior_uses:
+            usado = (
+                codigo,
+                dados
+            )
+            break
+
+    _cache_convites[
+        guild.id
+    ] = atual
+
+    if usado is None:
+        return (
+            None,
+            None,
+            None,
+            "desconhecida"
+        )
+
+    codigo, dados = usado
+
+    return (
+        dados.get(
+            "inviter_id"
+        ),
+        dados.get(
+            "inviter_name"
+        ),
+        codigo,
+        "convite"
+    )
+
+
+async def registrar_entrada_membro(
+    member: discord.Member
+):
+    (
+        convidador_id,
+        convidador_nome,
+        codigo,
+        origem
+    ) = await identificar_convite_usado(
+        member.guild
+    )
+
+    salvar_entrada_convite(
+        member.guild.id,
+        member.id,
+        str(member),
+        convidador_id,
+        convidador_nome,
+        codigo,
+        origem
+    )
+
+    if convidador_id:
+        print(
+            "Controle de entrada | "
+            f"{member} entrou por convite de "
+            f"{convidador_nome} ({convidador_id}) | "
+            f"código={codigo}"
+        )
+    else:
+        print(
+            "Controle de entrada | "
+            f"{member} entrou | origem desconhecida"
+        )
+
+
+@bot.event
+async def on_invite_create(
+    invite: discord.Invite
+):
+    if invite.guild is not None:
+        await atualizar_cache_convites(
+            invite.guild
+        )
+
+
+@bot.event
+async def on_invite_delete(
+    invite: discord.Invite
+):
+    if invite.guild is not None:
+        await atualizar_cache_convites(
+            invite.guild
+        )
+
+
+# ==========================================================
 # MEMBRO COM PEDIDO PENDENTE VOLTA
 # ==========================================================
 
 @bot.event
 async def on_member_join(member: discord.Member):
+    if not member.bot:
+        try:
+            await registrar_entrada_membro(
+                member
+            )
+        except Exception as erro:
+            print(
+                "Erro ao registrar entrada por convite | "
+                f"{type(erro).__name__}: {erro}"
+            )
+
     cadastro = buscar_cadastro_nick(member.guild.id, member.id)
     if cadastro and cadastro['status'] == 'ausente':
         atualizar_cadastro_nick(member.guild.id, member.id, status='ativo' if cadastro['nickname'] else 'pendente', saiu_em=None)
@@ -4859,24 +5280,71 @@ def texto_lista_atualizacao(itens, vazio="Nenhum item."):
 
 
 def criar_embed_atualizacao_bot():
-    embed = discord.Embed(
-        title=f"🤖 {ATUALIZACAO_BOT_TITULO}",
-        description=(
-            f"**Versão:** `{ATUALIZACAO_BOT_ID}`\n"
-            "Resumo das mudanças desta atualização."
+    """
+    Patch notes em formato de texto corrido/seções,
+    em vez de vários campos com aparência de tabela.
+    """
+    data_local = datetime.now(
+        FUSO_SERVIDOR
+    ).strftime(
+        "%d/%m/%Y"
+    )
+
+    secoes = [
+        (
+            "🆕 NOVIDADES",
+            ATUALIZACAO_NOVIDADES
         ),
+        (
+            "🔧 CORRIGIDO",
+            ATUALIZACAO_CORRECOES
+        ),
+        (
+            "♻️ ALTERAÇÕES",
+            ATUALIZACAO_ALTERACOES
+        ),
+        (
+            "🐛 PROBLEMAS CONHECIDOS",
+            ATUALIZACAO_PROBLEMAS_CONHECIDOS
+        ),
+    ]
+
+    partes = []
+
+    for titulo, itens in secoes:
+        if not itens:
+            continue
+
+        partes.append(
+            f"**{titulo}**\\n"
+            + "\\n".join(
+                f"• {item}"
+                for item in itens
+            )
+        )
+
+    descricao = (
+        f"**NOTAS DA ATUALIZAÇÃO — {data_local}**\\n"
+        f"Versão `{ATUALIZACAO_BOT_ID}`\\n\\n"
+        + "\\n\\n".join(
+            partes
+        )
+    )
+
+    embed = discord.Embed(
+        description=descricao,
         color=discord.Color.gold(),
-        timestamp=datetime.now(timezone.utc)
+        timestamp=datetime.now(
+            timezone.utc
+        )
     )
-    embed.add_field(name="🆕 Novidades", value=texto_lista_atualizacao(ATUALIZACAO_NOVIDADES), inline=False)
-    embed.add_field(name="🔧 Bugs corrigidos", value=texto_lista_atualizacao(ATUALIZACAO_CORRECOES), inline=False)
-    embed.add_field(name="♻️ Alterações", value=texto_lista_atualizacao(ATUALIZACAO_ALTERACOES), inline=False)
-    embed.add_field(
-        name="🐛 Problemas conhecidos",
-        value=texto_lista_atualizacao(ATUALIZACAO_PROBLEMAS_CONHECIDOS, "Nenhum problema conhecido registrado."),
-        inline=False
+
+    embed.set_footer(
+        text=(
+            "Resenha Máxima • Histórico de atualizações"
+        )
     )
-    embed.set_footer(text="Resenha Máxima • Histórico de atualizações")
+
     return embed
 
 
@@ -5304,6 +5772,65 @@ def contexto_social_ia(
             "ou 'Sub civil'. Converse normalmente sem usar cargo na piada."
         )
 
+    # Memória social manual apenas dos membros envolvidos nesta mensagem.
+    ids_relevantes = {
+        message.author.id
+    }
+
+    ids_relevantes.update(
+        membro.id
+        for membro in citados
+    )
+
+    fichas = []
+
+    for usuario_id in ids_relevantes:
+        ficha = MEMORIA_SOCIAL_RESENHA.get(
+            usuario_id
+        )
+
+        if not ficha:
+            continue
+
+        fichas.append(
+            (
+                usuario_id,
+                ficha
+            )
+        )
+
+    if fichas:
+        linhas.append(
+            "MEMÓRIA SOCIAL DA RESENHA:"
+        )
+
+        for usuario_id, ficha in fichas:
+            linhas.append(
+                f"- <@{usuario_id}> | "
+                f"apelidos={', '.join(ficha.get('apelidos', []))}"
+            )
+
+            for fato in ficha.get(
+                "fatos",
+                []
+            ):
+                linhas.append(
+                    f"  FATO: {fato}"
+                )
+
+            for piada in ficha.get(
+                "piadas",
+                []
+            ):
+                linhas.append(
+                    f"  PIADA INTERNA: {piada}"
+                )
+
+        linhas.append(
+            "Nunca trate PIADA INTERNA como fato real. "
+            "Use essas referências ocasionalmente, sem repetir toda hora."
+        )
+
     linhas.append(
         "Os cargos acima são dados reais do Discord. "
         "Use-os apenas como contexto; nunca transforme o cargo "
@@ -5506,6 +6033,97 @@ def reduzir_emojis_ia(texto: str):
     return texto
 
 
+def escolher_resposta_rapida_ia(
+    message: discord.Message
+):
+    """
+    Retorna uma resposta pronta ocasional ou None.
+    Figurinhas são detectadas sem visão: o bot sabe que existe sticker,
+    mas não interpreta a imagem.
+    """
+    texto = limpar_mencao_do_bot(
+        message.content
+    ).strip().casefold()
+
+    # Sticker/figurinha: chance alta de resposta pronta.
+    if message.stickers:
+        if random.random() < 0.65:
+            return random.choice(
+                RESPOSTAS_RAPIDAS_IA[
+                    "sticker"
+                ]
+            )
+
+    if not texto:
+        if random.random() < 0.45:
+            return random.choice(
+                RESPOSTAS_RAPIDAS_IA[
+                    "so_mencao"
+                ]
+            )
+        return None
+
+    if (
+        texto.startswith(
+            (
+                "iae",
+                "eae",
+                "salve",
+                "fala"
+            )
+        )
+        and random.random() < 0.35
+    ):
+        return random.choice(
+            RESPOSTAS_RAPIDAS_IA[
+                "saudacao"
+            ]
+        )
+
+    if (
+        "bom dia" in texto
+        and random.random() < 0.35
+    ):
+        return random.choice(
+            RESPOSTAS_RAPIDAS_IA[
+                "bom_dia"
+            ]
+        )
+
+    if (
+        "boa noite" in texto
+        and random.random() < 0.35
+    ):
+        return random.choice(
+            RESPOSTAS_RAPIDAS_IA[
+                "boa_noite"
+            ]
+        )
+
+    return None
+
+
+async def enviar_resposta_rapida_ia(
+    message: discord.Message,
+    texto
+):
+    try:
+        await message.reply(
+            texto,
+            mention_author=False,
+            allowed_mentions=discord.AllowedMentions(
+                users=True,
+                roles=False,
+                everyone=False,
+                replied_user=False
+            )
+        )
+    except discord.HTTPException:
+        return False
+
+    return True
+
+
 async def responder_com_ia(
     message: discord.Message
 ):
@@ -5513,6 +6131,17 @@ async def responder_com_ia(
         message
     ):
         return False
+
+    resposta_rapida = escolher_resposta_rapida_ia(
+        message
+    )
+
+    if resposta_rapida:
+        await enviar_resposta_rapida_ia(
+            message,
+            resposta_rapida
+        )
+        return True
 
     em_cooldown, restante = (
         usuario_em_cooldown_ia(
@@ -7073,6 +7702,176 @@ atualizacao_grupo = app_commands.Group(
     description="Configura e publica o histórico de atualizações do bot"
 )
 
+entrada_grupo = app_commands.Group(
+    name="entrada",
+    description="Consulta o controle de entrada por links de convite"
+)
+
+
+# ==========================================================
+# /ENTRADA
+# ==========================================================
+
+@entrada_grupo.command(
+    name="status",
+    description="Verifica se o bot consegue rastrear convites"
+)
+async def entrada_status(
+    interaction: discord.Interaction
+):
+    if await negar_se_nao_admin(
+        interaction
+    ):
+        return
+
+    await interaction.response.defer(
+        ephemeral=True
+    )
+
+    convites = await obter_convites_guild(
+        interaction.guild
+    )
+
+    if convites is None:
+        await interaction.followup.send(
+            "❌ Não consegui consultar os convites. "
+            "Verifique se o bot possui a permissão "
+            "**Gerenciar Servidor**.",
+            ephemeral=True
+        )
+        return
+
+    _cache_convites[
+        interaction.guild.id
+    ] = convites
+
+    await interaction.followup.send(
+        (
+            "✅ Controle de entrada funcionando.\\n"
+            f"**Convites monitorados:** {len(convites)}"
+        ),
+        ephemeral=True
+    )
+
+
+@entrada_grupo.command(
+    name="historico",
+    description="Mostra as entradas mais recentes e quem convidou"
+)
+@app_commands.describe(
+    quantidade="Quantidade de entradas para mostrar (1 a 20)"
+)
+async def entrada_historico(
+    interaction: discord.Interaction,
+    quantidade: app_commands.Range[
+        int,
+        1,
+        20
+    ] = 10
+):
+    if await negar_se_nao_admin(
+        interaction
+    ):
+        return
+
+    linhas = buscar_entradas_convites(
+        interaction.guild.id,
+        quantidade
+    )
+
+    if not linhas:
+        await interaction.response.send_message(
+            "📭 Ainda não há entradas registradas.",
+            ephemeral=True
+        )
+        return
+
+    partes = []
+
+    for linha in linhas:
+        try:
+            data = datetime.fromisoformat(
+                linha["entrou_em"]
+            )
+
+            timestamp = int(
+                data.timestamp()
+            )
+            quando = f"<t:{timestamp}:R>"
+        except Exception:
+            quando = linha["entrou_em"]
+
+        membro = (
+            f"<@{linha['usuario_id']}>"
+        )
+
+        if linha["convidador_id"]:
+            origem = (
+                f"convite de "
+                f"<@{linha['convidador_id']}>"
+            )
+        else:
+            origem = (
+                "origem desconhecida"
+            )
+
+        partes.append(
+            f"• {membro} — {origem} — {quando}"
+        )
+
+    texto = "\\n".join(
+        partes
+    )
+
+    await interaction.response.send_message(
+        "## 📥 Controle de Entrada\\n"
+        + texto[:1900],
+        ephemeral=True
+    )
+
+
+@entrada_grupo.command(
+    name="ranking",
+    description="Mostra quem trouxe mais membros por convite"
+)
+async def entrada_ranking(
+    interaction: discord.Interaction
+):
+    if await negar_se_nao_admin(
+        interaction
+    ):
+        return
+
+    linhas = ranking_convites(
+        interaction.guild.id,
+        10
+    )
+
+    if not linhas:
+        await interaction.response.send_message(
+            "📭 Ainda não existem convites identificados no histórico.",
+            ephemeral=True
+        )
+        return
+
+    texto = "\\n".join(
+        (
+            f"`{posicao:>2}.` "
+            f"<@{linha['convidador_id']}> — "
+            f"**{linha['quantidade']}** entrada(s)"
+        )
+        for posicao, linha in enumerate(
+            linhas,
+            start=1
+        )
+    )
+
+    await interaction.response.send_message(
+        "## 🔗 Ranking de Convites\\n"
+        + texto,
+        ephemeral=True
+    )
+
 
 # ==========================================================
 # /ATUALIZACAO
@@ -7252,6 +8051,24 @@ async def atualizarfuncoes(
 
 @bot.event
 async def on_ready():
+    if not getattr(
+        bot,
+        "_cache_convites_inicializado",
+        False
+    ):
+        bot._cache_convites_inicializado = True
+
+        for guild in bot.guilds:
+            try:
+                await atualizar_cache_convites(
+                    guild
+                )
+            except Exception as erro:
+                print(
+                    "Erro ao inicializar cache de convites | "
+                    f"{guild.name}: {erro}"
+                )
+
     if not getattr(bot, "_atualizacao_bot_verificada", False):
         bot._atualizacao_bot_verificada = True
         try:
@@ -7878,6 +8695,10 @@ bot.tree.add_command(
 
 bot.tree.add_command(
     atualizacao_grupo
+)
+
+bot.tree.add_command(
+    entrada_grupo
 )
 
 
