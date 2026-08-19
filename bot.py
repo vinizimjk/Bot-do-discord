@@ -5279,73 +5279,62 @@ def texto_lista_atualizacao(itens, vazio="Nenhum item."):
     return "\n".join(f"• {item}" for item in itens)
 
 
-def criar_embed_atualizacao_bot():
-    """
-    Patch notes em formato de texto corrido/seções,
-    em vez de vários campos com aparência de tabela.
-    """
-    data_local = datetime.now(
-        FUSO_SERVIDOR
-    ).strftime(
-        "%d/%m/%Y"
-    )
-
+def criar_texto_atualizacao_bot():
+    """Cria patch notes como mensagem normal do Discord, sem embed."""
+    data_local = datetime.now(FUSO_SERVIDOR).strftime("%d/%m/%Y")
     secoes = [
-        (
-            "🆕 NOVIDADES",
-            ATUALIZACAO_NOVIDADES
-        ),
-        (
-            "🔧 CORRIGIDO",
-            ATUALIZACAO_CORRECOES
-        ),
-        (
-            "♻️ ALTERAÇÕES",
-            ATUALIZACAO_ALTERACOES
-        ),
-        (
-            "🐛 PROBLEMAS CONHECIDOS",
-            ATUALIZACAO_PROBLEMAS_CONHECIDOS
-        ),
+        ("🆕 NOVIDADES", ATUALIZACAO_NOVIDADES),
+        ("🔧 CORRIGIDO", ATUALIZACAO_CORRECOES),
+        ("♻️ ALTERAÇÕES", ATUALIZACAO_ALTERACOES),
+        ("🐛 PROBLEMAS CONHECIDOS", ATUALIZACAO_PROBLEMAS_CONHECIDOS),
     ]
 
-    partes = []
-
+    partes = [
+        f"# 📝 NOTAS DA ATUALIZAÇÃO — {data_local}",
+        f"Versão `{ATUALIZACAO_BOT_ID}`",
+    ]
     for titulo, itens in secoes:
-        if not itens:
-            continue
+        if itens:
+            partes.append(f"## {titulo}\n" + "\n".join(f"• {item}" for item in itens))
+    return "\n\n".join(partes)
 
-        partes.append(
-            f"**{titulo}**\\n"
-            + "\\n".join(
-                f"• {item}"
-                for item in itens
-            )
-        )
 
-    descricao = (
-        f"**NOTAS DA ATUALIZAÇÃO — {data_local}**\\n"
-        f"Versão `{ATUALIZACAO_BOT_ID}`\\n\\n"
-        + "\\n\\n".join(
-            partes
-        )
-    )
+def dividir_mensagem_discord(texto, limite=1900):
+    """Divide texto grande sem cortar linhas no meio."""
+    if len(texto) <= limite:
+        return [texto]
+    blocos, atual = [], ""
+    for linha in texto.splitlines(keepends=True):
+        if len(atual) + len(linha) > limite and atual:
+            blocos.append(atual.rstrip())
+            atual = ""
+        if len(linha) > limite:
+            if atual:
+                blocos.append(atual.rstrip())
+                atual = ""
+            for i in range(0, len(linha), limite):
+                blocos.append(linha[i:i + limite].rstrip())
+        else:
+            atual += linha
+    if atual.strip():
+        blocos.append(atual.rstrip())
+    return blocos
 
-    embed = discord.Embed(
-        description=descricao,
-        color=discord.Color.gold(),
-        timestamp=datetime.now(
-            timezone.utc
-        )
-    )
 
-    embed.set_footer(
-        text=(
-            "Resenha Máxima • Histórico de atualizações"
-        )
-    )
-
-    return embed
+async def remover_atualizacoes_antigas(canal):
+    """Remove mensagens anteriores do próprio bot no canal de atualizações."""
+    removidas = 0
+    try:
+        async for mensagem in canal.history(limit=100):
+            if bot.user and mensagem.author.id == bot.user.id:
+                try:
+                    await mensagem.delete()
+                    removidas += 1
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+    return removidas
 
 
 async def publicar_atualizacao_bot(*, forcar=False):
@@ -5355,12 +5344,18 @@ async def publicar_atualizacao_bot(*, forcar=False):
     ultima = obter_estado(CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA)
     if not forcar and ultima == ATUALIZACAO_BOT_ID:
         return False, "Esta atualização já foi publicada."
+
+    # Limpa o changelog antigo/bugado antes de publicar o novo.
+    await remover_atualizacoes_antigas(canal)
+
     try:
-        await canal.send(embed=criar_embed_atualizacao_bot())
+        for parte in dividir_mensagem_discord(criar_texto_atualizacao_bot()):
+            await canal.send(parte)
     except (discord.Forbidden, discord.HTTPException) as erro:
         return False, f"Não foi possível publicar: {erro}"
+
     salvar_estado(CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA, ATUALIZACAO_BOT_ID)
-    return True, "Atualização publicada com sucesso."
+    return True, "Atualização publicada como mensagem normal e a antiga foi removida."
 
 
 async def publicar_atualizacao_automatica():
