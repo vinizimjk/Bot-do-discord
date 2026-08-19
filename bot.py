@@ -72,6 +72,7 @@ CHAVE_IA_CAOS_ULTIMA_ACAO = "ia_caos_ultima_acao"
 # ==========================================================
 
 CHAVE_CANAL_ATUALIZACOES = "canal_atualizacoes_bot_id"
+CANAL_ATUALIZACOES_PADRAO_ID = 1539378586123898882
 CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA = "ultima_atualizacao_bot_publicada"
 
 # Controle de entrada por convites do Discord.
@@ -149,9 +150,22 @@ RESPOSTAS_RAPIDAS_IA = {
     ],
     "so_mencao": [
         "fala",
-        "que foi?",
-        "tô ouvindo",
+        "q foi?",
         "já vai começar?",
+        "manda logo",
+    ],
+    "mencao_repetida": [
+        "que foi, porra? me marcou de novo",
+        "fala logo desgraça",
+        "vai ficar me marcando até amanhã?",
+        "tu tá testando minha paciência né",
+        "me invocou de novo pra quê?",
+    ],
+    "nada_nao": [
+        "então para de me marcar, desgraça kkk",
+        "então vai tomar no cu e me deixa em paz kkk",
+        "nada não é o caralho, me chamou pra quê?",
+        "me invocou pra falar nada? vai se fuder kkk",
     ],
     "bom_dia": [
         "bom dia é o caralho, já começou os problemas?",
@@ -171,7 +185,7 @@ RESPOSTAS_RAPIDAS_IA = {
     ],
 }
 
-ATUALIZACAO_BOT_ID = "2026-08-19-01"
+ATUALIZACAO_BOT_ID = "2026-08-19-02"
 ATUALIZACAO_BOT_TITULO = "Atualização da Resenha Máxima"
 
 # Respostas de personagem para recusas genéricas da IA.
@@ -194,31 +208,27 @@ IA_RECUSAS_GENERICAS = (
 )
 
 ATUALIZACAO_NOVIDADES = [
-    "📥 Controle de entrada por links de convite do Discord",
-    "📊 Histórico e ranking de quem trouxe novos membros",
-    "🧠 Memória social da IA para Shelby, PK, Faelzinho, M7 e Draxz",
-    "💬 Respostas rápidas de personalidade sem gastar Groq em todas as interações",
-    "📢 Notas de atualização em formato de patch notes, separadas do canal Funções do Bot",
+    '🧠 IA entende melhor frases com erros, palavras faltando e gramática quebrada',
+    '💬 Cerca de 50% das respostas podem usar abreviações naturais de chat',
+    '🤬 Palavrões agora acompanham o tom da mensagem: usuário xingou, a IA pode xingar de volta',
+    '😈 Menções repetidas deixam de gerar resposta de atendente e podem virar zoeira',
 ]
 
 ATUALIZACAO_CORRECOES = [
-    "📍 Modo causando continua evitando canais onde o alvo não pode responder",
-    "💬 Resposta do alvo no modo causando tem prioridade sobre conversa normal da IA",
-    "⚡ Mantidas tentativas automáticas para reduzir falhas temporárias da Groq",
-    "🎮 Mantida correção do falso OFFLINE do Minecraft Bedrock",
+    "🎯 Menos repetição de 'tô ouvindo', 'o que manda?' e respostas genéricas",
+    "😂 'Nada não' agora é reconhecido como oportunidade de zoeira",
+    '📚 Notas antigas de atualização deixam de ser apagadas ao publicar uma nova versão',
 ]
 
 ATUALIZACAO_ALTERACOES = [
-    "🎭 IA usa cargos como contexto sem repetir patente em toda resposta",
-    "🧭 Funções do Bot e Histórico de Atualizações permanecem completamente separados",
-    "😂 Stickers podem receber respostas genéricas mesmo sem visão artificial",
-    "🔗 Entradas não identificáveis são salvas como origem desconhecida, sem inventar convidador",
+    '📢 Canal oficial de atualizações passa a usar 1539378586123898882 como padrão',
+    '🧭 Resposta da IA tenta interpretar intenção em vez de corrigir português ruim',
+    '🗣️ Abreviações são aplicadas de forma leve para não deixar a mensagem ilegível',
 ]
 
 ATUALIZACAO_PROBLEMAS_CONHECIDOS = [
-    "🖼️ IA ainda não interpreta visualmente imagens ou o conteúdo real das figurinhas",
-    "🎨 Geração de imagens pela IA ainda não foi implementada",
-    "🔐 Controle de convites precisa da permissão Gerenciar Servidor para identificar quem convidou",
+    '🖼️ IA ainda não interpreta visualmente imagens ou o conteúdo real das figurinhas',
+    '🎨 Geração de imagens pela IA ainda não foi implementada',
 ]
 
 IA_MEMORIA_MENSAGENS = 10
@@ -253,9 +263,15 @@ PERSONALIDADE:
 - Fale em português do Brasil.
 - Você é MUITO zoeiro, espontâneo, debochado e informal.
 - Fale como alguém da resenha, nunca como atendente corporativo.
-- Pode usar gírias, palavrões e provocações entre membros quando o contexto
-  claramente for brincadeira. Não precisa ficar "limpinho": se a resenha pedir,
-  pode xingar de volta de forma criativa e natural, sem soar como atendimento.
+- Entenda mensagens mesmo quando estiverem cheias de erro de português, sem pontuação,
+  com letras trocadas, palavras faltando, abreviações ou gramática quebrada. Tente
+  interpretar a intenção pelo contexto em vez de corrigir a pessoa.
+- Pode usar gírias e provocações entre membros quando o contexto claramente for brincadeira.
+- PALAVRÕES DEVEM ESPELHAR O USUÁRIO: se a mensagem atual vier com palavrão, você fica
+  liberado para responder com palavrão também, de forma natural. Se a mensagem atual NÃO
+  tiver palavrão, responda sem palavrão.
+- Não vire atendente: evite repetir "tô ouvindo", "o que manda?", "manda aí o que precisar"
+  ou variações genéricas quando houver oportunidade de responder de forma mais engraçada.
 - Não transforme toda resposta em piada de Minecraft, lag, PvP ou servidor.
   Varie os assuntos e responda ao que a pessoa realmente falou.
 - Evite frases repetidas, principalmente "minha mente deu tela azul".
@@ -319,6 +335,11 @@ groq_client = (
 
 _memoria_ia = {}
 _cooldown_ia = {}
+
+# Menções vazias/repetidas: evita resposta de atendente em loop.
+_ia_mencoes_recentes = {}
+IA_MENCAO_REPETIDA_JANELA = 45
+IA_MENCAO_REPETIDA_LIMITE = 2
 
 # Histórico em memória de ofensas insistentes direcionadas ao bot.
 _ia_abuso = {}
@@ -5253,11 +5274,11 @@ async def on_member_update(before: discord.Member, after: discord.Member):
 def obter_canal_atualizacoes_id():
     valor = obter_estado(CHAVE_CANAL_ATUALIZACOES)
     if not valor:
-        return None
+        return CANAL_ATUALIZACOES_PADRAO_ID
     try:
         return int(valor)
     except (TypeError, ValueError):
-        return None
+        return CANAL_ATUALIZACOES_PADRAO_ID
 
 
 async def obter_canal_atualizacoes():
@@ -5345,9 +5366,8 @@ async def publicar_atualizacao_bot(*, forcar=False):
     if not forcar and ultima == ATUALIZACAO_BOT_ID:
         return False, "Esta atualização já foi publicada."
 
-    # Limpa o changelog antigo/bugado antes de publicar o novo.
-    await remover_atualizacoes_antigas(canal)
-
+    # Mantém o histórico: notas de versões anteriores NÃO são apagadas.
+    # A prévia de "Futuras atualizações" é gerenciada separadamente pelo site.
     try:
         for parte in dividir_mensagem_discord(criar_texto_atualizacao_bot()):
             await canal.send(parte)
@@ -5355,7 +5375,7 @@ async def publicar_atualizacao_bot(*, forcar=False):
         return False, f"Não foi possível publicar: {erro}"
 
     salvar_estado(CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA, ATUALIZACAO_BOT_ID)
-    return True, "Atualização publicada como mensagem normal e a antiga foi removida."
+    return True, "Atualização publicada como mensagem normal. O histórico anterior foi mantido."
 
 
 async def publicar_atualizacao_automatica():
@@ -6017,6 +6037,55 @@ async def processar_autodefesa_ia(message: discord.Message):
     return True
 
 
+PADROES_PALAVRAO_IA = (
+    r"\bcaralh[oa]?\b", r"\bporra\b", r"\bmerda\b", r"\bbosta\b",
+    r"\bfod(?:a|e|er|eu|ido|ida)\b", r"\bdesgra[cç]a(?:do|da)?\b",
+    r"\barromb(?:ado|ada)?\b", r"\bcu\b", r"\bputa\b", r"\bpqp\b", r"\bvsf\b",
+)
+
+
+def mensagem_tem_palavrao_ia(texto):
+    normalizado = str(texto or "").casefold()
+    return any(re.search(padrao, normalizado) for padrao in PADROES_PALAVRAO_IA)
+
+
+def abreviar_texto_ia(texto):
+    substituicoes = (
+        (r"\bvocê\b", "vc"), (r"\bvocês\b", "vcs"), (r"\bporque\b", "pq"),
+        (r"\bpor que\b", "pq"), (r"\btambém\b", "tbm"), (r"\bestá\b", "tá"),
+        (r"\bestou\b", "tô"), (r"\bque\b", "q"), (r"\bnão\b", "n"),
+    )
+    resultado = str(texto or "")
+    for padrao, troca in substituicoes:
+        if random.random() < 0.55:
+            resultado = re.sub(padrao, troca, resultado, flags=re.IGNORECASE)
+    return resultado
+
+
+def contar_mencao_repetida_ia(message: discord.Message):
+    agora = datetime.now(timezone.utc).timestamp()
+    estado = _ia_mencoes_recentes.get(message.author.id, [])
+    estado = [t for t in estado if agora - t <= IA_MENCAO_REPETIDA_JANELA]
+    estado.append(agora)
+    _ia_mencoes_recentes[message.author.id] = estado
+    return len(estado)
+
+
+def contexto_estilo_mensagem_ia(message: discord.Message):
+    texto_original = limpar_mencao_do_bot(message.content)
+    usar_abreviacao = random.random() < 0.50
+    usuario_xingou = mensagem_tem_palavrao_ia(texto_original)
+    linhas = [
+        "",
+        "ESTILO DESTA RESPOSTA:",
+        ("- Use algumas abreviações naturais de chat como vc, pq, tbm, q, n, tá, tô."
+         if usar_abreviacao else "- Nesta resposta, escreva normalmente sem forçar abreviações."),
+        ("- A mensagem atual contém palavrão. Você PODE responder com um palavrão também, sem exagerar."
+         if usuario_xingou else "- A mensagem atual NÃO contém palavrão. NÃO coloque palavrão na resposta."),
+    ]
+    return "\n".join(linhas), usar_abreviacao, usuario_xingou
+
+
 def reduzir_emojis_ia(texto: str):
     """Evita o vício de terminar praticamente toda resposta com emoji."""
     if not texto:
@@ -6028,94 +6097,61 @@ def reduzir_emojis_ia(texto: str):
     return texto
 
 
-def escolher_resposta_rapida_ia(
-    message: discord.Message
-):
-    """
-    Retorna uma resposta pronta ocasional ou None.
-    Figurinhas são detectadas sem visão: o bot sabe que existe sticker,
-    mas não interpreta a imagem.
-    """
-    texto = limpar_mencao_do_bot(
-        message.content
-    ).strip().casefold()
+def escolher_resposta_rapida_ia(message: discord.Message):
+    texto_original = limpar_mencao_do_bot(message.content).strip()
+    texto = texto_original.casefold()
 
-    # Sticker/figurinha: chance alta de resposta pronta.
-    if message.stickers:
-        if random.random() < 0.65:
-            return random.choice(
-                RESPOSTAS_RAPIDAS_IA[
-                    "sticker"
-                ]
-            )
+    if re.fullmatch(r"(?:nada|nd)\s*(?:n[aã]o|n|nao)?[.!? ]*", texto):
+        return random.choice(RESPOSTAS_RAPIDAS_IA["nada_nao"])
+
+    if message.stickers and random.random() < 0.65:
+        return random.choice(RESPOSTAS_RAPIDAS_IA["sticker"])
 
     if not texto:
-        if random.random() < 0.45:
-            return random.choice(
-                RESPOSTAS_RAPIDAS_IA[
-                    "so_mencao"
-                ]
-            )
+        quantidade = contar_mencao_repetida_ia(message)
+        if quantidade >= IA_MENCAO_REPETIDA_LIMITE:
+            return random.choice(RESPOSTAS_RAPIDAS_IA["mencao_repetida"])
+        if random.random() < 0.35:
+            return random.choice(RESPOSTAS_RAPIDAS_IA["so_mencao"])
         return None
 
-    if (
-        texto.startswith(
-            (
-                "iae",
-                "eae",
-                "salve",
-                "fala"
-            )
-        )
-        and random.random() < 0.35
-    ):
-        return random.choice(
-            RESPOSTAS_RAPIDAS_IA[
-                "saudacao"
-            ]
-        )
-
-    if (
-        "bom dia" in texto
-        and random.random() < 0.35
-    ):
-        return random.choice(
-            RESPOSTAS_RAPIDAS_IA[
-                "bom_dia"
-            ]
-        )
-
-    if (
-        "boa noite" in texto
-        and random.random() < 0.35
-    ):
-        return random.choice(
-            RESPOSTAS_RAPIDAS_IA[
-                "boa_noite"
-            ]
-        )
-
+    if texto.startswith(("iae", "eae", "salve", "fala")) and random.random() < 0.30:
+        return random.choice(RESPOSTAS_RAPIDAS_IA["saudacao"])
+    if "bom dia" in texto and random.random() < 0.30:
+        return random.choice(RESPOSTAS_RAPIDAS_IA["bom_dia"])
+    if "boa noite" in texto and random.random() < 0.30:
+        return random.choice(RESPOSTAS_RAPIDAS_IA["boa_noite"])
     return None
 
 
-async def enviar_resposta_rapida_ia(
-    message: discord.Message,
-    texto
-):
+async def enviar_resposta_rapida_ia(message: discord.Message, texto):
+    texto_original = limpar_mencao_do_bot(message.content)
+    eh_nada_nao = bool(re.fullmatch(
+        r"(?:nada|nd)\s*(?:n[aã]o|n|nao)?[.!? ]*",
+        texto_original.casefold().strip()
+    ))
+
+    # Fora da piada especial "nada não", palavrão pronto só se o usuário abriu esse tom.
+    if not mensagem_tem_palavrao_ia(texto_original) and not eh_nada_nao:
+        if mensagem_tem_palavrao_ia(texto):
+            texto = random.choice([
+                "fala", "q foi?", "já vai começar?", "manda logo",
+                "tu tá testando minha paciência né", "me invocou de novo pra quê?",
+            ])
+
+    if random.random() < 0.50:
+        texto = abreviar_texto_ia(texto)
+
     try:
         await message.reply(
             texto,
             mention_author=False,
             allowed_mentions=discord.AllowedMentions(
-                users=True,
-                roles=False,
-                everyone=False,
-                replied_user=False
+                users=True, roles=False, everyone=False, replied_user=False
             )
         )
     except discord.HTTPException:
         return False
-
     return True
 
 
@@ -6187,6 +6223,10 @@ async def responder_com_ia(
         message
     )
 
+    contexto_estilo, usar_abreviacao, usuario_xingou = contexto_estilo_mensagem_ia(
+        message
+    )
+
     mensagens.append(
         {
             "role": "user",
@@ -6195,6 +6235,7 @@ async def responder_com_ia(
                 f"(<@{message.author.id}>)\n"
                 f"Mensagem: {pergunta}"
                 f"{contexto_social}"
+                f"{contexto_estilo}"
             ),
         }
     )
@@ -6276,6 +6317,9 @@ async def responder_com_ia(
     texto = reduzir_emojis_ia(
         resultado["texto"]
     )
+
+    if usar_abreviacao:
+        texto = abreviar_texto_ia(texto)
 
     if parece_recusa_generica_ia(
         texto
