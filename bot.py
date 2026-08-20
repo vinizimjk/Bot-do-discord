@@ -196,7 +196,7 @@ RESPOSTAS_RAPIDAS_IA = {
     ],
 }
 
-ATUALIZACAO_BOT_ID = "2026-08-20-04"
+ATUALIZACAO_BOT_ID = "2026-08-20-05"
 ATUALIZACAO_BOT_TITULO = "Atualização da Resenha Máxima"
 
 # Respostas de personagem para recusas genéricas da IA.
@@ -588,6 +588,22 @@ def criar_banco():
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_entradas_convites_convidador
             ON entradas_convites (guild_id, convidador_id)
+        """)
+
+
+        # --------------------------------------------------
+        # REI DA MADRUGADA
+        # --------------------------------------------------
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS rei_madrugada_respostas (
+                edicao_id TEXT NOT NULL,
+                rodada INTEGER NOT NULL,
+                usuario_id INTEGER NOT NULL,
+                tempo_segundos REAL NOT NULL,
+                respondido_em TEXT NOT NULL,
+                PRIMARY KEY (edicao_id, rodada, usuario_id)
+            )
         """)
 
         # --------------------------------------------------
@@ -8236,32 +8252,584 @@ async def atualizarfuncoes(
     )
 
 
+CHAVE_REI_MADRUGADA = "rei_madrugada_config"
+FUSO_REI_MADRUGADA = ZoneInfo("America/Cuiaba")
+
+
+def carregar_rei_madrugada():
+    bruto = obter_estado(CHAVE_REI_MADRUGADA)
+    if not bruto:
+        return None
+    try:
+        dados = json.loads(bruto)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    return dados if isinstance(dados, dict) else None
+
+
+def salvar_rei_madrugada(dados):
+    salvar_estado(
+        CHAVE_REI_MADRUGADA,
+        json.dumps(dados, ensure_ascii=False)
+    )
+
+
+def registrar_resposta_rei(
+    edicao_id,
+    rodada,
+    usuario_id,
+    tempo_segundos
+):
+    with conectar_banco() as banco:
+        try:
+            banco.execute(
+                """
+                INSERT INTO rei_madrugada_respostas (
+                    edicao_id,
+                    rodada,
+                    usuario_id,
+                    tempo_segundos,
+                    respondido_em
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    edicao_id,
+                    rodada,
+                    usuario_id,
+                    tempo_segundos,
+                    datetime.now(timezone.utc).isoformat()
+                )
+            )
+            banco.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+
+def ranking_rei_madrugada(edicao_id):
+    with conectar_banco() as banco:
+        return banco.execute(
+            """
+            SELECT
+                usuario_id,
+                COUNT(*) AS respostas,
+                AVG(tempo_segundos) AS media
+            FROM rei_madrugada_respostas
+            WHERE edicao_id = ?
+            GROUP BY usuario_id
+            ORDER BY respostas DESC, media ASC
+            """,
+            (edicao_id,)
+        ).fetchall()
+
+
+def criar_agenda_rei_madrugada(quantidade):
+    agora = datetime.now(FUSO_REI_MADRUGADA)
+
+    # Se já passou das 06:00, agenda a próxima madrugada.
+    if agora.hour >= 6:
+        inicio = (
+            agora + timedelta(days=1)
+        ).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+    else:
+        inicio = agora.replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        if agora > inicio:
+            inicio = agora + timedelta(minutes=2)
+
+    fim = inicio.replace(
+        hour=6, minute=0, second=0, microsecond=0
+    )
+
+    if fim <= inicio:
+        fim = inicio + timedelta(hours=6)
+
+    margem = 2 * 60
+    inicio_ts = int(inicio.timestamp()) + margem
+    fim_ts = int(fim.timestamp()) - margem
+
+    if fim_ts <= inicio_ts:
+        inicio_ts = int(inicio.timestamp()) + 60
+        fim_ts = int((inicio + timedelta(hours=1)).timestamp())
+
+    quantidade = max(1, min(int(quantidade), 12))
+    universo = range(inicio_ts, fim_ts + 1)
+    horarios = sorted(
+        random.sample(
+            universo,
+            min(quantidade, len(universo))
+        )
+    )
+
+    resultado = fim.replace(
+        hour=9, minute=0, second=0, microsecond=0
+    )
+
+    return horarios, int(resultado.timestamp())
+
+
+class ReiMadrugadaView(discord.ui.View):
+    def __init__(
+        self,
+        edicao_id,
+        rodada,
+        enviada_em,
+        expira_em
+    ):
+        super().__init__(timeout=None)
+        self.edicao_id = edicao_id
+        self.rodada = rodada
+        self.enviada_em = enviada_em
+        self.expira_em = expira_em
+
+        botao = discord.ui.Button(
+            label="Claro que tem!",
+            emoji="🌙",
+            style=discord.ButtonStyle.primary,
+            custom_id=f"rei_madrugada_{edicao_id}_{rodada}"
+        )
+
+        async def responder(
+            interaction: discord.Interaction
+        ):
+            agora_ts = datetime.now(
+                timezone.utc
+            ).timestamp()
+
+            if agora_ts > self.expira_em:
+                await interaction.response.send_message(
+                    "⌛ Essa chamada já terminou.",
+                    ephemeral=True
+                )
+                return
+
+            tempo = max(
+                0.0,
+                agora_ts - self.enviada_em
+            )
+
+            novo = registrar_resposta_rei(
+                self.edicao_id,
+                self.rodada,
+                interaction.user.id,
+                tempo
+            )
+
+            await interaction.response.send_message(
+                (
+                    f"🌙 Presença registrada em "
+                    f"**{tempo:.1f}s**."
+                    if novo
+                    else "✅ Sua presença nessa rodada já foi registrada."
+                ),
+                ephemeral=True
+            )
+
+        botao.callback = responder
+        self.add_item(botao)
+
+
+async def apagar_chamada_rei(
+    mensagem,
+    segundos=240
+):
+    await asyncio.sleep(segundos)
+    try:
+        await mensagem.delete()
+    except (
+        discord.NotFound,
+        discord.Forbidden,
+        discord.HTTPException
+    ):
+        pass
+
+
+async def enviar_chamada_rei(
+    config,
+    rodada
+):
+    canal = bot.get_channel(
+        int(config["canal_id"])
+    )
+    if not isinstance(canal, discord.TextChannel):
+        return False
+
+    agora_ts = datetime.now(
+        timezone.utc
+    ).timestamp()
+    expira_ts = agora_ts + 240
+
+    embed = discord.Embed(
+        title="👑 Tem alguém aí?",
+        description=(
+            "A madrugada está silenciosa demais...\n\n"
+            "Você tem **4 minutos** para responder."
+        ),
+        color=discord.Color.gold()
+    )
+    embed.set_footer(
+        text=f"Rei da Madrugada • Rodada {rodada}"
+    )
+
+    view = ReiMadrugadaView(
+        config["edicao_id"],
+        rodada,
+        agora_ts,
+        expira_ts
+    )
+
+    mensagem = await canal.send(
+        embed=embed,
+        view=view
+    )
+
+    asyncio.create_task(
+        apagar_chamada_rei(
+            mensagem,
+            240
+        )
+    )
+    return True
+
+
+async def finalizar_rei_madrugada(config):
+    guild = bot.get_guild(
+        int(config["guild_id"])
+    )
+    canal = bot.get_channel(
+        int(config["canal_id"])
+    )
+
+    if guild is None or not isinstance(
+        canal,
+        discord.TextChannel
+    ):
+        return
+
+    ranking = ranking_rei_madrugada(
+        config["edicao_id"]
+    )
+
+    embed = discord.Embed(
+        title="👑 Rei da Madrugada",
+        color=discord.Color.gold()
+    )
+
+    if not ranking:
+        embed.description = (
+            "A madrugada terminou, mas ninguém "
+            "respondeu às chamadas desta edição."
+        )
+        await canal.send(
+            content="@here",
+            embed=embed
+        )
+        return
+
+    vencedor_original = ranking[0]
+    vencedor = vencedor_original
+    vencedor_id = int(vencedor["usuario_id"])
+    frase_especial = None
+
+    if vencedor_id == DONO_ID:
+        if len(ranking) >= 2:
+            vencedor = ranking[1]
+            vencedor_id = int(vencedor["usuario_id"])
+            frase_especial = (
+                f"Como o Vini é desempregado ele não conta, "
+                f"então a tag vai para <@{vencedor_id}> 😂"
+            )
+        else:
+            frase_especial = (
+                "Como o Vini é desempregado ele não conta 😂 "
+                "e não teve segundo colocado suficiente nesta edição."
+            )
+    elif vencedor_id == 927746687605280809:
+        frase_especial = (
+            f"<@{vencedor_id}> morando na Angola é fácil, "
+            "mas fazer o quê. 👑"
+        )
+
+    cargo = guild.get_role(
+        int(config["cargo_id"])
+    )
+
+    if cargo is not None:
+        # O título representa o vencedor atual.
+        for membro in list(cargo.members):
+            if membro.id != vencedor_id:
+                try:
+                    await membro.remove_roles(
+                        cargo,
+                        reason="Novo Rei da Madrugada"
+                    )
+                except (
+                    discord.Forbidden,
+                    discord.HTTPException
+                ):
+                    pass
+
+        membro_vencedor = guild.get_member(
+            vencedor_id
+        )
+        if membro_vencedor is not None:
+            try:
+                await membro_vencedor.add_roles(
+                    cargo,
+                    reason="Vencedor do Rei da Madrugada"
+                )
+            except (
+                discord.Forbidden,
+                discord.HTTPException
+            ):
+                pass
+
+    linhas = []
+    for posicao, linha in enumerate(
+        ranking[:10],
+        start=1
+    ):
+        linhas.append(
+            f"`{posicao:>2}.` <@{linha['usuario_id']}> — "
+            f"**{linha['respostas']}** resposta(s) — "
+            f"média **{linha['media']:.1f}s**"
+        )
+
+    embed.description = (
+        f"🏆 **Vencedor:** <@{vencedor_id}>\n\n"
+        + (f"{frase_especial}\n\n" if frase_especial else "")
+        + "O ranking prioriza quem respondeu a mais "
+        "rodadas. Em caso de empate, vence a menor "
+        "média de tempo."
+    )
+    embed.add_field(
+        name="📊 Tabela final",
+        value="\n".join(linhas),
+        inline=False
+    )
+    embed.set_footer(
+        text="Resenha Máxima • Evento encerrado"
+    )
+
+    await canal.send(
+        content="@here",
+        embed=embed
+    )
+
+
+@tasks.loop(seconds=20)
+async def gerenciar_rei_madrugada():
+    config = carregar_rei_madrugada()
+    if not config or not config.get("ativo"):
+        return
+
+    agora_ts = int(
+        datetime.now(timezone.utc).timestamp()
+    )
+
+    horarios = config.get(
+        "horarios",
+        []
+    )
+    executadas = set(
+        config.get(
+            "rodadas_executadas",
+            []
+        )
+    )
+
+    alterou = False
+
+    for indice, horario in enumerate(
+        horarios,
+        start=1
+    ):
+        if indice in executadas:
+            continue
+
+        if agora_ts >= int(horario):
+            await enviar_chamada_rei(
+                config,
+                indice
+            )
+            executadas.add(indice)
+            alterou = True
+
+    if alterou:
+        config["rodadas_executadas"] = sorted(
+            executadas
+        )
+        salvar_rei_madrugada(config)
+
+    if (
+        agora_ts >= int(config["resultado_em"])
+        and not config.get("finalizado")
+    ):
+        await finalizar_rei_madrugada(config)
+        config["finalizado"] = True
+        config["ativo"] = False
+        salvar_rei_madrugada(config)
+
+
+@gerenciar_rei_madrugada.before_loop
+async def antes_rei_madrugada():
+    await bot.wait_until_ready()
+
+
 # ==========================================================
 # EVENTO ÚNICO — REI DA MADRUGADA
 # ==========================================================
-CARGO_REI_MADRUGADA_ID = int(os.getenv("CARGO_REI_MADRUGADA_ID", "1540089339206434917") or 1540089339206434917)
-DRAXZ_ID = 927746687605280809
 
-@bot.tree.command(name="reidamadrugada", description="Entrega o cargo Rei da Madrugada")
-@app_commands.describe(vencedor="Primeiro colocado", segundo="Segundo colocado, usado se Vini vencer")
-async def rei_da_madrugada(interaction: discord.Interaction, vencedor: discord.Member, segundo: discord.Member | None = None):
-    if await negar_se_nao_admin(interaction): return
-    if not CARGO_REI_MADRUGADA_ID:
-        await interaction.response.send_message("❌ Configure CARGO_REI_MADRUGADA_ID nas variáveis do bot.", ephemeral=True); return
-    cargo=interaction.guild.get_role(CARGO_REI_MADRUGADA_ID) if interaction.guild else None
+CARGO_REI_MADRUGADA_ID = int(
+    os.getenv("CARGO_REI_MADRUGADA_ID", "1540089339206434917")
+    or "1540089339206434917"
+)
+CANAL_REI_MADRUGADA_ID = int(
+    os.getenv("CANAL_REI_MADRUGADA_ID", "1532792216047849673")
+    or "1532792216047849673"
+)
+
+
+@bot.tree.command(
+    name="reidamadrugada",
+    description="Ativa o evento Rei da Madrugada desta edição"
+)
+@app_commands.describe(
+    chamadas="Quantidade de chamadas aleatórias entre 00:02 e 05:58"
+)
+async def reidamadrugada(
+    interaction: discord.Interaction,
+    chamadas: app_commands.Range[int, 1, 12] = 6
+):
+    if await negar_se_nao_admin(interaction):
+        return
+
+    guild = interaction.guild
+    if guild is None:
+        await interaction.response.send_message(
+            "❌ Servidor não encontrado.",
+            ephemeral=True
+        )
+        return
+
+    config_atual = carregar_rei_madrugada()
+    if config_atual and config_atual.get("ativo"):
+        await interaction.response.send_message(
+            "⚠️ Já existe uma edição ativa. "
+            "Use `/statusreidamadrugada` ou `/cancelarreidamadrugada`.",
+            ephemeral=True
+        )
+        return
+
+    canal = guild.get_channel(CANAL_REI_MADRUGADA_ID)
+    cargo = guild.get_role(CARGO_REI_MADRUGADA_ID)
+
+    if not isinstance(canal, discord.TextChannel):
+        await interaction.response.send_message(
+            "❌ Não encontrei o canal oficial do Rei da Madrugada.",
+            ephemeral=True
+        )
+        return
+
     if cargo is None:
-        await interaction.response.send_message("❌ Cargo Rei da Madrugada não encontrado.", ephemeral=True); return
-    escolhido=vencedor; frase=None
-    if vencedor.id==DONO_ID:
-        if segundo is None:
-            await interaction.response.send_message("❌ Vini ganhou, então informe também o segundo colocado.", ephemeral=True); return
-        escolhido=segundo; frase=f"Como o Vini é desempregado ele não conta, então a tag vai para {segundo.mention} 😂"
-    elif vencedor.id==DRAXZ_ID:
-        frase=f"{vencedor.mention} morando na Angola é fácil, mas fazer o quê. 👑"
-    try: await escolhido.add_roles(cargo,reason="Evento único Rei da Madrugada")
-    except (discord.Forbidden,discord.HTTPException) as erro:
-        await interaction.response.send_message(f"❌ Não consegui entregar o cargo: {erro}",ephemeral=True); return
-    await interaction.response.send_message(frase or f"👑 {escolhido.mention} é o Rei da Madrugada!",allowed_mentions=discord.AllowedMentions(users=True,roles=False,everyone=False))
+        await interaction.response.send_message(
+            "❌ Não encontrei o cargo Rei da Madrugada.",
+            ephemeral=True
+        )
+        return
+
+    horarios, resultado_em = criar_agenda_rei_madrugada(chamadas)
+
+    config = {
+        "ativo": True,
+        "finalizado": False,
+        "edicao_id": uuid.uuid4().hex[:12],
+        "guild_id": guild.id,
+        "canal_id": canal.id,
+        "cargo_id": cargo.id,
+        "horarios": horarios,
+        "rodadas_executadas": [],
+        "resultado_em": resultado_em,
+    }
+    salvar_rei_madrugada(config)
+
+    lista = "\n".join(f"• <t:{horario}:t>" for horario in horarios)
+
+    embed = discord.Embed(
+        title="👑 Rei da Madrugada ativado",
+        description=(
+            f"Canal: {canal.mention}\n"
+            f"Cargo: {cargo.mention}\n"
+            f"Chamadas: **{len(horarios)}**\n"
+            "Prazo de cada chamada: **4 minutos**\n"
+            f"Resultado: <t:{resultado_em}:F>\n\n"
+            "### Horários sorteados\n"
+            f"{lista}"
+        ),
+        color=discord.Color.gold()
+    )
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@bot.tree.command(
+    name="statusreidamadrugada",
+    description="Mostra o status do evento Rei da Madrugada"
+)
+async def statusreidamadrugada(interaction: discord.Interaction):
+    if await negar_se_nao_admin(interaction):
+        return
+
+    config = carregar_rei_madrugada()
+    if not config or not config.get("ativo"):
+        await interaction.response.send_message(
+            "🌙 Não existe uma edição ativa.",
+            ephemeral=True
+        )
+        return
+
+    feitas = len(config.get("rodadas_executadas", []))
+    total = len(config.get("horarios", []))
+
+    await interaction.response.send_message(
+        (
+            "👑 **Rei da Madrugada ativo**\n"
+            f"Rodadas: **{feitas}/{total}**\n"
+            f"Resultado: <t:{config['resultado_em']}:R>"
+        ),
+        ephemeral=True
+    )
+
+
+@bot.tree.command(
+    name="cancelarreidamadrugada",
+    description="Cancela a edição ativa do Rei da Madrugada"
+)
+async def cancelarreidamadrugada(interaction: discord.Interaction):
+    if await negar_se_nao_admin(interaction):
+        return
+
+    config = carregar_rei_madrugada()
+    if not config or not config.get("ativo"):
+        await interaction.response.send_message(
+            "🌙 Não existe uma edição ativa.",
+            ephemeral=True
+        )
+        return
+
+    config["ativo"] = False
+    config["finalizado"] = True
+    salvar_rei_madrugada(config)
+
+    await interaction.response.send_message(
+        "🛑 Evento Rei da Madrugada cancelado.",
+        ephemeral=True
+    )
+
 
 # ==========================================================
 # ONLINE
@@ -8285,6 +8853,8 @@ async def avisar_retorno_manutencao_manual():
 
 @bot.event
 async def on_ready():
+    if not gerenciar_rei_madrugada.is_running():
+        gerenciar_rei_madrugada.start()
     if not getattr(bot,"_retorno_manual_verificado",False):
         bot._retorno_manual_verificado=True
         await avisar_retorno_manutencao_manual()
