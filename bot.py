@@ -1,4 +1,5 @@
 import asyncio
+import time
 import json
 import os
 import random
@@ -195,7 +196,7 @@ RESPOSTAS_RAPIDAS_IA = {
     ],
 }
 
-ATUALIZACAO_BOT_ID = "2026-08-19-04"
+ATUALIZACAO_BOT_ID = "2026-08-20-01"
 ATUALIZACAO_BOT_TITULO = "Atualização da Resenha Máxima"
 
 # Respostas de personagem para recusas genéricas da IA.
@@ -218,6 +219,7 @@ IA_RECUSAS_GENERICAS = (
 )
 
 ATUALIZACAO_NOVIDADES = [
+    "⚙️ Configuração da IA preparada para integração com o painel web",
     "🗣️ O criador do bot passa a ser chamado de Vini nas conversas casuais",
     "🧠 Memória curta de respostas prontas evita repetir a mesma frase em sequência",
 ]
@@ -242,6 +244,14 @@ ATUALIZACAO_PROBLEMAS_CONHECIDOS = [
 IA_MEMORIA_MENSAGENS = 10
 IA_MAX_RESPOSTA_CARACTERES = 1600
 IA_COOLDOWN_SEGUNDOS = 8
+
+# Configuração remota da IA pelo painel web.
+# Se o painel estiver indisponível, o bot continua usando os valores locais.
+IA_PAINEL_URL = os.getenv("IA_PAINEL_URL", "https://resenha-maxima.up.railway.app").rstrip("/")
+IA_CONFIG_ENDPOINT = f"{IA_PAINEL_URL}/api/ia-config"
+IA_CONFIG_REFRESH_SEGUNDOS = 60
+_ia_config_remota = {}
+_ia_config_ultima_busca = 0.0
 
 # Modo "IA causando"
 IA_CAOS_HORA_INICIO = 6
