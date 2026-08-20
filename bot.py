@@ -196,7 +196,7 @@ RESPOSTAS_RAPIDAS_IA = {
     ],
 }
 
-ATUALIZACAO_BOT_ID = "2026-08-20-03"
+ATUALIZACAO_BOT_ID = "2026-08-20-04"
 ATUALIZACAO_BOT_TITULO = "Atualização da Resenha Máxima"
 
 # Respostas de personagem para recusas genéricas da IA.
@@ -8239,7 +8239,7 @@ async def atualizarfuncoes(
 # ==========================================================
 # EVENTO ÚNICO — REI DA MADRUGADA
 # ==========================================================
-CARGO_REI_MADRUGADA_ID = int(os.getenv("CARGO_REI_MADRUGADA_ID", "0") or 0)
+CARGO_REI_MADRUGADA_ID = int(os.getenv("CARGO_REI_MADRUGADA_ID", "1540089339206434917") or 1540089339206434917)
 DRAXZ_ID = 927746687605280809
 
 @bot.tree.command(name="reidamadrugada", description="Entrega o cargo Rei da Madrugada")
