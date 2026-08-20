@@ -196,7 +196,7 @@ RESPOSTAS_RAPIDAS_IA = {
     ],
 }
 
-ATUALIZACAO_BOT_ID = "2026-08-20-01"
+ATUALIZACAO_BOT_ID = "2026-08-20-02"
 ATUALIZACAO_BOT_TITULO = "Atualização da Resenha Máxima"
 
 # Respostas de personagem para recusas genéricas da IA.
@@ -225,6 +225,7 @@ ATUALIZACAO_NOVIDADES = [
 ]
 
 ATUALIZACAO_CORRECOES = [
+    "😈 Modo causando preserva o contexto quando o alvo responde antes da 3ª menção",
     "🌍 Draxz: Itália deixa de ser assunto espontâneo e Angola vira apenas uma piada rara",
     "🧠 Memórias sociais passam a servir como contexto, sem dominar a conversa",
     "🔁 Corrigida repetição de respostas como 'vai ficar me marcando até amanhã?'",
@@ -371,6 +372,7 @@ _ia_caos_estado = {
     "canal_id": None,
     "alvo_id": None,
     "evento_resposta": None,
+    "mensagem_resposta": None,
     "task": None,
 }
 
@@ -6766,6 +6768,10 @@ def limpar_estado_caos():
     ] = None
 
     _ia_caos_estado[
+        "mensagem_resposta"
+    ] = None
+
+    _ia_caos_estado[
         "task"
     ] = None
 
@@ -6790,6 +6796,7 @@ async def executar_caos(
             "canal_id": canal.id,
             "alvo_id": alvo.id,
             "evento_resposta": evento,
+            "mensagem_resposta": None,
             "task": asyncio.current_task(),
         }
     )
@@ -6849,25 +6856,40 @@ async def executar_caos(
                 pass
 
         if evento.is_set():
-            respostas = [
-                "nada não",
-                "nada não KKKKK 💀",
-                "esqueci já",
-                "só vendo se tu tava vivo 😂",
-                "relaxa, era nada não 🤝",
-            ]
+            mensagem_resposta = _ia_caos_estado.get("mensagem_resposta")
 
-            await canal.send(
-                f"{alvo.mention} "
-                + random.choice(
-                    respostas
-                ),
-                allowed_mentions=discord.AllowedMentions(
-                    users=True,
-                    roles=False,
-                    everyone=False
+            # O alvo respondeu antes da 3ª menção: as menções restantes já foram
+            # canceladas pelo evento. Mantemos o contexto de que FOI O BOT que
+            # iniciou a zoeira, para ele não agir como se o usuário o tivesse chamado.
+            if mensagem_resposta is not None:
+                conteudo_alvo = str(mensagem_resposta.content or "").strip()
+                contexto_caos = (
+                    "[CONTEXTO INTERNO DO MODO CAUSANDO: você iniciou esta conversa "
+                    f"marcando {alvo.display_name}. A pessoa respondeu agora: "
+                    f"{conteudo_alvo!r}. Continue a brincadeira naturalmente. "
+                    "Não pergunte o que ela quer e não diga que ela te chamou, porque "
+                    "foi você quem começou. Não continue mandando as menções restantes.]"
                 )
-            )
+                original = mensagem_resposta.content
+                try:
+                    mensagem_resposta.content = f"{original}\n\n{contexto_caos}"
+                    respondeu = await responder_com_ia(mensagem_resposta)
+                finally:
+                    mensagem_resposta.content = original
+
+                if not respondeu:
+                    respostas = [
+                        "eu que te marquei mesmo, só queria encher teu saco kkk",
+                        "nada não, só vim perturbar mesmo",
+                        "era só pra ver se tu mordia a isca kkk",
+                        "calma, eu que comecei essa porra mesmo kkk",
+                    ]
+                    await canal.send(
+                        f"{alvo.mention} " + random.choice(respostas),
+                        allowed_mentions=discord.AllowedMentions(
+                            users=True, roles=False, everyone=False
+                        )
+                    )
 
     except asyncio.CancelledError:
         raise
@@ -6914,6 +6936,7 @@ async def processar_resposta_caos(
     )
 
     if evento is not None:
+        _ia_caos_estado["mensagem_resposta"] = message
         evento.set()
         return True
 
