@@ -31,8 +31,8 @@ CARGO_MINECRAFT_ID = 1534006899371147304
 CANAL_STATUS_MINECRAFT_ID = 1538109074779144253
 CANAL_NICKNAMES_MINECRAFT_ID = 1534423515183448155
 CARGO_DESENVOLVIMENTO_ID = 1533625836874498181
-MINECRAFT_HOST = "resenha-DpsX.aternos.me"
-MINECRAFT_PORTA = 20710
+MINECRAFT_HOST = "Rmax-j8Un.aternos.me"
+MINECRAFT_PORTA = 16184
 MINECRAFT_EDICAO = "bedrock"  # servidor atual é Bedrock
 
 CASTIGO_DIAS = 28
@@ -196,7 +196,7 @@ RESPOSTAS_RAPIDAS_IA = {
     ],
 }
 
-ATUALIZACAO_BOT_ID = "2026-08-20-02"
+ATUALIZACAO_BOT_ID = "2026-08-20-03"
 ATUALIZACAO_BOT_TITULO = "Atualização da Resenha Máxima"
 
 # Respostas de personagem para recusas genéricas da IA.
@@ -219,32 +219,27 @@ IA_RECUSAS_GENERICAS = (
 )
 
 ATUALIZACAO_NOVIDADES = [
-    "⚙️ Configuração da IA preparada para integração com o painel web",
-    "🗣️ O criador do bot passa a ser chamado de Vini nas conversas casuais",
-    "🧠 Memória curta de respostas prontas evita repetir a mesma frase em sequência",
+    "👑 Adicionado o evento único Rei da Madrugada",
+    "⚙️ Bot passa a consultar a configuração da IA publicada pelo painel",
 ]
 
 ATUALIZACAO_CORRECOES = [
-    "😈 Modo causando preserva o contexto quando o alvo responde antes da 3ª menção",
-    "🌍 Draxz: Itália deixa de ser assunto espontâneo e Angola vira apenas uma piada rara",
-    "🧠 Memórias sociais passam a servir como contexto, sem dominar a conversa",
-    "🔁 Corrigida repetição de respostas como 'vai ficar me marcando até amanhã?'",
-    "🤬 'Corno' agora é reconhecido como tom de xingamento para a IA acompanhar a resenha",
-    "📢 Ao lançar uma atualização, o bot remove somente a mensagem de futuras atualizações",
+    "⏱️ Geração da IA agora possui limite de tempo para não ficar presa em digitando",
 ]
 
 ATUALIZACAO_ALTERACOES = [
-    "📚 Notas de atualizações já lançadas continuam preservadas no canal",
-    "🔮 Futuras/Próximas atualizações são tratadas como mensagem temporária até o lançamento",
+    "🎮 Bot preparado para o servidor Minecraft alternativo atual",
+    "📣 Preparado aviso de retorno após manutenção manual sinalizada pelo painel",
 ]
 
 ATUALIZACAO_PROBLEMAS_CONHECIDOS = [
-    "🖼️ IA ainda não interpreta visualmente imagens ou o conteúdo real das figurinhas",
+    "🔧 O aviso de retorno depende do site marcar a manutenção manual antes de desligar o bot",
 ]
 
 IA_MEMORIA_MENSAGENS = 10
 IA_MAX_RESPOSTA_CARACTERES = 1600
 IA_COOLDOWN_SEGUNDOS = 8
+IA_GERACAO_TIMEOUT_SEGUNDOS = 18
 
 # Configuração remota da IA pelo painel web.
 # Se o painel estiver indisponível, o bot continua usando os valores locais.
@@ -253,6 +248,25 @@ IA_CONFIG_ENDPOINT = f"{IA_PAINEL_URL}/api/ia-config"
 IA_CONFIG_REFRESH_SEGUNDOS = 60
 _ia_config_remota = {}
 _ia_config_ultima_busca = 0.0
+
+
+
+def _buscar_config_ia_painel_sync():
+    import urllib.request
+    try:
+        req=urllib.request.Request(IA_CONFIG_ENDPOINT,headers={"User-Agent":"Resenha-Maxima-Bot/1.0"})
+        with urllib.request.urlopen(req,timeout=5) as resp:return json.loads(resp.read().decode("utf-8"))
+    except Exception as erro:
+        print(f"IA painel indisponível; mantendo configuração local: {erro}"); return None
+
+async def atualizar_config_ia_do_painel(force=False):
+    global _ia_config_remota,_ia_config_ultima_busca
+    agora=time.monotonic()
+    if not force and agora-_ia_config_ultima_busca<IA_CONFIG_REFRESH_SEGUNDOS:return _ia_config_remota
+    _ia_config_ultima_busca=agora
+    dados=await asyncio.to_thread(_buscar_config_ia_painel_sync)
+    if isinstance(dados,dict):_ia_config_remota=dados
+    return _ia_config_remota
 
 # Modo "IA causando"
 IA_CAOS_HORA_INICIO = 6
@@ -6275,6 +6289,7 @@ async def enviar_resposta_rapida_ia(message: discord.Message, texto):
 async def responder_com_ia(
     message: discord.Message
 ):
+    await atualizar_config_ia_do_painel()
     if not await deve_acionar_ia(
         message
     ):
@@ -6364,11 +6379,10 @@ async def responder_com_ia(
         async with message.channel.typing():
             for tentativa in range(3):
                 try:
-                    resposta = await groq_client.chat.completions.create(
-                        model=GROQ_MODEL,
-                        messages=mensagens,
-                        temperature=1.02,
-                        max_completion_tokens=650,
+                    resposta = await asyncio.wait_for(
+                        groq_client.chat.completions.create(
+                            model=GROQ_MODEL, messages=mensagens, temperature=1.02, max_completion_tokens=650
+                        ), timeout=IA_GERACAO_TIMEOUT_SEGUNDOS
                     )
                     break
                 except Exception as erro:
@@ -8223,11 +8237,57 @@ async def atualizarfuncoes(
 
 
 # ==========================================================
+# EVENTO ÚNICO — REI DA MADRUGADA
+# ==========================================================
+CARGO_REI_MADRUGADA_ID = int(os.getenv("CARGO_REI_MADRUGADA_ID", "0") or 0)
+DRAXZ_ID = 927746687605280809
+
+@bot.tree.command(name="reidamadrugada", description="Entrega o cargo Rei da Madrugada")
+@app_commands.describe(vencedor="Primeiro colocado", segundo="Segundo colocado, usado se Vini vencer")
+async def rei_da_madrugada(interaction: discord.Interaction, vencedor: discord.Member, segundo: discord.Member | None = None):
+    if await negar_se_nao_admin(interaction): return
+    if not CARGO_REI_MADRUGADA_ID:
+        await interaction.response.send_message("❌ Configure CARGO_REI_MADRUGADA_ID nas variáveis do bot.", ephemeral=True); return
+    cargo=interaction.guild.get_role(CARGO_REI_MADRUGADA_ID) if interaction.guild else None
+    if cargo is None:
+        await interaction.response.send_message("❌ Cargo Rei da Madrugada não encontrado.", ephemeral=True); return
+    escolhido=vencedor; frase=None
+    if vencedor.id==DONO_ID:
+        if segundo is None:
+            await interaction.response.send_message("❌ Vini ganhou, então informe também o segundo colocado.", ephemeral=True); return
+        escolhido=segundo; frase=f"Como o Vini é desempregado ele não conta, então a tag vai para {segundo.mention} 😂"
+    elif vencedor.id==DRAXZ_ID:
+        frase=f"{vencedor.mention} morando na Angola é fácil, mas fazer o quê. 👑"
+    try: await escolhido.add_roles(cargo,reason="Evento único Rei da Madrugada")
+    except (discord.Forbidden,discord.HTTPException) as erro:
+        await interaction.response.send_message(f"❌ Não consegui entregar o cargo: {erro}",ephemeral=True); return
+    await interaction.response.send_message(frase or f"👑 {escolhido.mention} é o Rei da Madrugada!",allowed_mentions=discord.AllowedMentions(users=True,roles=False,everyone=False))
+
+# ==========================================================
 # ONLINE
 # ==========================================================
 
+async def avisar_retorno_manutencao_manual():
+    if str(obter_estado("manutencao_manual_pendente_retorno") or "")!="1": return
+    canal=None; canal_id=obter_estado("canal_chat_geral_id")
+    if canal_id:
+        try: canal=bot.get_channel(int(canal_id)) or await bot.fetch_channel(int(canal_id))
+        except Exception: canal=None
+    if canal is None:
+        for guild in bot.guilds:
+            for candidato in guild.text_channels:
+                if candidato.permissions_for(guild.me).send_messages: canal=candidato; break
+            if canal: break
+    if canal:
+        try:
+            await canal.send("EU TO DE VOLTA PORRAA"); salvar_estado("manutencao_manual_pendente_retorno","0")
+        except discord.HTTPException: pass
+
 @bot.event
 async def on_ready():
+    if not getattr(bot,"_retorno_manual_verificado",False):
+        bot._retorno_manual_verificado=True
+        await avisar_retorno_manutencao_manual()
     if not getattr(
         bot,
         "_cache_convites_inicializado",
