@@ -1,6 +1,6 @@
-discord.py>=2.4,<3
+discord.py[voice]>=2.4,<3
 python-dotenv>=1.0,<2
 mcstatus>=14,<15
 groq
-PyNaCl>=1.5,<2
 imageio-ffmpeg>=0.5,<1
+davey
