@@ -197,7 +197,7 @@ RESPOSTAS_RAPIDAS_IA = {
     ],
 }
 
-ATUALIZACAO_BOT_ID = "2026-08-21-02"
+ATUALIZACAO_BOT_ID = "2026-08-21-03"
 ATUALIZACAO_BOT_TITULO = "Atualização da Resenha Máxima"
 
 # Respostas de personagem para recusas genéricas da IA.
@@ -8871,9 +8871,6 @@ ZOEIRA_CALL_CHANCE = float(
 ZOEIRA_CALL_MIN_PESSOAS = int(
     os.getenv("ZOEIRA_CALL_MIN_PESSOAS", "2")
 )
-ZOEIRA_CALL_MAX_SEGUNDOS = int(
-    os.getenv("ZOEIRA_CALL_MAX_SEGUNDOS", "120")
-)
 
 _zoeira_call_ultimo_uso = {}
 
@@ -8964,18 +8961,12 @@ async def tocar_audio_na_call(
 
         voice.play(fonte)
 
-        inicio = asyncio.get_running_loop().time()
-
         while voice.is_playing():
-            if (
-                asyncio.get_running_loop().time()
-                - inicio
-                >= ZOEIRA_CALL_MAX_SEGUNDOS
-            ):
-                voice.stop()
-                break
+            await asyncio.sleep(0.25)
 
-            await asyncio.sleep(0.4)
+        # Pequena folga para o último pacote de áudio ser enviado
+        # antes do bot desconectar da call.
+        await asyncio.sleep(1.0)
 
         return True, None
 
