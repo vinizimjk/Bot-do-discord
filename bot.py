@@ -197,7 +197,7 @@ RESPOSTAS_RAPIDAS_IA = {
     ],
 }
 
-ATUALIZACAO_BOT_ID = "2026-08-21-01"
+ATUALIZACAO_BOT_ID = "2026-08-21-02"
 ATUALIZACAO_BOT_TITULO = "Atualização da Resenha Máxima"
 
 # Respostas de personagem para recusas genéricas da IA.
@@ -8955,9 +8955,10 @@ async def tocar_audio_na_call(
             await voice.move_to(canal)
             conectado_por_esta_zoeira = True
 
-        fonte = discord.FFmpegPCMAudio(
+        fonte = await discord.FFmpegOpusAudio.from_probe(
             str(arquivo),
             executable=FFMPEG_BIN,
+            method="fallback",
             options="-vn"
         )
 
