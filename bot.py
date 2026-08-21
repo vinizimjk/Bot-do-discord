@@ -17,6 +17,7 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from mcstatus import JavaServer, BedrockServer
 from groq import AsyncGroq
+import imageio_ffmpeg
 
 
 # ==========================================================
@@ -196,7 +197,7 @@ RESPOSTAS_RAPIDAS_IA = {
     ],
 }
 
-ATUALIZACAO_BOT_ID = "2026-08-20-05"
+ATUALIZACAO_BOT_ID = "2026-08-21-01"
 ATUALIZACAO_BOT_TITULO = "Atualização da Resenha Máxima"
 
 # Respostas de personagem para recusas genéricas da IA.
@@ -8831,6 +8832,404 @@ async def cancelarreidamadrugada(interaction: discord.Interaction):
     )
 
 
+
+# ==========================================================
+# ZOEIRA EM CALL — ÁUDIOS LOCAIS
+# ==========================================================
+
+AUDIO_CALL_DIR = Path(
+    os.getenv("AUDIOS_CALL_DIR", "audios_call")
+)
+AUDIO_CALL_DIR.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+AUDIO_CALL_EXTENSOES = {
+    ".mp3",
+    ".wav",
+    ".ogg",
+    ".m4a",
+    ".flac",
+}
+
+FFMPEG_BIN = (
+    os.getenv("FFMPEG_BIN", "").strip()
+    or imageio_ffmpeg.get_ffmpeg_exe()
+)
+
+CHAVE_ZOEIRA_CALL_AUTO = "zoeira_call_automatica"
+ZOEIRA_CALL_INTERVALO_MINUTOS = int(
+    os.getenv("ZOEIRA_CALL_INTERVALO_MINUTOS", "10")
+)
+ZOEIRA_CALL_COOLDOWN_MINUTOS = int(
+    os.getenv("ZOEIRA_CALL_COOLDOWN_MINUTOS", "90")
+)
+ZOEIRA_CALL_CHANCE = float(
+    os.getenv("ZOEIRA_CALL_CHANCE", "0.18")
+)
+ZOEIRA_CALL_MIN_PESSOAS = int(
+    os.getenv("ZOEIRA_CALL_MIN_PESSOAS", "2")
+)
+ZOEIRA_CALL_MAX_SEGUNDOS = int(
+    os.getenv("ZOEIRA_CALL_MAX_SEGUNDOS", "120")
+)
+
+_zoeira_call_ultimo_uso = {}
+
+
+def listar_audios_call():
+    try:
+        arquivos = [
+            arquivo
+            for arquivo in AUDIO_CALL_DIR.iterdir()
+            if (
+                arquivo.is_file()
+                and arquivo.suffix.casefold()
+                in AUDIO_CALL_EXTENSOES
+            )
+        ]
+    except OSError:
+        return []
+
+    return sorted(
+        arquivos,
+        key=lambda arquivo: arquivo.name.casefold()
+    )
+
+
+def localizar_audio_call(nome):
+    nome = str(nome or "").strip().casefold()
+    if not nome:
+        return None
+
+    for arquivo in listar_audios_call():
+        if (
+            arquivo.name.casefold() == nome
+            or arquivo.stem.casefold() == nome
+        ):
+            return arquivo
+
+    return None
+
+
+def zoeira_call_auto_ativa():
+    return str(
+        obter_estado(CHAVE_ZOEIRA_CALL_AUTO)
+        or ""
+    ).strip() == "1"
+
+
+async def tocar_audio_na_call(
+    guild: discord.Guild,
+    canal: discord.VoiceChannel,
+    arquivo: Path
+):
+    if not arquivo.exists():
+        return False, "O arquivo de áudio não existe."
+
+    eu = guild.me
+    if eu is None:
+        return False, "Não encontrei o usuário do bot no servidor."
+
+    permissoes = canal.permissions_for(eu)
+    if not permissoes.connect:
+        return False, "Não tenho permissão para entrar nessa call."
+    if not permissoes.speak:
+        return False, "Não tenho permissão para falar nessa call."
+
+    voice = guild.voice_client
+    conectado_por_esta_zoeira = False
+
+    try:
+        if voice is not None and voice.is_playing():
+            return False, "Já estou tocando outro áudio."
+
+        if voice is None or not voice.is_connected():
+            voice = await canal.connect(
+                self_deaf=True
+            )
+            conectado_por_esta_zoeira = True
+
+        elif voice.channel != canal:
+            await voice.move_to(canal)
+            conectado_por_esta_zoeira = True
+
+        fonte = discord.FFmpegPCMAudio(
+            str(arquivo),
+            executable=FFMPEG_BIN,
+            options="-vn"
+        )
+
+        voice.play(fonte)
+
+        inicio = asyncio.get_running_loop().time()
+
+        while voice.is_playing():
+            if (
+                asyncio.get_running_loop().time()
+                - inicio
+                >= ZOEIRA_CALL_MAX_SEGUNDOS
+            ):
+                voice.stop()
+                break
+
+            await asyncio.sleep(0.4)
+
+        return True, None
+
+    except Exception as erro:
+        return False, f"{type(erro).__name__}: {erro}"
+
+    finally:
+        voice_atual = guild.voice_client
+        if (
+            conectado_por_esta_zoeira
+            and voice_atual is not None
+            and voice_atual.is_connected()
+        ):
+            try:
+                await voice_atual.disconnect(
+                    force=True
+                )
+            except Exception:
+                pass
+
+
+@bot.tree.command(
+    name="zoarcall",
+    description="Entra em uma call, toca um áudio e sai"
+)
+@app_commands.describe(
+    canal="Call onde o bot vai entrar",
+    audio=(
+        "Nome do áudio da pasta audios_call. "
+        "Deixe vazio para sortear."
+    )
+)
+async def zoarcall(
+    interaction: discord.Interaction,
+    canal: discord.VoiceChannel,
+    audio: str | None = None
+):
+    if await negar_se_nao_admin(interaction):
+        return
+
+    audios = listar_audios_call()
+
+    if not audios:
+        await interaction.response.send_message(
+            "❌ A pasta `audios_call` está vazia. "
+            "Coloque arquivos MP3, WAV, OGG, M4A ou FLAC nela.",
+            ephemeral=True
+        )
+        return
+
+    arquivo = (
+        localizar_audio_call(audio)
+        if audio
+        else random.choice(audios)
+    )
+
+    if arquivo is None:
+        await interaction.response.send_message(
+            "❌ Não encontrei esse áudio. "
+            "Use `/listaraudios` para ver os nomes disponíveis.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(
+        ephemeral=True,
+        thinking=True
+    )
+
+    ok, erro = await tocar_audio_na_call(
+        interaction.guild,
+        canal,
+        arquivo
+    )
+
+    if ok:
+        await interaction.followup.send(
+            f"😈 Invadi **{canal.name}**, toquei "
+            f"`{arquivo.name}` e meti o pé.",
+            ephemeral=True
+        )
+    else:
+        await interaction.followup.send(
+            f"❌ Não consegui zoar a call: {erro}",
+            ephemeral=True
+        )
+
+
+@bot.tree.command(
+    name="listaraudios",
+    description="Lista os áudios disponíveis para zoar calls"
+)
+async def listaraudios(
+    interaction: discord.Interaction
+):
+    if await negar_se_nao_admin(interaction):
+        return
+
+    audios = listar_audios_call()
+
+    if not audios:
+        texto = (
+            "📂 A pasta `audios_call` está vazia.\n"
+            "É só colocar os arquivos lá e fazer o próximo deploy."
+        )
+    else:
+        nomes = [
+            f"• `{arquivo.name}`"
+            for arquivo in audios[:40]
+        ]
+        texto = (
+            f"🔊 **Áudios disponíveis: {len(audios)}**\n"
+            + "\n".join(nomes)
+        )
+
+        if len(audios) > 40:
+            texto += (
+                f"\n… e mais {len(audios) - 40} arquivo(s)."
+            )
+
+    await interaction.response.send_message(
+        texto[:1900],
+        ephemeral=True
+    )
+
+
+@bot.tree.command(
+    name="zoeiracallauto",
+    description="Liga ou desliga as invasões aleatórias em call"
+)
+@app_commands.describe(
+    ativo="True para ligar; False para desligar"
+)
+async def zoeiracallauto(
+    interaction: discord.Interaction,
+    ativo: bool
+):
+    if await negar_se_nao_admin(interaction):
+        return
+
+    salvar_estado(
+        CHAVE_ZOEIRA_CALL_AUTO,
+        "1" if ativo else "0"
+    )
+
+    await interaction.response.send_message(
+        (
+            "😈 Zoeira automática em call **LIGADA**."
+            if ativo
+            else
+            "🛑 Zoeira automática em call **DESLIGADA**."
+        ),
+        ephemeral=True
+    )
+
+
+@tasks.loop(
+    minutes=ZOEIRA_CALL_INTERVALO_MINUTOS
+)
+async def zoeira_call_automatica():
+    if not zoeira_call_auto_ativa():
+        return
+
+    audios = listar_audios_call()
+    if not audios:
+        return
+
+    agora = datetime.now(
+        timezone.utc
+    ).timestamp()
+
+    for guild in bot.guilds:
+        voice_atual = guild.voice_client
+
+        if (
+            voice_atual is not None
+            and voice_atual.is_connected()
+        ):
+            continue
+
+        ultimo = _zoeira_call_ultimo_uso.get(
+            guild.id,
+            0
+        )
+
+        if (
+            agora - ultimo
+            < ZOEIRA_CALL_COOLDOWN_MINUTOS * 60
+        ):
+            continue
+
+        if random.random() > ZOEIRA_CALL_CHANCE:
+            continue
+
+        candidatos = []
+
+        for canal in guild.voice_channels:
+            if guild.afk_channel == canal:
+                continue
+
+            pessoas = [
+                membro
+                for membro in canal.members
+                if not membro.bot
+            ]
+
+            if len(pessoas) < ZOEIRA_CALL_MIN_PESSOAS:
+                continue
+
+            eu = guild.me
+            if eu is None:
+                continue
+
+            permissoes = canal.permissions_for(eu)
+            if (
+                not permissoes.connect
+                or not permissoes.speak
+            ):
+                continue
+
+            candidatos.append(canal)
+
+        if not candidatos:
+            continue
+
+        canal = random.choice(candidatos)
+        arquivo = random.choice(audios)
+
+        ok, erro = await tocar_audio_na_call(
+            guild,
+            canal,
+            arquivo
+        )
+
+        if ok:
+            _zoeira_call_ultimo_uso[guild.id] = agora
+            print(
+                "Zoeira automática em call | "
+                f"guild={guild.name} | "
+                f"canal={canal.name} | "
+                f"audio={arquivo.name}"
+            )
+        else:
+            print(
+                "Falha na zoeira automática em call | "
+                f"guild={guild.name} | erro={erro}"
+            )
+
+
+@zoeira_call_automatica.before_loop
+async def antes_zoeira_call_automatica():
+    await bot.wait_until_ready()
+
+
+
 # ==========================================================
 # ONLINE
 # ==========================================================
@@ -8855,6 +9254,9 @@ async def avisar_retorno_manutencao_manual():
 async def on_ready():
     if not gerenciar_rei_madrugada.is_running():
         gerenciar_rei_madrugada.start()
+
+    if not zoeira_call_automatica.is_running():
+        zoeira_call_automatica.start()
     if not getattr(bot,"_retorno_manual_verificado",False):
         bot._retorno_manual_verificado=True
         await avisar_retorno_manutencao_manual()
