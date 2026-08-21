@@ -197,7 +197,7 @@ RESPOSTAS_RAPIDAS_IA = {
     ],
 }
 
-ATUALIZACAO_BOT_ID = "2026-08-21-04"
+ATUALIZACAO_BOT_ID = "2026-08-21-05"
 ATUALIZACAO_BOT_TITULO = "Atualização da Resenha Máxima"
 
 # Respostas de personagem para recusas genéricas da IA.
@@ -332,6 +332,13 @@ PERSONALIDADE:
   Só use emoji quando ele realmente melhorar a piada; nunca coloque por hábito
   no final de toda frase.
 - Às vezes uma simples reação é melhor do que mandar texto.
+- Você agora pode realmente entrar na call do autor para zoar.
+- Quando você DECIDIR que quer entrar na call da pessoa, em vez de só prometer,
+  responda EXATAMENTE no formato:
+  ENTRAR_CALL: texto curto que você quer mandar antes de entrar
+- Use ENTRAR_CALL apenas quando fizer sentido na conversa, principalmente se a pessoa
+  pedir para você entrar, desafiar você, ou se você mesmo estiver ameaçando entrar.
+- Não use ENTRAR_CALL toda hora. Existe cooldown e a ação pode ser recusada pelo sistema.
 
 LIMITES DE PERSONALIDADE:
 - Não faça ameaças reais de violência.
@@ -5976,6 +5983,20 @@ def extrair_resposta_ia(
             "emoji": "🤨",
         }
 
+    match_call = re.fullmatch(
+        r"ENTRAR_CALL:\s*(.*)",
+        conteudo,
+        flags=re.IGNORECASE | re.DOTALL
+    )
+
+    if match_call:
+        texto_call = match_call.group(1).strip()
+        return {
+            "acao": "entrar_call",
+            "texto": texto_call[:500],
+            "emoji": "",
+        }
+
     match = re.fullmatch(
         r"REAGIR:\s*(\S+)",
         conteudo,
@@ -6376,6 +6397,33 @@ async def responder_com_ia(
         message
     )
 
+    pedido_call = mensagem_pede_bot_na_call(
+        message.content
+    )
+    estado_call = ""
+    if pedido_call:
+        canal_call = autor_em_call(message)
+        if canal_call is None:
+            estado_call = (
+                "\nA pessoa está pedindo para você entrar em call, "
+                "mas ela NÃO está em nenhuma call agora."
+            )
+        else:
+            restante_call = restante_cooldown_ia_call(
+                message.guild.id
+            )
+            estado_call = (
+                "\nA pessoa está pedindo para você entrar na call "
+                f"`{canal_call.name}`. "
+                + (
+                    "Você está livre para usar ENTRAR_CALL."
+                    if restante_call <= 0
+                    else
+                    "Você está em cooldown; NÃO use ENTRAR_CALL. "
+                    "Recuse de forma curta e engraçada."
+                )
+            )
+
     mensagens.append(
         {
             "role": "user",
@@ -6385,6 +6433,7 @@ async def responder_com_ia(
                 f"Mensagem: {pergunta}"
                 f"{contexto_social}"
                 f"{contexto_estilo}"
+                f"{estado_call}"
             ),
         }
     )
@@ -6436,6 +6485,24 @@ async def responder_com_ia(
         }
     )
 
+    if resultado["acao"] == "entrar_call":
+        memoria.append(
+            {
+                "role": "assistant",
+                "content": (
+                    "[decidiu entrar na call do autor]"
+                ),
+            }
+        )
+
+        asyncio.create_task(
+            executar_ia_na_call(
+                message,
+                resultado.get("texto", "")
+            )
+        )
+        return True
+
     if resultado["acao"] == "reagir":
         try:
             await message.add_reaction(
@@ -6465,6 +6532,30 @@ async def responder_com_ia(
     texto = reduzir_emojis_ia(
         resultado["texto"]
     )
+
+    # Se o usuário pediu call e a IA respondeu prometendo que vai entrar,
+    # cumpre a promessa em vez de ficar só no texto.
+    if pedido_call:
+        promessa_call = re.search(
+            r"\b(vou entrar|to indo|tô indo|já vou|ja vou|vou colar|pera ai|pera aí)\b",
+            texto.casefold()
+        )
+        if promessa_call:
+            asyncio.create_task(
+                executar_ia_na_call(
+                    message,
+                    texto
+                )
+            )
+            memoria.append(
+                {
+                    "role": "assistant",
+                    "content": (
+                        "[entrou na call após aceitar o pedido]"
+                    ),
+                }
+            )
+            return True
 
     if usar_abreviacao:
         texto = abreviar_texto_ia(texto)
@@ -8986,6 +9077,238 @@ async def tocar_audio_na_call(
                 )
             except Exception:
                 pass
+
+
+
+# ==========================================================
+# IA NA CALL — CUMPRE A AMEAÇA
+# ==========================================================
+
+IA_CALL_COOLDOWN_MINUTOS = int(
+    os.getenv("IA_CALL_COOLDOWN_MINUTOS", "45")
+)
+IA_CALL_QUANTIDADE_AUDIOS = int(
+    os.getenv("IA_CALL_QUANTIDADE_AUDIOS", "3")
+)
+
+_ia_call_ultimo_uso = {}
+
+IA_CALL_DESCULPAS_COOLDOWN = [
+    "agora não dá, tô batendo uma",
+    "depois, tô comendo uma mulher",
+    "agora não, tô ocupado pra caralho",
+    "acabei de sair de call, me deixa em paz",
+    "depois eu apareço aí, agora tô resolvendo uns negócio",
+]
+
+
+def autor_em_call(message: discord.Message):
+    autor = message.author
+    if not isinstance(autor, discord.Member):
+        return None
+
+    voice_state = autor.voice
+    if voice_state is None:
+        return None
+
+    canal = voice_state.channel
+    if isinstance(canal, discord.VoiceChannel):
+        return canal
+
+    return None
+
+
+def restante_cooldown_ia_call(guild_id):
+    ultimo = _ia_call_ultimo_uso.get(guild_id)
+    if not ultimo:
+        return 0
+
+    agora = datetime.now(timezone.utc).timestamp()
+    restante = (
+        IA_CALL_COOLDOWN_MINUTOS * 60
+        - (agora - ultimo)
+    )
+    return max(0, int(restante))
+
+
+def mensagem_pede_bot_na_call(texto):
+    texto = str(texto or "").casefold()
+
+    padroes = (
+        r"\bentra (?:na|no|aqui na) call\b",
+        r"\bvem (?:pra|para) call\b",
+        r"\bcola (?:na|aqui na) call\b",
+        r"\bentra ai na call\b",
+        r"\bentra aí na call\b",
+        r"\bvai entrar na call\b",
+        r"\bentra call\b",
+    )
+
+    return any(
+        re.search(padrao, texto)
+        for padrao in padroes
+    )
+
+
+async def tocar_sequencia_na_call(
+    guild: discord.Guild,
+    canal: discord.VoiceChannel,
+    arquivos
+):
+    arquivos = [
+        Path(arquivo)
+        for arquivo in arquivos
+        if Path(arquivo).exists()
+    ]
+
+    if not arquivos:
+        return False, "Não encontrei áudios disponíveis."
+
+    eu = guild.me
+    if eu is None:
+        return False, "Não encontrei o usuário do bot."
+
+    permissoes = canal.permissions_for(eu)
+    if not permissoes.connect:
+        return False, "Não tenho permissão para entrar nessa call."
+    if not permissoes.speak:
+        return False, "Não tenho permissão para falar nessa call."
+
+    voice = guild.voice_client
+
+    try:
+        if voice is not None and voice.is_playing():
+            return False, "Já estou tocando outro áudio."
+
+        if voice is None or not voice.is_connected():
+            voice = await canal.connect(self_deaf=True)
+        elif voice.channel != canal:
+            await voice.move_to(canal)
+
+        for indice, arquivo in enumerate(arquivos):
+            fonte = await discord.FFmpegOpusAudio.from_probe(
+                str(arquivo),
+                executable=FFMPEG_BIN,
+                method="fallback",
+                options="-vn"
+            )
+
+            voice.play(fonte)
+
+            while voice.is_playing():
+                await asyncio.sleep(0.25)
+
+            if indice < len(arquivos) - 1:
+                await asyncio.sleep(0.45)
+
+        await asyncio.sleep(1.0)
+        return True, None
+
+    except Exception as erro:
+        return False, f"{type(erro).__name__}: {erro}"
+
+    finally:
+        voice_atual = guild.voice_client
+        if (
+            voice_atual is not None
+            and voice_atual.is_connected()
+        ):
+            try:
+                await voice_atual.disconnect(force=True)
+            except Exception:
+                pass
+
+
+async def executar_ia_na_call(
+    message: discord.Message,
+    texto_antes=""
+):
+    if message.guild is None:
+        return False
+
+    canal = autor_em_call(message)
+    if canal is None:
+        await message.reply(
+            "tu nem tá em call, doidão",
+            mention_author=False
+        )
+        return True
+
+    restante = restante_cooldown_ia_call(
+        message.guild.id
+    )
+
+    if restante > 0:
+        await message.reply(
+            random.choice(
+                IA_CALL_DESCULPAS_COOLDOWN
+            ),
+            mention_author=False
+        )
+        return True
+
+    audios = listar_audios_call()
+    if not audios:
+        await message.reply(
+            "eu até ia entrar, mas roubaram meus áudios",
+            mention_author=False
+        )
+        return True
+
+    quantidade = min(
+        IA_CALL_QUANTIDADE_AUDIOS,
+        len(audios)
+    )
+
+    escolhidos = random.sample(
+        audios,
+        quantidade
+    )
+
+    texto_antes = str(texto_antes or "").strip()
+    if texto_antes:
+        await message.reply(
+            texto_antes[:500],
+            mention_author=False,
+            allowed_mentions=discord.AllowedMentions(
+                users=True,
+                roles=False,
+                everyone=False,
+                replied_user=False
+            )
+        )
+    else:
+        await message.reply(
+            "pera aí então",
+            mention_author=False
+        )
+
+    # Marca o cooldown antes de conectar para evitar duas invasões simultâneas.
+    _ia_call_ultimo_uso[
+        message.guild.id
+    ] = datetime.now(
+        timezone.utc
+    ).timestamp()
+
+    ok, erro = await tocar_sequencia_na_call(
+        message.guild,
+        canal,
+        escolhidos
+    )
+
+    if not ok:
+        # Se a invasão falhar, libera o cooldown para tentar novamente.
+        _ia_call_ultimo_uso.pop(
+            message.guild.id,
+            None
+        )
+        print(
+            "IA não conseguiu entrar na call | "
+            f"guild={message.guild.id} | erro={erro}"
+        )
+
+    return True
+
 
 
 async def autocomplete_audio_zoarcall(
