@@ -197,7 +197,7 @@ RESPOSTAS_RAPIDAS_IA = {
     ],
 }
 
-ATUALIZACAO_BOT_ID = "2026-08-21-03"
+ATUALIZACAO_BOT_ID = "2026-08-21-04"
 ATUALIZACAO_BOT_TITULO = "Atualização da Resenha Máxima"
 
 # Respostas de personagem para recusas genéricas da IA.
@@ -8988,6 +8988,31 @@ async def tocar_audio_na_call(
                 pass
 
 
+async def autocomplete_audio_zoarcall(
+    interaction: discord.Interaction,
+    atual: str
+):
+    atual_cf = str(atual or "").casefold()
+    opcoes = []
+
+    for arquivo in listar_audios_call():
+        nome = arquivo.name
+        if atual_cf and atual_cf not in nome.casefold():
+            continue
+
+        opcoes.append(
+            app_commands.Choice(
+                name=nome[:100],
+                value=nome[:100]
+            )
+        )
+
+        if len(opcoes) >= 25:
+            break
+
+    return opcoes
+
+
 @bot.tree.command(
     name="zoarcall",
     description="Entra em uma call, toca um áudio e sai"
@@ -8995,9 +9020,12 @@ async def tocar_audio_na_call(
 @app_commands.describe(
     canal="Call onde o bot vai entrar",
     audio=(
-        "Nome do áudio da pasta audios_call. "
-        "Deixe vazio para sortear."
+        "Escolha um áudio da pasta audios_call "
+        "ou deixe vazio para sortear."
     )
+)
+@app_commands.autocomplete(
+    audio=autocomplete_audio_zoarcall
 )
 async def zoarcall(
     interaction: discord.Interaction,
