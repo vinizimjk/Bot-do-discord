@@ -6416,7 +6416,7 @@ async def responder_com_ia(
             )
         else:
             restante_call = restante_cooldown_ia_call(
-                message.guild.id
+                message.author.id
             )
             estado_call = (
                 "\nA pessoa está pedindo para você entrar na call "
@@ -9107,7 +9107,7 @@ async def tocar_audio_na_call(
 # ==========================================================
 
 IA_CALL_COOLDOWN_MINUTOS = int(
-    os.getenv("IA_CALL_COOLDOWN_MINUTOS", "15")
+    os.getenv("IA_CALL_COOLDOWN_MINUTOS", "10")
 )
 IA_CALL_QUANTIDADE_AUDIOS = int(
     os.getenv("IA_CALL_QUANTIDADE_AUDIOS", "3")
@@ -9140,8 +9140,8 @@ def autor_em_call(message: discord.Message):
     return None
 
 
-def restante_cooldown_ia_call(guild_id):
-    ultimo = _ia_call_ultimo_uso.get(guild_id)
+def restante_cooldown_ia_call(usuario_id):
+    ultimo = _ia_call_ultimo_uso.get(usuario_id)
     if not ultimo:
         return 0
 
@@ -9263,7 +9263,7 @@ async def executar_ia_na_call(
         return True
 
     restante = restante_cooldown_ia_call(
-        message.guild.id
+        message.author.id
     )
 
     if restante > 0:
@@ -9313,7 +9313,7 @@ async def executar_ia_na_call(
 
     # Marca o cooldown antes de conectar para evitar duas invasões simultâneas.
     _ia_call_ultimo_uso[
-        message.guild.id
+        message.author.id
     ] = datetime.now(
         timezone.utc
     ).timestamp()
@@ -9327,7 +9327,7 @@ async def executar_ia_na_call(
     if not ok:
         # Se a invasão falhar, libera o cooldown para tentar novamente.
         _ia_call_ultimo_uso.pop(
-            message.guild.id,
+            message.author.id,
             None
         )
         print(
