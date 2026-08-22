@@ -19,6 +19,10 @@ from mcstatus import JavaServer, BedrockServer
 from groq import AsyncGroq
 import imageio_ffmpeg
 
+# Carrega variáveis locais antes de ler GROQ_API_KEY/GROQ_MODEL.
+# Na Railway as variáveis já vêm do ambiente; localmente isso evita cliente Groq vazio.
+load_dotenv()
+
 
 # ==========================================================
 # CONFIGURAÇÕES PRINCIPAIS
@@ -64,6 +68,17 @@ GROQ_MODEL = os.getenv(
     "GROQ_MODEL",
     "llama-3.3-70b-versatile"
 ).strip()
+GROQ_FALLBACK_MODEL = os.getenv(
+    "GROQ_FALLBACK_MODEL",
+    "llama-3.1-8b-instant"
+).strip()
+GROQ_MODELOS_TENTATIVA = tuple(
+    dict.fromkeys(
+        modelo
+        for modelo in (GROQ_MODEL, GROQ_FALLBACK_MODEL)
+        if modelo
+    )
+)
 
 CHAVE_IA_CAOS_ULTIMA_ACAO = "ia_caos_ultima_acao"
 
@@ -6449,6 +6464,69 @@ async def enviar_resposta_rapida_ia(message: discord.Message, texto):
     return True
 
 
+async def gerar_resposta_groq_resiliente(mensagens):
+    """Gera resposta na Groq com retentativa e modelo reserva.
+
+    O modelo principal continua sendo o configurado em GROQ_MODEL. O fallback
+    só é usado quando o principal realmente falha, evitando a IA ficar muda.
+    """
+    if groq_client is None:
+        raise RuntimeError("Cliente Groq não inicializado; confira GROQ_API_KEY.")
+
+    erros = []
+
+    for modelo in GROQ_MODELOS_TENTATIVA:
+        for tentativa in range(2):
+            try:
+                resposta = await asyncio.wait_for(
+                    groq_client.chat.completions.create(
+                        model=modelo,
+                        messages=mensagens,
+                        temperature=1.02,
+                        max_completion_tokens=650,
+                    ),
+                    timeout=IA_GERACAO_TIMEOUT_SEGUNDOS,
+                )
+
+                conteudo = None
+                if getattr(resposta, "choices", None):
+                    mensagem = getattr(resposta.choices[0], "message", None)
+                    conteudo = getattr(mensagem, "content", None) if mensagem else None
+
+                if conteudo is None or not str(conteudo).strip():
+                    raise RuntimeError("A Groq retornou uma resposta sem conteúdo.")
+
+                if modelo != GROQ_MODEL:
+                    print(
+                        "IA Groq usando modelo reserva | "
+                        f"modelo={modelo}",
+                        flush=True,
+                    )
+
+                return resposta
+
+            except Exception as erro:
+                erros.append((modelo, tentativa + 1, erro))
+                print(
+                    "Falha na geração da IA | "
+                    f"modelo={modelo} | tentativa={tentativa + 1} | "
+                    f"{type(erro).__name__}: {erro}",
+                    flush=True,
+                )
+
+                if tentativa == 0:
+                    await asyncio.sleep(0.8)
+
+    if erros:
+        modelo, tentativa, erro = erros[-1]
+        raise RuntimeError(
+            "Todos os modelos da Groq falharam. "
+            f"Último erro: {type(erro).__name__}: {erro}"
+        ) from erro
+
+    raise RuntimeError("Nenhum modelo Groq foi configurado.")
+
+
 async def responder_com_ia(
     message: discord.Message
 ):
@@ -6573,40 +6651,34 @@ async def responder_com_ia(
     )
 
     try:
-        ultimo_erro = None
-        resposta = None
-
         async with message.channel.typing():
-            for tentativa in range(3):
-                try:
-                    resposta = await asyncio.wait_for(
-                        groq_client.chat.completions.create(
-                            model=GROQ_MODEL, messages=mensagens, temperature=1.02, max_completion_tokens=650
-                        ), timeout=IA_GERACAO_TIMEOUT_SEGUNDOS
-                    )
-                    break
-                except Exception as erro:
-                    ultimo_erro = erro
-                    if tentativa < 2:
-                        await asyncio.sleep(0.8 * (tentativa + 1))
-
-        if resposta is None:
-            raise ultimo_erro or RuntimeError("Groq sem resposta")
+            resposta = await gerar_resposta_groq_resiliente(
+                mensagens
+            )
 
         conteudo = resposta.choices[0].message.content
         resultado = extrair_resposta_ia(conteudo)
 
     except Exception as erro:
         print(
-            "Erro na IA Groq após 3 tentativas | "
-            f"{type(erro).__name__}: {erro}"
+            "Erro final na IA Groq | "
+            f"{type(erro).__name__}: {erro}",
+            flush=True,
         )
 
-        # Não polui mais o chat repetindo "tela azul" a cada falha.
+        # Nunca mais fica em silêncio: se a API falhar completamente,
+        # o usuário recebe um aviso curto e o erro real continua nos logs.
         try:
-            await message.add_reaction("💀")
+            await message.reply(
+                "minha IA externa deu uma travada agora, tenta de novo em alguns segundos",
+                mention_author=False,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
         except (discord.Forbidden, discord.HTTPException):
-            pass
+            try:
+                await message.add_reaction("💀")
+            except (discord.Forbidden, discord.HTTPException):
+                pass
         return True
 
     memoria.append(
@@ -7579,9 +7651,31 @@ async def on_message(
     )
 
     if not caiu_na_pegadinha and not puniu_por_abuso:
-        await responder_com_ia(
-            message
-        )
+        try:
+            await responder_com_ia(
+                message
+            )
+        except Exception as erro:
+            # Protege contra qualquer erro inesperado na preparação do contexto
+            # (antes mesmo da chamada Groq), evitando menção ignorada sem log.
+            print(
+                "Erro inesperado no fluxo da IA | "
+                f"{type(erro).__name__}: {erro}",
+                flush=True,
+            )
+            mencionado = (
+                bot.user is not None
+                and bot.user in message.mentions
+            )
+            if mencionado:
+                try:
+                    await message.reply(
+                        "deu ruim no meu cérebro aqui, tenta me marcar de novo daqui a pouco",
+                        mention_author=False,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
 
     await bot.process_commands(
         message

@@ -1,19 +1,20 @@
 {
-  "id": "2026-08-22-06",
-  "versao": "2026.08.22-hotfix-ia-canal",
+  "id": "2026-08-22-07",
+  "versao": "2026.08.22-hotfix-ia-resposta",
   "data": "2026-08-22",
-  "titulo": "Hotfix da IA — canal do modo causando",
+  "titulo": "Hotfix da IA — respostas geradas",
   "novidades": [],
   "correcoes": [
-    "O modo IA causando agora respeita o canal da IA configurado no painel e não procura canais aleatórios como alternativa.",
-    "Se o usuário alvo não puder enviar mensagens no canal da IA, a ação é cancelada em vez de marcar a pessoa em outro canal.",
-    "Quando nenhum canal da IA estiver configurado, o modo causando usa somente o chat geral oficial.",
-    "O bot também verifica se ele próprio possui acesso e permissão de envio antes de iniciar a zoeira."
+    "A IA deixa de ficar silenciosa quando a chamada principal da Groq falha.",
+    "Adicionada tentativa automática com modelo Groq reserva quando o modelo principal apresenta erro.",
+    "Erros ocorridos antes da chamada da Groq também passam a ser capturados e registrados nos logs.",
+    "O arquivo .env agora é carregado antes da leitura das variáveis GROQ_API_KEY e GROQ_MODEL em execução local."
   ],
   "alteracoes": [
-    "Removido o fallback do modo causando para canais encontrados por nome ou para o primeiro canal disponível."
+    "O modelo principal continua sendo llama-3.3-70b-versatile por padrão; llama-3.1-8b-instant é usado somente como reserva.",
+    "Se todos os modelos falharem, o bot informa no Discord que a IA externa está temporariamente indisponível em vez de ignorar a menção."
   ],
   "problemas_conhecidos": [
-    "Se a IA estiver desativada no painel ou se um canal exclusivo estiver configurado, menções fora desse canal continuam sem resposta por configuração."
+    "Uma chave GROQ_API_KEY inválida, removida ou sem acesso continuará impedindo geração por IA; nesse caso o erro exato aparecerá nos logs da Railway."
   ]
 }
