@@ -1,20 +1,18 @@
 {
-  "id": "2026-08-22-07",
-  "versao": "2026.08.22-hotfix-ia-resposta",
+  "id": "2026-08-22-08",
+  "versao": "2026.08.22-hotfix-ia-timeout",
   "data": "2026-08-22",
-  "titulo": "Hotfix da IA — respostas geradas",
+  "titulo": "Hotfix da IA — limite de tempo de resposta",
   "novidades": [],
   "correcoes": [
-    "A IA deixa de ficar silenciosa quando a chamada principal da Groq falha.",
-    "Adicionada tentativa automática com modelo Groq reserva quando o modelo principal apresenta erro.",
-    "Erros ocorridos antes da chamada da Groq também passam a ser capturados e registrados nos logs.",
-    "O arquivo .env agora é carregado antes da leitura das variáveis GROQ_API_KEY e GROQ_MODEL em execução local."
+    "Corrigido o problema que podia deixar o bot em 'digitando...' por mais de um minuto quando a Groq falhava ou demorava.",
+    "O limite de geração da IA agora vale para toda a operação, incluindo modelo principal e modelo reserva, em vez de reiniciar a cada tentativa."
   ],
   "alteracoes": [
-    "O modelo principal continua sendo llama-3.3-70b-versatile por padrão; llama-3.1-8b-instant é usado somente como reserva.",
-    "Se todos os modelos falharem, o bot informa no Discord que a IA externa está temporariamente indisponível em vez de ignorar a menção."
+    "O modelo principal recebe a maior parte do tempo disponível e o modelo reserva usa apenas o orçamento restante.",
+    "Se nenhum modelo responder dentro do limite total, o bot encerra o 'digitando...' e envia a mensagem de indisponibilidade já existente."
   ],
   "problemas_conhecidos": [
-    "Uma chave GROQ_API_KEY inválida, removida ou sem acesso continuará impedindo geração por IA; nesse caso o erro exato aparecerá nos logs da Railway."
+    "Se a GROQ_API_KEY estiver inválida, sem crédito/acesso ou houver indisponibilidade externa, a geração continuará falhando; o motivo exato ficará nos logs da Railway."
   ]
 }

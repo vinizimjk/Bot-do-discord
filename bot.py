@@ -6465,66 +6465,80 @@ async def enviar_resposta_rapida_ia(message: discord.Message, texto):
 
 
 async def gerar_resposta_groq_resiliente(mensagens):
-    """Gera resposta na Groq com retentativa e modelo reserva.
+    """Gera resposta na Groq sem deixar o bot preso em "digitando".
 
-    O modelo principal continua sendo o configurado em GROQ_MODEL. O fallback
-    só é usado quando o principal realmente falha, evitando a IA ficar muda.
+    O orçamento de IA_GERACAO_TIMEOUT_SEGUNDOS vale para a operação inteira,
+    incluindo modelo principal e reserva. Assim uma falha não multiplica o
+    tempo de espera por quantidade de modelos/tentativas.
     """
     if groq_client is None:
         raise RuntimeError("Cliente Groq não inicializado; confira GROQ_API_KEY.")
 
+    inicio = time.monotonic()
     erros = []
 
-    for modelo in GROQ_MODELOS_TENTATIVA:
-        for tentativa in range(2):
-            try:
-                resposta = await asyncio.wait_for(
-                    groq_client.chat.completions.create(
-                        model=modelo,
-                        messages=mensagens,
-                        temperature=1.02,
-                        max_completion_tokens=650,
-                    ),
-                    timeout=IA_GERACAO_TIMEOUT_SEGUNDOS,
-                )
+    for indice, modelo in enumerate(GROQ_MODELOS_TENTATIVA):
+        restante_total = IA_GERACAO_TIMEOUT_SEGUNDOS - (time.monotonic() - inicio)
+        if restante_total <= 0.25:
+            break
 
-                conteudo = None
-                if getattr(resposta, "choices", None):
-                    mensagem = getattr(resposta.choices[0], "message", None)
-                    conteudo = getattr(mensagem, "content", None) if mensagem else None
+        # Dá mais tempo ao modelo principal, mas preserva parte do orçamento
+        # para o fallback. Com dois modelos: ~10 s principal + ~8 s reserva.
+        if indice == 0 and len(GROQ_MODELOS_TENTATIVA) > 1:
+            timeout_modelo = min(10.0, max(1.0, restante_total - 6.0))
+        else:
+            timeout_modelo = max(1.0, restante_total)
 
-                if conteudo is None or not str(conteudo).strip():
-                    raise RuntimeError("A Groq retornou uma resposta sem conteúdo.")
+        try:
+            resposta = await asyncio.wait_for(
+                groq_client.chat.completions.create(
+                    model=modelo,
+                    messages=mensagens,
+                    temperature=1.02,
+                    max_completion_tokens=650,
+                ),
+                timeout=timeout_modelo,
+            )
 
-                if modelo != GROQ_MODEL:
-                    print(
-                        "IA Groq usando modelo reserva | "
-                        f"modelo={modelo}",
-                        flush=True,
-                    )
+            conteudo = None
+            if getattr(resposta, "choices", None):
+                mensagem = getattr(resposta.choices[0], "message", None)
+                conteudo = getattr(mensagem, "content", None) if mensagem else None
 
-                return resposta
+            if conteudo is None or not str(conteudo).strip():
+                raise RuntimeError("A Groq retornou uma resposta sem conteúdo.")
 
-            except Exception as erro:
-                erros.append((modelo, tentativa + 1, erro))
+            if modelo != GROQ_MODEL:
                 print(
-                    "Falha na geração da IA | "
-                    f"modelo={modelo} | tentativa={tentativa + 1} | "
-                    f"{type(erro).__name__}: {erro}",
+                    "IA Groq usando modelo reserva | "
+                    f"modelo={modelo}",
                     flush=True,
                 )
 
-                if tentativa == 0:
-                    await asyncio.sleep(0.8)
+            return resposta
 
+        except Exception as erro:
+            erros.append((modelo, erro))
+            print(
+                "Falha na geração da IA | "
+                f"modelo={modelo} | "
+                f"{type(erro).__name__}: {erro}",
+                flush=True,
+            )
+
+    tempo_total = time.monotonic() - inicio
     if erros:
-        modelo, tentativa, erro = erros[-1]
+        modelo, erro = erros[-1]
         raise RuntimeError(
-            "Todos os modelos da Groq falharam. "
-            f"Último erro: {type(erro).__name__}: {erro}"
+            "Todos os modelos da Groq falharam dentro do limite total de "
+            f"{IA_GERACAO_TIMEOUT_SEGUNDOS}s. Último erro em {modelo}: "
+            f"{type(erro).__name__}: {erro}. Tempo total: {tempo_total:.1f}s"
         ) from erro
 
-    raise RuntimeError("Nenhum modelo Groq foi configurado.")
+    raise RuntimeError(
+        "A geração da Groq atingiu o limite total de tempo sem concluir. "
+        f"Tempo total: {tempo_total:.1f}s"
+    )
 
 
 async def responder_com_ia(
