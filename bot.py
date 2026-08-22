@@ -165,6 +165,25 @@ MEMORIA_SOCIAL_RESENHA = {
 
 # Respostas rápidas: usadas com chance, antes da Groq, para deixar o bot
 # menos dependente da API e mais com cara de membro da Resenha.
+# Respostas de personagem para recusas genéricas da IA.
+# Alterna entre membros conhecidos da Resenha.
+IA_FALLBACK_MACETANDO = [
+    ("Shelby", 1089629818628349962),
+    ("PK", 595754985875308565),
+    ("Draxz", 927746687605280809),
+]
+
+IA_RECUSAS_GENERICAS = (
+    "desculpe, não posso ajudar",
+    "desculpe, mas não posso ajudar",
+    "não posso ajudar com isso",
+    "nao posso ajudar com isso",
+    "não posso ajudar nesse pedido",
+    "não posso atender",
+    "não posso fazer isso",
+    "não posso continuar com isso",
+)
+
 RESPOSTAS_RAPIDAS_IA = {
     "saudacao": [
         "chora na tora zz",

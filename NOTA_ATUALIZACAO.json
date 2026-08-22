@@ -1,18 +1,15 @@
 {
-  "id": "2026-08-22-08",
-  "versao": "2026.08.22-hotfix-ia-timeout",
+  "id": "2026-08-22-09",
+  "versao": "2026.08.22-hotfix-ia-nameerror",
   "data": "2026-08-22",
-  "titulo": "Hotfix da IA — limite de tempo de resposta",
+  "titulo": "Hotfix da IA — correção do fluxo de resposta",
   "novidades": [],
   "correcoes": [
-    "Corrigido o problema que podia deixar o bot em 'digitando...' por mais de um minuto quando a Groq falhava ou demorava.",
-    "O limite de geração da IA agora vale para toda a operação, incluindo modelo principal e modelo reserva, em vez de reiniciar a cada tentativa."
+    "Restauradas as constantes internas IA_RECUSAS_GENERICAS e IA_FALLBACK_MACETANDO que haviam sido removidas durante os hotfixes anteriores.",
+    "Corrigido o NameError que interrompia a IA antes de gerar respostas novas e fazia o bot responder apenas com mensagens programadas ou de erro."
   ],
   "alteracoes": [
-    "O modelo principal recebe a maior parte do tempo disponível e o modelo reserva usa apenas o orçamento restante.",
-    "Se nenhum modelo responder dentro do limite total, o bot encerra o 'digitando...' e envia a mensagem de indisponibilidade já existente."
+    "Mantidos o timeout global da IA, o modelo reserva, o modo manutenção, o modo causando e todas as demais funções existentes."
   ],
-  "problemas_conhecidos": [
-    "Se a GROQ_API_KEY estiver inválida, sem crédito/acesso ou houver indisponibilidade externa, a geração continuará falhando; o motivo exato ficará nos logs da Railway."
-  ]
+  "problemas_conhecidos": []
 }
