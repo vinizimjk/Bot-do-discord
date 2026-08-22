@@ -26,6 +26,8 @@ import imageio_ffmpeg
 
 DONO_ID = 1455937306400653344
 CANAL_APROVACAO_ID = 1536073451633254420
+CANAL_CALL_MANUTENCAO_ID = 1540578640020897862
+CHAT_GERAL_ID = 1532792216047849673
 PAINEL_MENU_URL = "https://resenha-maxima.up.railway.app"
 
 CARGO_MINECRAFT_ID = 1534006899371147304
@@ -62,11 +64,6 @@ GROQ_MODEL = os.getenv(
     "llama-3.3-70b-versatile"
 ).strip()
 
-CHAVE_IA_ATIVA = "ia_resenha_ativa"
-CHAVE_CANAL_IA = "ia_resenha_canal_id"
-
-CHAVE_IA_CAOS_ATIVO = "ia_caos_ativo"
-CHAVE_IA_CAOS_PROXIMO_ALVO = "ia_caos_proximo_alvo"
 CHAVE_IA_CAOS_ULTIMA_ACAO = "ia_caos_ultima_acao"
 
 # ==========================================================
@@ -110,11 +107,10 @@ MEMORIA_SOCIAL_RESENHA = {
         "apelidos": ["PK"],
         "fatos": [
             "É um dos jogadores de Minecraft mais ativos da Resenha.",
-            "Costuma ficar mais ativo em call do que no chat de texto.",
             "Normalmente leva bem zoeira de resenha.",
         ],
         "piadas": [
-            "Pode zoar dizendo que ele mora na call.",
+            "Existe uma piada interna sobre ele e call, mas só use quando o assunto atual já for call e nunca em respostas próximas.",
         ],
     },
     1467263535972225165: {
@@ -196,46 +192,6 @@ RESPOSTAS_RAPIDAS_IA = {
         "que isso? foto do teu pau? pequena demais, baixa de novo",
     ],
 }
-
-ATUALIZACAO_BOT_ID = "2026-08-21-05"
-ATUALIZACAO_BOT_TITULO = "Atualização da Resenha Máxima"
-
-# Respostas de personagem para recusas genéricas da IA.
-# Alterna entre membros conhecidos da Resenha.
-IA_FALLBACK_MACETANDO = [
-    ("Shelby", 1089629818628349962),
-    ("PK", 595754985875308565),
-    ("Draxz", 927746687605280809),
-]
-
-IA_RECUSAS_GENERICAS = (
-    "desculpe, não posso ajudar",
-    "desculpe, mas não posso ajudar",
-    "não posso ajudar com isso",
-    "nao posso ajudar com isso",
-    "não posso ajudar nesse pedido",
-    "não posso atender",
-    "não posso fazer isso",
-    "não posso continuar com isso",
-)
-
-ATUALIZACAO_NOVIDADES = [
-    "👑 Adicionado o evento único Rei da Madrugada",
-    "⚙️ Bot passa a consultar a configuração da IA publicada pelo painel",
-]
-
-ATUALIZACAO_CORRECOES = [
-    "⏱️ Geração da IA agora possui limite de tempo para não ficar presa em digitando",
-]
-
-ATUALIZACAO_ALTERACOES = [
-    "🎮 Bot preparado para o servidor Minecraft alternativo atual",
-    "📣 Preparado aviso de retorno após manutenção manual sinalizada pelo painel",
-]
-
-ATUALIZACAO_PROBLEMAS_CONHECIDOS = [
-    "🔧 O aviso de retorno depende do site marcar a manutenção manual antes de desligar o bot",
-]
 
 IA_MEMORIA_MENSAGENS = 10
 IA_MAX_RESPOSTA_CARACTERES = 1600
@@ -332,13 +288,9 @@ PERSONALIDADE:
   Só use emoji quando ele realmente melhorar a piada; nunca coloque por hábito
   no final de toda frase.
 - Às vezes uma simples reação é melhor do que mandar texto.
-- Você agora pode realmente entrar na call do autor para zoar.
-- Quando você DECIDIR que quer entrar na call da pessoa, em vez de só prometer,
-  responda EXATAMENTE no formato:
-  ENTRAR_CALL: texto curto que você quer mandar antes de entrar
-- Use ENTRAR_CALL apenas quando fizer sentido na conversa, principalmente se a pessoa
-  pedir para você entrar, desafiar você, ou se você mesmo estiver ameaçando entrar.
-- Não use ENTRAR_CALL toda hora. Existe cooldown e a ação pode ser recusada pelo sistema.
+- Memória social serve SOMENTE como contexto. Não transforme fatos, apelidos ou piadas internas cadastradas em pauta por conta própria.
+- Reconhecer uma pessoa não é motivo para repetir a piada associada a ela. Responda primeiro ao conteúdo da mensagem atual.
+- Evite reutilizar a mesma estrutura, bordão ou piada em respostas próximas; mude a abordagem de verdade.
 
 LIMITES DE PERSONALIDADE:
 - Não faça ameaças reais de violência.
@@ -380,9 +332,11 @@ _cooldown_ia = {}
 # Menções vazias/repetidas: evita resposta de atendente em loop.
 _ia_mencoes_recentes = {}
 _ia_respostas_rapidas_recentes = {}
+_ia_respostas_textuais_recentes = {}
 IA_MENCAO_REPETIDA_JANELA = 45
 IA_MENCAO_REPETIDA_LIMITE = 2
 IA_RESPOSTAS_RAPIDAS_MEMORIA = 4
+IA_RESPOSTAS_TEXTUAIS_MEMORIA = 6
 
 # Histórico em memória de ofensas insistentes direcionadas ao bot.
 _ia_abuso = {}
@@ -420,6 +374,8 @@ else:
 
 ARQUIVO_ENV = PASTA_BOT / ".env"
 ARQUIVO_CONFIG = PASTA_DADOS / "config.json"
+ARQUIVO_ESTADO_NOTAS = PASTA_DADOS / "notas_atualizacao_publicadas.json"
+NOME_ARQUIVO_NOTA = "NOTA_ATUALIZACAO.json"
 
 BANCO_NOVO = PASTA_DADOS / "bot.db"
 BANCO_ANTIGO = PASTA_DADOS / "enquetes.db"
@@ -5360,23 +5316,133 @@ def texto_lista_atualizacao(itens, vazio="Nenhum item."):
     return "\n".join(f"• {item}" for item in itens)
 
 
-def criar_texto_atualizacao_bot():
-    """Cria patch notes como mensagem normal do Discord, sem embed."""
-    data_local = datetime.now(FUSO_SERVIDOR).strftime("%d/%m/%Y")
-    secoes = [
-        ("🆕 NOVIDADES", ATUALIZACAO_NOVIDADES),
-        ("🔧 CORRIGIDO", ATUALIZACAO_CORRECOES),
-        ("♻️ ALTERAÇÕES", ATUALIZACAO_ALTERACOES),
-        ("🐛 PROBLEMAS CONHECIDOS", ATUALIZACAO_PROBLEMAS_CONHECIDOS),
-    ]
+def caminho_nota_atualizacao():
+    """Localiza a nota tanto ao lado do bot.py quanto na raiz do pacote."""
+    candidatos = (
+        PASTA_BOT / NOME_ARQUIVO_NOTA,
+        PASTA_BOT.parent / NOME_ARQUIVO_NOTA,
+    )
+
+    for caminho in candidatos:
+        if caminho.exists() and caminho.is_file():
+            return caminho
+
+    return None
+
+
+def carregar_nota_atualizacao():
+    caminho = caminho_nota_atualizacao()
+    if caminho is None:
+        return None
+
+    try:
+        with caminho.open("r", encoding="utf-8") as arquivo:
+            nota = json.load(arquivo)
+    except (OSError, json.JSONDecodeError) as erro:
+        print(f"NOTA_ATUALIZACAO.json inválida: {erro}")
+        return None
+
+    if not isinstance(nota, dict):
+        print("NOTA_ATUALIZACAO.json ignorada: o conteúdo precisa ser um objeto JSON.")
+        return None
+
+    nota_id = str(nota.get("id") or "").strip()
+    titulo = str(nota.get("titulo") or "").strip()
+    if not nota_id or not titulo:
+        print("NOTA_ATUALIZACAO.json ignorada: campos 'id' e 'titulo' são obrigatórios.")
+        return None
+
+    normalizada = dict(nota)
+    normalizada["id"] = nota_id[:160]
+    normalizada["titulo"] = titulo[:256]
+    normalizada["versao"] = str(nota.get("versao") or "").strip()[:80]
+    normalizada["data"] = str(nota.get("data") or "").strip()[:40]
+
+    for campo in ("novidades", "correcoes", "alteracoes", "problemas_conhecidos"):
+        itens = nota.get(campo) or []
+        if not isinstance(itens, list):
+            itens = [str(itens)]
+        normalizada[campo] = [
+            str(item).strip()[:1000]
+            for item in itens
+            if str(item).strip()
+        ]
+
+    return normalizada
+
+
+def estado_notas_padrao():
+    return {
+        "ultimo_id_publicado": "",
+        "status": "",
+        "publicado_em": "",
+        "canal_id": "",
+        "historico": [],
+    }
+
+
+def carregar_estado_notas():
+    dados = estado_notas_padrao()
+
+    if not ARQUIVO_ESTADO_NOTAS.exists():
+        # Migra o último ID antigo, se houver, sem depender dele no futuro.
+        antigo = obter_estado(CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA)
+        if antigo:
+            dados["ultimo_id_publicado"] = str(antigo)
+        return dados
+
+    try:
+        with ARQUIVO_ESTADO_NOTAS.open("r", encoding="utf-8") as arquivo:
+            salvo = json.load(arquivo)
+        if isinstance(salvo, dict):
+            dados.update(salvo)
+    except (OSError, json.JSONDecodeError) as erro:
+        print(f"Estado persistente das notas inválido: {erro}")
+
+    if not isinstance(dados.get("historico"), list):
+        dados["historico"] = []
+
+    return dados
+
+
+def salvar_estado_notas(dados):
+    ARQUIVO_ESTADO_NOTAS.parent.mkdir(parents=True, exist_ok=True)
+    temporario = ARQUIVO_ESTADO_NOTAS.with_suffix(".tmp")
+
+    with temporario.open("w", encoding="utf-8") as arquivo:
+        json.dump(dados, arquivo, ensure_ascii=False, indent=2)
+
+    temporario.replace(ARQUIVO_ESTADO_NOTAS)
+
+
+def criar_texto_atualizacao_bot(nota=None):
+    """Cria as patch notes a partir do NOTA_ATUALIZACAO.json."""
+    nota = nota or carregar_nota_atualizacao()
+    if nota is None:
+        return ""
+
+    data_exibicao = nota.get("data") or datetime.now(FUSO_SERVIDOR).strftime("%d/%m/%Y")
+    versao = nota.get("versao") or nota["id"]
+
+    secoes = (
+        ("🆕 NOVIDADES", nota.get("novidades") or []),
+        ("🔧 CORREÇÕES", nota.get("correcoes") or []),
+        ("♻️ ALTERAÇÕES", nota.get("alteracoes") or []),
+        ("🐛 PROBLEMAS CONHECIDOS", nota.get("problemas_conhecidos") or []),
+    )
 
     partes = [
-        f"# 📝 NOTAS DA ATUALIZAÇÃO — {data_local}",
-        f"Versão `{ATUALIZACAO_BOT_ID}`",
+        f"# 📝 {nota['titulo']}",
+        f"**Versão:** `{versao}`\n**Data:** {data_exibicao}",
     ]
+
     for titulo, itens in secoes:
         if itens:
-            partes.append(f"## {titulo}\n" + "\n".join(f"• {item}" for item in itens))
+            partes.append(
+                f"## {titulo}\n"
+                + "\n".join(f"• {item}" for item in itens)
+            )
+
     return "\n\n".join(partes)
 
 
@@ -5403,19 +5469,8 @@ def dividir_mensagem_discord(texto, limite=1900):
 
 
 async def remover_atualizacoes_antigas(canal):
-    """Remove mensagens anteriores do próprio bot no canal de atualizações."""
-    removidas = 0
-    try:
-        async for mensagem in canal.history(limit=100):
-            if bot.user and mensagem.author.id == bot.user.id:
-                try:
-                    await mensagem.delete()
-                    removidas += 1
-                except (discord.Forbidden, discord.HTTPException):
-                    pass
-    except (discord.Forbidden, discord.HTTPException):
-        pass
-    return removidas
+    """Mantido por compatibilidade; notas antigas não são removidas automaticamente."""
+    return 0
 
 
 def mensagem_e_atualizacao_pendente(mensagem: discord.Message):
@@ -5451,42 +5506,95 @@ async def remover_atualizacoes_pendentes(canal):
 
 
 async def publicar_atualizacao_bot(*, forcar=False):
+    """
+    Publica uma nota por ID. O parâmetro forcar é mantido por compatibilidade,
+    mas NUNCA permite republicar o mesmo ID.
+    """
+    nota = carregar_nota_atualizacao()
+    if nota is None:
+        return False, "NOTA_ATUALIZACAO.json não encontrada ou inválida."
+
+    nota_id = nota["id"]
+    estado = carregar_estado_notas()
+
+    if str(estado.get("ultimo_id_publicado") or "") == nota_id:
+        return False, f"A nota `{nota_id}` já foi registrada/publicada e não será enviada novamente."
+
     canal = await obter_canal_atualizacoes()
     if canal is None:
         return False, "Canal de atualizações não configurado."
-    ultima = obter_estado(CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA)
-    if not forcar and ultima == ATUALIZACAO_BOT_ID:
-        return False, "Esta atualização já foi publicada."
 
-    # Mantém o histórico: notas de versões anteriores NÃO são apagadas.
-    # A prévia de "Futuras atualizações" é gerenciada separadamente pelo site.
+    texto = criar_texto_atualizacao_bot(nota)
+    if not texto:
+        return False, "A nota atual está vazia."
+
+    # Reserva o ID em /data ANTES do envio. Assim, até um crash entre o envio
+    # e a confirmação final não causa publicação duplicada no próximo deploy.
+    estado_anterior = dict(estado)
+    estado["ultimo_id_publicado"] = nota_id
+    estado["status"] = "publicando"
+    estado["publicado_em"] = datetime.now(timezone.utc).isoformat()
+    estado["canal_id"] = str(canal.id)
+    salvar_estado_notas(estado)
+
+    mensagens_ids = []
     try:
-        for parte in dividir_mensagem_discord(
-            criar_texto_atualizacao_bot()
-        ):
-            await canal.send(parte)
+        for parte in dividir_mensagem_discord(texto):
+            mensagem = await canal.send(
+                parte,
+                allowed_mentions=discord.AllowedMentions(
+                    users=True,
+                    roles=False,
+                    everyone=False,
+                    replied_user=False,
+                ),
+            )
+            mensagens_ids.append(str(mensagem.id))
     except (discord.Forbidden, discord.HTTPException) as erro:
-        return False, f"Não foi possível publicar: {erro}"
+        # Em falha conhecida, libera nova tentativa somente se nada chegou a ser enviado.
+        if not mensagens_ids:
+            salvar_estado_notas(estado_anterior)
+        else:
+            estado["status"] = "parcial"
+            estado["mensagens_ids"] = mensagens_ids
+            salvar_estado_notas(estado)
+        return False, f"Não foi possível publicar a nota completa: {erro}"
 
     pendentes_removidas = await remover_atualizacoes_pendentes(canal)
 
-    salvar_estado(
-        CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA,
-        ATUALIZACAO_BOT_ID
-    )
+    registro = {
+        "id": nota_id,
+        "versao": nota.get("versao") or "",
+        "titulo": nota.get("titulo") or "",
+        "publicado_em": datetime.now(timezone.utc).isoformat(),
+        "canal_id": str(canal.id),
+        "mensagens_ids": mensagens_ids,
+    }
+
+    historico = [
+        item for item in (estado.get("historico") or [])
+        if str(item.get("id") or "") != nota_id
+    ]
+    historico.append(registro)
+
+    estado["status"] = "publicado"
+    estado["publicado_em"] = registro["publicado_em"]
+    estado["mensagens_ids"] = mensagens_ids
+    estado["historico"] = historico[-100:]
+    salvar_estado_notas(estado)
+
+    # Mantém a chave antiga apenas para compatibilidade com telas/comandos antigos.
+    salvar_estado(CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA, nota_id)
 
     return (
         True,
-        "Atualização publicada. "
-        f"{pendentes_removidas} mensagem(ns) de futuras atualizações removida(s). "
-        "As notas antigas foram mantidas."
+        "Nota publicada uma única vez. "
+        f"{pendentes_removidas} mensagem(ns) de futuras atualizações removida(s)."
     )
 
 
 async def publicar_atualizacao_automatica():
-    # Desativado: evita repetir a mesma nota quando o banco local é recriado
-    # ou quando ocorre novo deploy. As notas agora são controladas pelo painel.
-    return
+    return await publicar_atualizacao_bot(forcar=False)
 
 
 def resposta_recusa_personagem():
@@ -5530,41 +5638,17 @@ def parece_recusa_generica_ia(
 # ==========================================================
 
 def ia_esta_ativa():
-    remoto = _ia_config_remota.get("ativa")
-    if remoto is not None:
-        return bool(remoto)
-
-    valor = obter_estado(
-        CHAVE_IA_ATIVA
-    )
-
-    if valor is None:
-        return True
-
-    return str(valor) == "1"
+    return bool(_ia_config_remota.get("ativa", True))
 
 
 def canal_ia_configurado():
     remoto = _ia_config_remota.get("canal_id")
-    if remoto not in (None, ""):
-        try:
-            return int(remoto)
-        except (TypeError, ValueError):
-            pass
-
-    valor = obter_estado(
-        CHAVE_CANAL_IA
-    )
-
-    if not valor:
+    if remoto in (None, ""):
         return None
 
     try:
-        return int(valor)
-    except (
-        TypeError,
-        ValueError
-    ):
+        return int(remoto)
+    except (TypeError, ValueError):
         return None
 
 
@@ -5941,22 +6025,27 @@ def contexto_social_ia(
                 []
             ):
                 linhas.append(
-                    f"  FATO: {fato}"
+                    f"  CONTEXTO SILENCIOSO (não mencione sem necessidade): {fato}"
                 )
 
             for piada in ficha.get(
                 "piadas",
                 []
             ):
+                texto_atual = str(message.content or "").casefold()
+                if usuario_id == 595754985875308565 and "call" not in texto_atual:
+                    continue
+                if random.random() > 0.20:
+                    continue
                 linhas.append(
-                    f"  PIADA INTERNA: {piada}"
+                    f"  PIADA INTERNA OPCIONAL E RARA: {piada}"
                 )
 
         linhas.append(
             "Nunca trate PIADA INTERNA como fato real. "
-            "Use essas referências ocasionalmente, sem repetir toda hora. "
-            "Memória social é tempero, não assunto: responda principalmente ao que a pessoa acabou de dizer. "
-            "Não puxe país, cidade, cargo, rotina ou piada cadastrada só porque reconheceu o membro. "
+            "Memória social é contexto silencioso, não pauta: responda principalmente ao que a pessoa acabou de dizer. "
+            "NÃO mencione fatos ou piadas cadastradas só porque reconheceu o membro. "
+            "Só use uma referência quando ela realmente combinar com o assunto atual e não tiver sido usada recentemente. "
             "Para Draxz, não mencione Itália espontaneamente; Angola é uma piada rara e não deve aparecer em respostas próximas."
         )
 
@@ -6209,6 +6298,34 @@ def escolher_sem_repetir_ia(usuario_id, opcoes):
     return escolhida
 
 
+def contexto_antirrepeticao_ia(usuario_id):
+    historico = _ia_respostas_textuais_recentes.get(usuario_id)
+    if not historico:
+        return ""
+
+    recentes = list(historico)[-4:]
+    linhas = [
+        "",
+        "ANTI-REPETIÇÃO:",
+        "- Estas foram respostas recentes suas para esta pessoa. Não repita a mesma piada, bordão, estrutura ou ideia:",
+    ]
+    linhas.extend(f"  • {item[:350]}" for item in recentes)
+    linhas.append("- Se o assunto for parecido, responda por outro ângulo e com palavras diferentes.")
+    return "\n".join(linhas)
+
+
+def registrar_resposta_textual_ia(usuario_id, texto):
+    texto = str(texto or "").strip()
+    if not texto:
+        return
+
+    historico = _ia_respostas_textuais_recentes.setdefault(
+        usuario_id,
+        deque(maxlen=IA_RESPOSTAS_TEXTUAIS_MEMORIA)
+    )
+    historico.append(texto)
+
+
 def contar_mencao_repetida_ia(message: discord.Message):
     agora = datetime.now(timezone.utc).timestamp()
     estado = _ia_mencoes_recentes.get(message.author.id, [])
@@ -6327,6 +6444,7 @@ async def enviar_resposta_rapida_ia(message: discord.Message, texto):
         )
     except discord.HTTPException:
         return False
+    registrar_resposta_textual_ia(message.author.id, texto)
     return True
 
 
@@ -6403,6 +6521,10 @@ async def responder_com_ia(
         message
     )
 
+    contexto_antirrepeticao = contexto_antirrepeticao_ia(
+        message.author.id
+    )
+
     pedido_call = mensagem_pede_bot_na_call(
         message.content
     )
@@ -6411,18 +6533,22 @@ async def responder_com_ia(
         canal_call = autor_em_call(message)
         if canal_call is None:
             estado_call = (
-                "\nA pessoa está pedindo para você entrar em call, "
-                "mas ela NÃO está em nenhuma call agora."
+                "\nA pessoa está pedindo/desafiando você a entrar em call, "
+                "mas ela NÃO está em nenhuma call agora. "
+                "NÃO use ENTRAR_CALL; zoe o fato de ela ter chamado sem estar em call."
             )
         else:
             restante_call = restante_cooldown_ia_call(
                 message.author.id
             )
             estado_call = (
-                "\nA pessoa está pedindo para você entrar na call "
+                "\nAÇÃO DE VOZ SOLICITADA NESTA MENSAGEM: "
+                "a pessoa pediu/desafiou você a entrar na call "
                 f"`{canal_call.name}`. "
                 + (
-                    "Você está livre para usar ENTRAR_CALL."
+                    "Se decidir aceitar, responda EXATAMENTE no formato "
+                    "ENTRAR_CALL: texto curto que você quer mandar antes de entrar. "
+                    "Não use esse formato para nenhum outro assunto."
                     if restante_call <= 0
                     else
                     "Você está em cooldown; NÃO use ENTRAR_CALL. "
@@ -6439,6 +6565,7 @@ async def responder_com_ia(
                 f"Mensagem: {pergunta}"
                 f"{contexto_social}"
                 f"{contexto_estilo}"
+                f"{contexto_antirrepeticao}"
                 f"{estado_call}"
             ),
         }
@@ -6490,6 +6617,15 @@ async def responder_com_ia(
             ),
         }
     )
+
+    # Segurança de comportamento: mesmo que o modelo invente ENTRAR_CALL,
+    # a ação de voz só é aceita quando a mensagem atual realmente pediu/desafiou.
+    if resultado["acao"] == "entrar_call" and not pedido_call:
+        resultado = {
+            "acao": "responder",
+            "texto": resultado.get("texto") or "fala direito comigo aí kkk",
+            "emoji": "",
+        }
 
     if resultado["acao"] == "entrar_call":
         memoria.append(
@@ -6595,6 +6731,10 @@ async def responder_com_ia(
             "content": texto,
         }
     )
+    registrar_resposta_textual_ia(
+        message.author.id,
+        texto
+    )
 
     return True
 
@@ -6605,18 +6745,7 @@ async def responder_com_ia(
 # ==========================================================
 
 def ia_caos_esta_ativo():
-    remoto = _ia_config_remota.get("caos_ativo")
-    if remoto is not None:
-        return bool(remoto)
-
-    valor = obter_estado(
-        CHAVE_IA_CAOS_ATIVO
-    )
-
-    if valor is None:
-        return True
-
-    return str(valor) == "1"
+    return bool(_ia_config_remota.get("caos_ativo", True))
 
 
 def ia_caos_dentro_do_horario():
@@ -6641,22 +6770,8 @@ def ia_caos_dentro_do_horario():
 
 
 def ia_caos_proximo_alvo_id():
-    valor = obter_estado(
-        CHAVE_IA_CAOS_PROXIMO_ALVO
-    )
-
-    if not valor:
-        return None
-
-    try:
-        return int(
-            valor
-        )
-    except (
-        TypeError,
-        ValueError
-    ):
-        return None
+    # Alvo manual por /ia foi removido. A configuração da IA é exclusiva do site.
+    return None
 
 
 def ia_caos_intervalo_liberado():
@@ -6954,13 +7069,6 @@ async def executar_caos(
         )
     )
 
-    if alvo_manual:
-        # Consome o alvo manual somente quando a zoeira realmente começou.
-        salvar_estado(
-            CHAVE_IA_CAOS_PROXIMO_ALVO,
-            ""
-        )
-
     try:
         for numero_ping in range(
             1,
@@ -7091,6 +7199,8 @@ async def processar_resposta_caos(
     minutes=10
 )
 async def ia_caos_automatico():
+    await atualizar_config_ia_do_painel()
+
     if not ia_esta_ativa():
         return
 
@@ -7115,10 +7225,17 @@ async def ia_caos_automatico():
 
     # Se existe alvo manual, tenta assim que o intervalo liberar.
     # Sem alvo manual, usa chance aleatória para não virar spam.
+    chance = float(
+        _ia_config_remota.get(
+            "caos_chance",
+            IA_CAOS_CHANCE_POR_CICLO
+        )
+    )
+    chance = max(0.0, min(1.0, chance))
+
     if (
         not alvo_manual
-        and random.random()
-        > IA_CAOS_CHANCE_POR_CICLO
+        and random.random() > chance
     ):
         return
 
@@ -7162,307 +7279,252 @@ async def antes_ia_caos_automatico():
 
 
 # ==========================================================
-# /IA — COMANDOS ORGANIZADOS
+# IA — CONFIGURAÇÃO EXCLUSIVA PELO PAINEL WEB
+# ==========================================================
+# Os antigos comandos /ia foram removidos. O bot lê /api/ia-config.
+
+
+# ==========================================================
+# MODO MANUTENÇÃO — CALL DE DESENVOLVIMENTO
 # ==========================================================
 
-ia_grupo = app_commands.Group(
-    name="ia",
-    description="Configura a IA da Resenha Máxima"
-)
+_manutencao_ativa = False
+_manutencao_contadores = {}
+_manutencao_punidos = set()
+_manutencao_respostas_recentes = {}
+
+MANUTENCAO_RESPOSTAS = {
+    1: [
+        "marca não randola, o cara tá me configurando",
+        "deixa o Vini trabalhar, peste, ele tá mexendo em mim",
+        "ô criatura, para de marcar o programador enquanto ele tá me arrumando",
+        "meu parceiro, o homem tá em manutenção comigo. larga ele um minuto kkk",
+        "tu viu que o cara tá trabalhando e pensou: vou marcar ele. gênio demais",
+    ],
+    2: [
+        "já te avisei, desgraça kkk deixa o cara configurar o bot",
+        "segunda marcação já? tu tá fazendo speedrun pra tomar castigo?",
+        "irmão, ele tá ocupado comigo. vai arrumar outra pessoa pra perturbar",
+        "tu ignorou o primeiro aviso com uma confiança impressionante",
+        "continua marcando pra tu ver uma coisa rapidinho kkk",
+    ],
+    3: [
+        "caralho, tu é persistente mesmo. DEIXA O HOMEM TRABALHAR",
+        "terceira vez, animal kkk tua meta é testar meu timeout?",
+        "eu tô contando, viu? depois não mete essa de que não sabia",
+        "tu realmente acordou e escolheu perturbar o programador em manutenção",
+        "mais uma marcação e tua ficha tá ficando bonita aqui, campeão",
+    ],
+    4: [
+        "quarta vez. tu tá praticamente preenchendo o formulário do próprio castigo",
+        "meu deus do céu, tu não aprende nem com desenho né kkk",
+        "último aviso moral: para de marcar o Vini enquanto ele tá me configurando",
+        "tu tá a UMA marcação de descobrir se eu tenho permissão de timeout",
+        "continua, vai. confia no teu potencial kkkkk",
+    ],
+}
+
+MANUTENCAO_POS_TIMEOUT = [
+    "voltou do castigo e ainda quer atenção? deixa o programador trabalhar kkk",
+    "tu já ganhou teu minuto de reflexão nessa manutenção, não força a continuação",
+    "o timeout não era trailer não, campeão. para de marcar o homem",
+    "já tomou o castigo da sessão e segue insistindo. dedicação assustadora",
+]
+
+MANUTENCAO_ZOEIRAS_GERAL = [
+    "{mencao} conseguiu a façanha de tomar 1 minuto de castigo porque não parava de marcar o Vini em manutenção kkkkk",
+    "parabéns {mencao}: 5 marcações no programador em manutenção e um timeout de brinde. promoção encerrada",
+    "{mencao} testou o sistema anti-randola até o fim e descobriu que o botão de timeout funciona kkk",
+    "o cidadão {mencao} foi avisado QUATRO vezes e escolheu a quinta marcação. ganhou 1 minuto pra pensar nas escolhas",
+]
 
 
-async def verificar_admin_ia(
-    interaction: discord.Interaction
-):
-    return not await negar_se_nao_admin(
-        interaction
+def dono_esta_na_call_manutencao(guild):
+    if guild is None:
+        return False
+
+    dono = guild.get_member(DONO_ID)
+    if dono is None or dono.voice is None:
+        return False
+
+    canal = dono.voice.channel
+    return canal is not None and canal.id == CANAL_CALL_MANUTENCAO_ID
+
+
+def resetar_sessao_manutencao():
+    global _manutencao_ativa
+    _manutencao_ativa = False
+    _manutencao_contadores.clear()
+    _manutencao_punidos.clear()
+    _manutencao_respostas_recentes.clear()
+
+
+def iniciar_sessao_manutencao():
+    global _manutencao_ativa
+    _manutencao_contadores.clear()
+    _manutencao_punidos.clear()
+    _manutencao_respostas_recentes.clear()
+    _manutencao_ativa = True
+
+
+def escolher_resposta_manutencao(usuario_id, opcoes):
+    opcoes = list(dict.fromkeys(opcoes))
+    if not opcoes:
+        return "deixa o programador trabalhar"
+
+    historico = _manutencao_respostas_recentes.setdefault(
+        usuario_id,
+        deque(maxlen=2)
+    )
+    disponiveis = [texto for texto in opcoes if texto not in historico] or opcoes
+    escolhida = random.choice(disponiveis)
+    historico.append(escolhida)
+    return escolhida
+
+
+def mensagem_menciona_dono_diretamente(message):
+    # Exige a menção literal de usuário. Cargo, @everyone, @here, reply e nome escrito não contam.
+    return bool(
+        re.search(
+            rf"<@!?{DONO_ID}>",
+            str(message.content or "")
+        )
     )
 
 
-@ia_grupo.command(
-    name="status",
-    description="Mostra as configurações atuais da IA"
-)
-async def ia_status(
-    interaction: discord.Interaction
-):
-    if not await verificar_admin_ia(
-        interaction
-    ):
-        return
+async def obter_chat_geral_fixo(guild):
+    canal = guild.get_channel(CHAT_GERAL_ID)
+    if canal is None:
+        try:
+            canal = await bot.fetch_channel(CHAT_GERAL_ID)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            canal = None
 
-    canal_id = canal_ia_configurado()
+    if isinstance(canal, discord.TextChannel):
+        return canal
 
-    canal_texto = (
-        f"<#{canal_id}>"
-        if canal_id
-        else "Todos os canais"
-    )
+    return await obter_chat_geral(guild)
 
-    alvo_id = ia_caos_proximo_alvo_id()
 
-    await interaction.response.send_message(
-        (
-            "## 🤖 Status da IA\n"
-            f"**Ativa:** {'Sim' if ia_esta_ativa() else 'Não'}\n"
-            f"**Groq configurada:** "
-            f"{'Sim' if bool(GROQ_API_KEY) else 'Não'}\n"
-            f"**Modelo:** `{GROQ_MODEL}`\n"
-            f"**Canal:** {canal_texto}\n"
-            f"**Memória:** últimas "
-            f"{IA_MEMORIA_MENSAGENS} mensagens\n"
-            f"**Modo causando:** "
-            f"{'Ativo' if ia_caos_esta_ativo() else 'Desativado'}\n"
-            f"**Horário causando:** "
-            f"{IA_CAOS_HORA_INICIO:02d}:00–"
-            f"{IA_CAOS_HORA_FIM:02d}:00\n"
-            f"**Canal do causando:** "
-            f"{canal_texto} (somente se o alvo puder falar)\n"
-            f"**Próximo alvo:** "
-            + (
-                f"<@{alvo_id}>"
-                if alvo_id
-                else "Nenhum"
+async def processar_protecao_manutencao(message: discord.Message):
+    if message.guild is None or message.author.bot:
+        return False
+
+    if message.author.id == DONO_ID:
+        return False
+
+    # Mantém o estado correto mesmo se o bot tiver reconectado durante a sessão.
+    global _manutencao_ativa
+    esta_na_call = dono_esta_na_call_manutencao(message.guild)
+
+    if not esta_na_call:
+        if _manutencao_ativa:
+            resetar_sessao_manutencao()
+        return False
+
+    if not _manutencao_ativa:
+        iniciar_sessao_manutencao()
+
+    if not mensagem_menciona_dono_diretamente(message):
+        return False
+
+    usuario_id = message.author.id
+    quantidade = _manutencao_contadores.get(usuario_id, 0) + 1
+    _manutencao_contadores[usuario_id] = quantidade
+
+    if usuario_id in _manutencao_punidos:
+        await message.reply(
+            escolher_resposta_manutencao(
+                usuario_id,
+                MANUTENCAO_POS_TIMEOUT
+            ),
+            mention_author=False,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        return True
+
+    if quantidade < 5:
+        nivel = max(1, min(4, quantidade))
+        await message.reply(
+            escolher_resposta_manutencao(
+                usuario_id,
+                MANUTENCAO_RESPOSTAS[nivel]
+            ),
+            mention_author=False,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        return True
+
+    _manutencao_punidos.add(usuario_id)
+
+    timeout_ok = False
+    if isinstance(message.author, discord.Member):
+        try:
+            await message.author.timeout(
+                timedelta(minutes=1),
+                reason=(
+                    "5 menções diretas ao programador durante "
+                    "sessão de manutenção do bot"
+                )
             )
-        ),
-        ephemeral=True
+            timeout_ok = True
+        except (discord.Forbidden, discord.HTTPException) as erro:
+            print(
+                "Não foi possível aplicar timeout da manutenção | "
+                f"usuario={usuario_id} | erro={erro}"
+            )
+
+    if timeout_ok:
+        resposta = "cinco. CINCO marcações. ganhou 1 minutinho pra refletir sobre a própria insistência kkkkk"
+    else:
+        resposta = "cinco marcações. eu tentei te dar 1 minuto de castigo, mas o Discord protegeu tua carreira dessa vez kkk"
+
+    await message.reply(
+        resposta,
+        mention_author=False,
+        allowed_mentions=discord.AllowedMentions.none(),
     )
 
+    canal_geral = await obter_chat_geral_fixo(message.guild)
+    if canal_geral is not None:
+        try:
+            zoeira = random.choice(MANUTENCAO_ZOEIRAS_GERAL).format(
+                mencao=message.author.mention
+            )
+            await canal_geral.send(
+                zoeira,
+                allowed_mentions=discord.AllowedMentions(
+                    users=True,
+                    roles=False,
+                    everyone=False,
+                )
+            )
+        except discord.HTTPException as erro:
+            print(f"Erro ao enviar zoeira da manutenção no chat geral: {erro}")
 
-@ia_grupo.command(
-    name="ativar",
-    description="Ativa as respostas da IA"
-)
-async def ia_ativar(
-    interaction: discord.Interaction
-):
-    if not await verificar_admin_ia(
-        interaction
-    ):
+    return True
+
+
+@bot.event
+async def on_voice_state_update(member, before, after):
+    if member.id != DONO_ID:
         return
 
-    if not GROQ_API_KEY:
-        await interaction.response.send_message(
-            "❌ `GROQ_API_KEY` não foi encontrada "
-            "nas variáveis do bot.",
-            ephemeral=True
-        )
-        return
-
-    salvar_estado(
-        CHAVE_IA_ATIVA,
-        "1"
+    antes_manutencao = (
+        before.channel is not None
+        and before.channel.id == CANAL_CALL_MANUTENCAO_ID
+    )
+    depois_manutencao = (
+        after.channel is not None
+        and after.channel.id == CANAL_CALL_MANUTENCAO_ID
     )
 
-    await interaction.response.send_message(
-        "🤖 IA da Resenha Máxima ativada.",
-        ephemeral=True
-    )
-
-
-@ia_grupo.command(
-    name="desativar",
-    description="Desativa as respostas da IA"
-)
-async def ia_desativar(
-    interaction: discord.Interaction
-):
-    if not await verificar_admin_ia(
-        interaction
-    ):
-        return
-
-    salvar_estado(
-        CHAVE_IA_ATIVA,
-        "0"
-    )
-
-    await interaction.response.send_message(
-        "😴 IA da Resenha Máxima desativada.",
-        ephemeral=True
-    )
-
-
-@ia_grupo.command(
-    name="canal",
-    description="Define um canal exclusivo para conversar com a IA"
-)
-@app_commands.describe(
-    canal="Canal em que a IA poderá responder"
-)
-async def ia_canal(
-    interaction: discord.Interaction,
-    canal: discord.TextChannel
-):
-    if not await verificar_admin_ia(
-        interaction
-    ):
-        return
-
-    salvar_estado(
-        CHAVE_CANAL_IA,
-        str(canal.id)
-    )
-
-    await interaction.response.send_message(
-        f"✅ A IA agora responde somente em "
-        f"{canal.mention}.",
-        ephemeral=True
-    )
-
-
-@ia_grupo.command(
-    name="todososcanais",
-    description="Libera a IA para responder em qualquer canal"
-)
-async def ia_todos_os_canais(
-    interaction: discord.Interaction
-):
-    if not await verificar_admin_ia(
-        interaction
-    ):
-        return
-
-    salvar_estado(
-        CHAVE_CANAL_IA,
-        ""
-    )
-
-    await interaction.response.send_message(
-        "🌐 A IA pode responder em qualquer canal "
-        "quando for mencionada ou receber reply.",
-        ephemeral=True
-    )
-
-
-@ia_grupo.command(
-    name="limparmemoria",
-    description="Apaga a memória curta das conversas da IA"
-)
-async def ia_limpar_memoria(
-    interaction: discord.Interaction
-):
-    if not await verificar_admin_ia(
-        interaction
-    ):
-        return
-
-    _memoria_ia.clear()
-
-    await interaction.response.send_message(
-        "🧠 Memória curta da IA apagada.",
-        ephemeral=True
-    )
-
-
-@ia_grupo.command(
-    name="causando",
-    description="Ativa ou desativa o modo IA causando"
-)
-@app_commands.describe(
-    ativar="True para ativar, False para desativar"
-)
-async def ia_causando(
-    interaction: discord.Interaction,
-    ativar: bool
-):
-    if not await verificar_admin_ia(
-        interaction
-    ):
-        return
-
-    salvar_estado(
-        CHAVE_IA_CAOS_ATIVO,
-        "1" if ativar else "0"
-    )
-
-    if not ativar:
-        task = _ia_caos_estado.get(
-            "task"
-        )
-
-        if (
-            task is not None
-            and not task.done()
-        ):
-            task.cancel()
-
-        limpar_estado_caos()
-
-    await interaction.response.send_message(
-        (
-            "😈 Modo **IA causando** ativado. "
-            f"Horário: {IA_CAOS_HORA_INICIO:02d}:00–"
-            f"{IA_CAOS_HORA_FIM:02d}:00."
-            if ativar
-            else "😴 Modo **IA causando** desativado."
-        ),
-        ephemeral=True
-    )
-
-
-@ia_grupo.command(
-    name="proximoalvo",
-    description="Escolhe manualmente o próximo alvo do modo causando"
-)
-@app_commands.describe(
-    membro="Membro que será o próximo alvo"
-)
-async def ia_proximo_alvo(
-    interaction: discord.Interaction,
-    membro: discord.Member
-):
-    if not await verificar_admin_ia(
-        interaction
-    ):
-        return
-
-    if membro.bot:
-        await interaction.response.send_message(
-            "❌ Escolha uma pessoa, não outro bot 😂",
-            ephemeral=True
-        )
-        return
-
-    salvar_estado(
-        CHAVE_IA_CAOS_PROXIMO_ALVO,
-        str(membro.id)
-    )
-
-    await interaction.response.send_message(
-        f"🎯 Próximo alvo: {membro.mention}. "
-        "Quando estiver online e o modo puder agir... já era 💀",
-        ephemeral=True
-    )
-
-
-@ia_grupo.command(
-    name="limparalvo",
-    description="Remove o próximo alvo manual do modo causando"
-)
-async def ia_limpar_alvo(
-    interaction: discord.Interaction
-):
-    if not await verificar_admin_ia(
-        interaction
-    ):
-        return
-
-    salvar_estado(
-        CHAVE_IA_CAOS_PROXIMO_ALVO,
-        ""
-    )
-
-    await interaction.response.send_message(
-        "🧹 Alvo manual removido. "
-        "O próximo volta a ser sorteado.",
-        ephemeral=True
-    )
-
-
-bot.tree.add_command(
-    ia_grupo
-)
+    if not antes_manutencao and depois_manutencao:
+        iniciar_sessao_manutencao()
+        print("Modo manutenção: ATIVO — nova sessão iniciada.")
+    elif antes_manutencao and not depois_manutencao:
+        resetar_sessao_manutencao()
+        print("Modo manutenção: ENCERRADO — contadores zerados.")
 
 
 @bot.event
@@ -7530,6 +7592,14 @@ async def on_message(
                         "solicitar um novo cadastro."
                     )
                     return
+
+    tratado_manutencao = await processar_protecao_manutencao(
+        message
+    )
+
+    if tratado_manutencao:
+        await bot.process_commands(message)
+        return
 
     await processar_aviso_limpeza_por_mensagem(
         message
@@ -7775,21 +7845,55 @@ FUNCOES_ATUAIS_CATEGORIAS = {
         "🟢 Status Online / Offline do Aternos",
         "📝 Cadastro e tabela única de nicknames",
         "⚠️ Nick pendente — até 4 avisos em 48h",
-        "👤 Cadastro manual pela equipe",
-        "🔄 Solicitação de novo nickname",
-        "📩 Aviso no chat quando a DM estiver fechada",
+        "👤 Cadastro manual e solicitação de novo nickname",
+        "📩 Aviso quando a DM estiver fechada",
         "⏳ Remoção do nick após 48h fora do servidor",
     ],
+    "🤖 IA": [
+        "💬 IA da Resenha por menção/reply no canal configurado",
+        "🧠 Memória curta e memória social usada somente como contexto",
+        "🎭 Respostas com variação e proteção contra repetição próxima",
+        "😈 Modo IA causando com horário, intervalo e chance pelo painel",
+        "🌐 Configuração da IA feita exclusivamente pelo painel web",
+    ],
+    "🔊 Voz e zoeira": [
+        "🎙️ /zoarcall com seleção/autocomplete dos áudios da pasta audios_call",
+        "🎲 Reprodução de áudios aleatórios em call",
+        "🔉 A IA pode entrar na call quando o usuário realmente pedir/desafiar",
+        "⏱️ Cooldown de entrada automática em call por usuário",
+        "✅ O bot espera os áudios terminarem antes de sair da call",
+    ],
+    "🌙 Eventos": [
+        "👑 Evento Rei da Madrugada",
+        "⏰ Rodadas automáticas durante a madrugada",
+        "🏆 Registro de respostas e ranking do evento",
+    ],
+    "🚪 Entradas": [
+        "🔗 Controle de entrada por convites do Discord",
+        "📈 Ranking de quem trouxe mais membros",
+        "🧾 Histórico de entradas e origem do convite",
+    ],
+    "🌐 Painel web": [
+        "📋 Menus configurados por canal",
+        "🤖 Configuração remota da IA",
+        "📢 Central de atualizações",
+        "🔐 Permissões administrativas e do Departamento de Eventos",
+    ],
     "🛡️ Moderação": [
-        "🔨 Sistema de Ban e Hackban",
+        "🔨 Sistema de Ban e Hackban com aprovação",
+        "⏳ Castigo/timeout enquanto pedido de ban está pendente",
         "📊 Criação e gerenciamento de enquetes",
+        "🛡️ Autodefesa da IA contra insistência abusiva",
     ],
     "⚙️ Administração": [
-        "🧹 Limpeza automática do canal de comandos à meia-noite",
-        "🧽 Limpeza manual do canal de comandos",
+        "🧹 Limpeza automática e manual do canal de comandos",
         "🔐 Comandos administrativos com controle de permissão",
+        "🛠️ Modo manutenção pela call de desenvolvimento",
+        "🚫 Proteção contra menções diretas ao programador durante manutenção",
+        "📝 Nota de atualização automática por ID com proteção persistente em /data",
     ],
 }
+
 
 
 FUNCOES_REMOVIDAS = [
@@ -8218,13 +8322,13 @@ async def atualizacao_definir_canal(interaction: discord.Interaction, canal: dis
 
 @atualizacao_grupo.command(
     name="publicar",
-    description="Publica novamente o changelog da versão atual"
+    description="Publica a nota atual se o ID ainda não tiver sido publicado"
 )
 async def atualizacao_publicar(interaction: discord.Interaction):
     if await negar_se_nao_admin(interaction):
         return
     await interaction.response.defer(ephemeral=True)
-    publicado, mensagem = await publicar_atualizacao_bot(forcar=True)
+    publicado, mensagem = await publicar_atualizacao_bot(forcar=False)
     await interaction.followup.send(("✅ " if publicado else "❌ ") + mensagem, ephemeral=True)
 
 
@@ -8236,12 +8340,18 @@ async def atualizacao_status(interaction: discord.Interaction):
     if await negar_se_nao_admin(interaction):
         return
     canal_id = obter_canal_atualizacoes_id()
-    ultima = obter_estado(CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA)
+    nota = carregar_nota_atualizacao()
+    estado = carregar_estado_notas()
+    nota_id = nota.get("id") if nota else "Nenhuma nota encontrada"
+    versao = (nota.get("versao") or nota_id) if nota else "-"
+    ultima = estado.get("ultimo_id_publicado") or "Nenhuma"
     await interaction.response.send_message(
         "## 📢 Atualizações do Bot\n"
         f"**Canal:** {f'<#{canal_id}>' if canal_id else 'Não configurado'}\n"
-        f"**Versão atual:** `{ATUALIZACAO_BOT_ID}`\n"
-        f"**Última versão publicada:** `{ultima or 'Nenhuma'}`",
+        f"**Nota atual:** `{nota_id}`\n"
+        f"**Versão:** `{versao}`\n"
+        f"**Último ID publicado:** `{ultima}`\n"
+        f"**Estado persistente:** `{ARQUIVO_ESTADO_NOTAS}`",
         ephemeral=True
     )
 
@@ -9163,13 +9273,16 @@ def mensagem_pede_bot_na_call(texto):
     texto = str(texto or "").casefold()
 
     padroes = (
-        r"\bentra (?:na|no|aqui na) call\b",
-        r"\bvem (?:pra|para) call\b",
-        r"\bcola (?:na|aqui na) call\b",
-        r"\bentra ai na call\b",
-        r"\bentra aí na call\b",
+        r"\bentra (?:na|no|aqui na|minha) call\b",
+        r"\bvem (?:pra|para|na|minha) call\b",
+        r"\bcola (?:na|aqui na|minha) call\b",
+        r"\bentra a[ií] na call\b",
         r"\bvai entrar na call\b",
         r"\bentra call\b",
+        r"\bduvido (?:vc|você|tu|o bot)?\s*(?:de )?entrar (?:na|minha) call\b",
+        r"\bduvido (?:vc|você|tu|o bot)?\s*(?:vir|vim) (?:pra|para|na|minha) call\b",
+        r"\bquero (?:que )?(?:vc|você|tu|o bot)?\s*entre (?:na|minha) call\b",
+        r"\btem coragem de entrar (?:na|minha) call\b",
     )
 
     return any(
@@ -9605,22 +9718,6 @@ async def antes_zoeira_call_automatica():
 # ONLINE
 # ==========================================================
 
-async def avisar_retorno_manutencao_manual():
-    if str(obter_estado("manutencao_manual_pendente_retorno") or "")!="1": return
-    canal=None; canal_id=obter_estado("canal_chat_geral_id")
-    if canal_id:
-        try: canal=bot.get_channel(int(canal_id)) or await bot.fetch_channel(int(canal_id))
-        except Exception: canal=None
-    if canal is None:
-        for guild in bot.guilds:
-            for candidato in guild.text_channels:
-                if candidato.permissions_for(guild.me).send_messages: canal=candidato; break
-            if canal: break
-    if canal:
-        try:
-            await canal.send("EU TO DE VOLTA PORRAA"); salvar_estado("manutencao_manual_pendente_retorno","0")
-        except discord.HTTPException: pass
-
 @bot.event
 async def on_ready():
     if not gerenciar_rei_madrugada.is_running():
@@ -9628,9 +9725,16 @@ async def on_ready():
 
     if not zoeira_call_automatica.is_running():
         zoeira_call_automatica.start()
-    if not getattr(bot,"_retorno_manual_verificado",False):
-        bot._retorno_manual_verificado=True
-        await avisar_retorno_manutencao_manual()
+
+    # Se o bot reiniciar enquanto o programador já estiver na call de manutenção,
+    # inicia uma nova sessão em memória sem emitir aviso público de retorno.
+    if not getattr(bot, "_manutencao_inicial_verificada", False):
+        bot._manutencao_inicial_verificada = True
+        for guild in bot.guilds:
+            if dono_esta_na_call_manutencao(guild):
+                iniciar_sessao_manutencao()
+                break
+
     if not getattr(
         bot,
         "_cache_convites_inicializado",
@@ -9649,8 +9753,14 @@ async def on_ready():
                     f"{guild.name}: {erro}"
                 )
 
-    # Patch notes não são mais publicadas automaticamente a cada deploy.
-    # O canal é atualizado apenas pelo fluxo consolidado/manual do painel.
+    # Publica a nota do pacote uma única vez por ID. O controle fica em /data,
+    # então reconexões podem tentar novamente sem risco de duplicar uma nota já registrada.
+    publicado, detalhe = await publicar_atualizacao_automatica()
+    print(f"Nota de atualização | {detalhe}")
+
+    # Busca a configuração remota da IA já na inicialização.
+    await atualizar_config_ia_do_painel(force=True)
+
     if not ia_caos_automatico.is_running():
         ia_caos_automatico.start()
 

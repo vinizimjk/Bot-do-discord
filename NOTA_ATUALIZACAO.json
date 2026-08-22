@@ -1,0 +1,23 @@
+{
+  "id": "rm-20260822-085247-manutencao-ia-notas-01",
+  "versao": "2026.08.22.1",
+  "data": "22/08/2026",
+  "titulo": "Atualização da Resenha Máxima",
+  "novidades": [
+    "Modo de manutenção automático pela call de desenvolvimento, com proteção contra menções diretas ao programador.",
+    "Contador individual por usuário durante cada sessão de manutenção; na 5ª menção o bot tenta aplicar timeout de 1 minuto e publica uma zoeira no chat geral.",
+    "Novo sistema NOTA_ATUALIZACAO.json: cada manutenção possui um ID único e a publicação é controlada persistentemente em /data para impedir duplicações."
+  ],
+  "correcoes": [
+    "Removido o aviso automático de retorno da manutenção que ainda estava presente no código antigo.",
+    "Memória social da IA foi reforçada como contexto, não pauta; piadas internas ficaram mais raras e a piada de call do PK só pode aparecer quando o assunto atual já for call.",
+    "A IA ganhou memória de respostas recentes para reduzir repetição de bordões, estruturas e piadas próximas."
+  ],
+  "alteracoes": [
+    "Comandos /ia do Discord foram removidos; a configuração da IA passa a ser exclusivamente pelo painel web.",
+    "O modo IA causando agora atualiza a configuração remota do painel e usa a chance configurada no site.",
+    "A entrada automática da IA em call só é autorizada quando a mensagem atual realmente pede ou desafia o bot a entrar.",
+    "Ficha Funções do Bot atualizada com Minecraft, IA, voz e zoeira, eventos, entradas, painel web, moderação e administração."
+  ],
+  "problemas_conhecidos": []
+}
