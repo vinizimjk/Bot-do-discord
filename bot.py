@@ -5484,13 +5484,9 @@ async def publicar_atualizacao_bot(*, forcar=False):
 
 
 async def publicar_atualizacao_automatica():
-    if obter_canal_atualizacoes_id() is None:
-        return
-    publicado, mensagem = await publicar_atualizacao_bot(forcar=False)
-    if publicado:
-        print(f"Atualização do bot publicada | versão={ATUALIZACAO_BOT_ID}")
-    elif mensagem != "Esta atualização já foi publicada.":
-        print(f"Atualização do bot não publicada | {mensagem}")
+    # Desativado: evita repetir a mesma nota quando o banco local é recriado
+    # ou quando ocorre novo deploy. As notas agora são controladas pelo painel.
+    return
 
 
 def resposta_recusa_personagem():
@@ -5534,11 +5530,14 @@ def parece_recusa_generica_ia(
 # ==========================================================
 
 def ia_esta_ativa():
+    remoto = _ia_config_remota.get("ativa")
+    if remoto is not None:
+        return bool(remoto)
+
     valor = obter_estado(
         CHAVE_IA_ATIVA
     )
 
-    # Se nunca foi configurada, fica ativa por padrão.
     if valor is None:
         return True
 
@@ -5546,6 +5545,13 @@ def ia_esta_ativa():
 
 
 def canal_ia_configurado():
+    remoto = _ia_config_remota.get("canal_id")
+    if remoto not in (None, ""):
+        try:
+            return int(remoto)
+        except (TypeError, ValueError):
+            pass
+
     valor = obter_estado(
         CHAVE_CANAL_IA
     )
@@ -6599,11 +6605,14 @@ async def responder_com_ia(
 # ==========================================================
 
 def ia_caos_esta_ativo():
+    remoto = _ia_config_remota.get("caos_ativo")
+    if remoto is not None:
+        return bool(remoto)
+
     valor = obter_estado(
         CHAVE_IA_CAOS_ATIVO
     )
 
-    # Ativo por padrão.
     if valor is None:
         return True
 
@@ -6615,11 +6624,20 @@ def ia_caos_dentro_do_horario():
         FUSO_SERVIDOR
     )
 
-    return (
-        IA_CAOS_HORA_INICIO
-        <= agora.hour
-        < IA_CAOS_HORA_FIM
+    inicio = int(
+        _ia_config_remota.get(
+            "caos_hora_inicio",
+            IA_CAOS_HORA_INICIO
+        )
     )
+    fim = int(
+        _ia_config_remota.get(
+            "caos_hora_fim",
+            IA_CAOS_HORA_FIM
+        )
+    )
+
+    return inicio <= agora.hour < fim
 
 
 def ia_caos_proximo_alvo_id():
@@ -6663,10 +6681,14 @@ def ia_caos_intervalo_liberado():
         timezone.utc
     ).timestamp()
 
-    minimo = (
-        IA_CAOS_MIN_INTERVALO_MINUTOS
-        * 60
+    intervalo_minutos = int(
+        _ia_config_remota.get(
+            "caos_intervalo_minutos",
+            IA_CAOS_MIN_INTERVALO_MINUTOS
+        )
     )
+
+    minimo = intervalo_minutos * 60
 
     return (
         agora - ultima
@@ -9124,8 +9146,14 @@ def restante_cooldown_ia_call(guild_id):
         return 0
 
     agora = datetime.now(timezone.utc).timestamp()
+    cooldown_minutos = int(
+        _ia_config_remota.get(
+            "call_cooldown_minutos",
+            IA_CALL_COOLDOWN_MINUTOS
+        )
+    )
     restante = (
-        IA_CALL_COOLDOWN_MINUTOS * 60
+        cooldown_minutos * 60
         - (agora - ultimo)
     )
     return max(0, int(restante))
@@ -9621,13 +9649,8 @@ async def on_ready():
                     f"{guild.name}: {erro}"
                 )
 
-    if not getattr(bot, "_atualizacao_bot_verificada", False):
-        bot._atualizacao_bot_verificada = True
-        try:
-            await publicar_atualizacao_automatica()
-        except Exception as erro:
-            print(f"Erro ao verificar publicação automática da atualização: {erro}")
-
+    # Patch notes não são mais publicadas automaticamente a cada deploy.
+    # O canal é atualizado apenas pelo fluxo consolidado/manual do painel.
     if not ia_caos_automatico.is_running():
         ia_caos_automatico.start()
 
