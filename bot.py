@@ -28,6 +28,7 @@ DONO_ID = 1455937306400653344
 CANAL_APROVACAO_ID = 1536073451633254420
 CANAL_CALL_MANUTENCAO_ID = 1540578640020897862
 CHAT_GERAL_ID = 1532792216047849673
+HOTFIX_IA_CAOS_CANAL = "2026-08-22-01"
 PAINEL_MENU_URL = "https://resenha-maxima.up.railway.app"
 
 CARGO_MINECRAFT_ID = 1534006899371147304
@@ -6833,105 +6834,69 @@ async def escolher_canal_caos(
     alvo: discord.Member | None = None
 ):
     """
-    Escolhe um canal em que o alvo consiga realmente responder.
+    Escolhe SOMENTE o canal oficial da IA para o modo causando.
 
-    Evita canais de entrada, regras, anúncios ou qualquer canal
-    em que o membro não tenha permissão de enviar mensagens.
+    Regra:
+    - se o painel tiver um canal da IA configurado, o causando fica preso nele;
+    - sem canal configurado, usa apenas o CHAT_GERAL_ID;
+    - se o alvo ou o bot não puderem usar esse canal, cancela a ação;
+    - nunca procura outro canal aleatório como fallback.
+
+    Isso evita o bug em que o bot marcava alguém em um canal alternativo,
+    mas depois a IA não podia responder ali por causa da própria restrição
+    de canal configurada no painel.
     """
 
-    def canal_valido(
-        canal
-    ):
-        if not isinstance(
-            canal,
-            discord.TextChannel
-        ):
+    def canal_valido(canal):
+        if not isinstance(canal, discord.TextChannel):
             return False
 
-        if alvo is None:
-            return True
+        if alvo is not None:
+            permissoes_alvo = canal.permissions_for(alvo)
+            if not (
+                permissoes_alvo.view_channel
+                and permissoes_alvo.read_message_history
+                and permissoes_alvo.send_messages
+            ):
+                return False
 
-        permissoes = canal.permissions_for(
-            alvo
-        )
+        membro_bot = guild.me
+        if membro_bot is not None:
+            permissoes_bot = canal.permissions_for(membro_bot)
+            if not (
+                permissoes_bot.view_channel
+                and permissoes_bot.read_message_history
+                and permissoes_bot.send_messages
+            ):
+                return False
 
-        return (
-            permissoes.view_channel
-            and permissoes.read_message_history
-            and permissoes.send_messages
-        )
+        return True
 
-    # 1) Canal configurado manualmente para a IA.
     canal_id = canal_ia_configurado()
 
-    if canal_id:
-        canal = guild.get_channel(
-            canal_id
-        )
-
-        if canal_valido(
-            canal
-        ):
+    # Canal definido no painel tem prioridade absoluta.
+    if canal_id is not None:
+        canal = guild.get_channel(canal_id)
+        if canal_valido(canal):
             return canal
 
-    # 2) Procura explicitamente canais com nome de chat geral/resenha.
-    nomes_preferidos = (
-        "chat-da-resenha",
-        "chat da resenha",
-        "geral",
-        "chat-geral",
-        "chat geral",
-    )
+        print(
+            "IA causando cancelada: canal configurado indisponível "
+            f"ou sem permissão | guild={guild.id} | canal={canal_id} "
+            f"| alvo={getattr(alvo, 'id', None)}"
+        )
+        return None
 
-    for nome in nomes_preferidos:
-        for canal in guild.text_channels:
-            nome_canal = (
-                canal.name
-                .casefold()
-                .replace("_", "-")
-            )
-
-            if (
-                nome in nome_canal
-                and canal_valido(
-                    canal
-                )
-            ):
-                return canal
-
-    # 3) Usa o detector antigo somente se o alvo puder responder.
-    canal = await obter_chat_geral(
-        guild
-    )
-
-    if canal_valido(
-        canal
-    ):
+    # Sem canal específico no painel, o único fallback permitido é o chat geral.
+    canal = guild.get_channel(CHAT_GERAL_ID)
+    if canal_valido(canal):
         return canal
 
-    # 4) Último recurso: primeiro canal normal onde o alvo pode falar.
-    for canal in guild.text_channels:
-        nome = canal.name.casefold()
-
-        if any(
-            termo in nome
-            for termo in (
-                "regra",
-                "entrada",
-                "anuncio",
-                "anúncio",
-                "log",
-                "ticket",
-                "status",
-            )
-        ):
-            continue
-
-        if canal_valido(
-            canal
-        ):
-            return canal
-
+    print(
+        "IA causando cancelada: chat geral indisponível ou sem permissão "
+        f"| guild={guild.id} | canal={CHAT_GERAL_ID} "
+        f"| alvo={getattr(alvo, 'id', None)}"
+    )
     return None
 
 
