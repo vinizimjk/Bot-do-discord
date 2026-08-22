@@ -9107,7 +9107,7 @@ async def tocar_audio_na_call(
 # ==========================================================
 
 IA_CALL_COOLDOWN_MINUTOS = int(
-    os.getenv("IA_CALL_COOLDOWN_MINUTOS", "45")
+    os.getenv("IA_CALL_COOLDOWN_MINUTOS", "15")
 )
 IA_CALL_QUANTIDADE_AUDIOS = int(
     os.getenv("IA_CALL_QUANTIDADE_AUDIOS", "3")

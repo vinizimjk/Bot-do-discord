@@ -1,0 +1,16 @@
+📝 PENDÊNCIAS PARA A PRÓXIMA NOTA
+
+🆕 NOVIDADES
+• 🤖 Configuração da IA voltou ao painel
+• 📢 Central de Atualizações voltou ao painel
+
+🔧 CORRIGIDO
+• 🔁 Bot não publica mais a mesma nota automaticamente após deploy/reinício
+• 🎟️ Mantida a prioridade correta do Departamento de Eventos
+• 💾 Configurações do painel continuam persistentes em /data
+
+♻️ ALTERAÇÕES
+• 🤖 Bot passa a usar de verdade as opções de IA publicadas pelo painel
+• 📢 Patch notes ficam sob controle do painel, em vez de serem disparadas pelo on_ready
+
+• ⏳ Cooldown padrão da entrada automática da IA em call reduzido de 45 para 15 minutos.
