@@ -1,27 +1,17 @@
 {
-  "id": "2026-08-22-11",
-  "versao": "2026.08.22-ia-stickers-silencio",
-  "data": "2026-08-22",
-  "titulo": "Atualização — IA com memória visual de figurinhas",
-  "novidades": [
-    "A IA agora carrega o arquivo stickers_contexto.json e usa as descrições cadastradas como memória visual das figurinhas do servidor.",
-    "Quando uma figurinha catalogada é enviada em uma conversa com a IA, o bot interpreta descrição, emoção, tom e texto visível da imagem como contexto.",
-    "A IA pode responder somente com uma figurinha ou com texto curto + figurinha, usando exclusivamente IDs liberados no catálogo.",
-    "O catálogo inicial contém 26 figurinhas cadastradas a partir das imagens e IDs fornecidos pelo dono."
-  ],
+  "id": "2026-08-23-01",
+  "versao": "2026.08.23-hotfix-permissao-ban",
+  "data": "2026-08-23",
+  "titulo": "Hotfix — permissão do Departamento de Banimentos",
+  "novidades": [],
   "correcoes": [
-    "Figurinhas conhecidas deixam de cair na resposta genérica de figurinha e passam pelo contexto visual da IA.",
-    "Adicionado controle antirrepetição e cooldown de stickers para evitar spam.",
-    "Stickers marcados como auto_uso=false nunca podem ser escolhidos automaticamente.",
-    "Enquanto o dono estiver na call de desenvolvimento, áudios automáticos e pedidos de outros usuários ficam bloqueados; somente pedido explícito do próprio dono libera áudio."
+    "Corrigida a autorização do sistema de Ban para reconhecer o cargo Departamento de Banimentos (ID 1536734408277491863).",
+    "Membros do Departamento de Banimentos agora podem usar /ban painel, /ban solicitar e os botões de Solicitar Ban/Hackban.",
+    "A Equipe de Desenvolvimento e o dono continuam autorizados a criar solicitações normalmente."
   ],
   "alteracoes": [
-    "A ficha Funções do Bot agora informa a memória visual e respostas por figurinha.",
-    "A proteção de silêncio da manutenção também é aplicada dentro das funções de reprodução de áudio.",
-    "Se o dono entrar na call de desenvolvimento durante áudio não autorizado, o bot interrompe a reprodução."
+    "O rodapé do painel de Ban agora informa corretamente que o Departamento de Banimentos também possui acesso.",
+    "A aprovação e a negação das solicitações continuam restritas ao dono, sem alteração na segurança da decisão final."
   ],
-  "problemas_conhecidos": [
-    "O bot não analisa pixels das figurinhas em tempo real; reconhece o significado pelo catálogo textual stickers_contexto.json.",
-    "Se uma figurinha for removida do servidor ou trocar de ID, o catálogo precisa ser atualizado."
-  ]
+  "problemas_conhecidos": []
 }

@@ -40,6 +40,7 @@ CARGO_MINECRAFT_ID = 1534006899371147304
 CANAL_STATUS_MINECRAFT_ID = 1538109074779144253
 CANAL_NICKNAMES_MINECRAFT_ID = 1534423515183448155
 CARGO_DESENVOLVIMENTO_ID = 1533625836874498181
+CARGO_BANIMENTOS_ID = 1536734408277491863
 MINECRAFT_HOST = "Rmax-j8Un.aternos.me"
 MINECRAFT_PORTA = 16184
 MINECRAFT_EDICAO = "bedrock"  # servidor atual é Bedrock
@@ -2398,7 +2399,34 @@ def pode_usar_comando_admin(membro):
 
 
 def pode_usar_sistema_ban(membro):
-    return pode_usar_comando_admin(membro)
+    if not isinstance(membro, discord.Member):
+        return False
+
+    if membro.id == DONO_ID:
+        return True
+
+    cargos_autorizados = {
+        CARGO_DESENVOLVIMENTO_ID,
+        CARGO_BANIMENTOS_ID,
+    }
+
+    return any(
+        cargo.id in cargos_autorizados
+        for cargo in membro.roles
+    )
+
+
+async def negar_se_nao_sistema_ban(interaction):
+    if pode_usar_sistema_ban(interaction.user):
+        return False
+
+    await interaction.response.send_message(
+        "❌ Você não possui autorização para usar o sistema de Ban.\n"
+        "Acesso permitido ao **Departamento de Banimentos**, "
+        "à **Equipe de Desenvolvimento** e ao dono.",
+        ephemeral=True
+    )
+    return True
 
 
 async def negar_se_nao_admin(interaction):
@@ -10813,7 +10841,7 @@ async def criarenquete(
 async def painelban(
     interaction: discord.Interaction
 ):
-    if await negar_se_nao_admin(interaction):
+    if await negar_se_nao_sistema_ban(interaction):
         return
 
     embed = discord.Embed(
@@ -10841,8 +10869,8 @@ async def painelban(
 
     embed.set_footer(
         text=(
-            "Somente a Equipe de Desenvolvimento e o dono autorizado "
-            "podem utilizar este painel."
+            "Departamento de Banimentos, Equipe de Desenvolvimento "
+            "e dono podem utilizar este painel."
         )
     )
 
