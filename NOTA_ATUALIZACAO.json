@@ -1,20 +1,25 @@
 {
-  "id": "2026-08-23-08",
-  "versao": "2026.08.23-hotfix-recrutamento-limpeza",
+  "id": "2026-08-23-10",
+  "versao": "2026.08.23-pacote-geral-recrutamento-manutencao-nicks",
   "data": "2026-08-23",
-  "titulo": "Hotfix do recrutamento — testes e limpeza automática",
+  "titulo": "Atualização geral da Resenha Máxima",
   "novidades": [
-    "🧪 Novo comando /resetarprovaeventos, exclusivo do dono, para zerar uma conta usada em testes e repetir todo o fluxo de admissão.",
-    "🧹 Após aprovação ou reprovação, o canal privado da prova e a call de entrevista são apagados automaticamente depois de 3 minutos."
+    "O recrutamento do Departamento de Eventos agora possui fluxo completo com código individual, prova vinculada, canal privado de avaliação, entrevista em call e decisão pela equipe responsável.",
+    "Foi adicionado o comando /resetarprovaeventos para permitir que a administração reinicie candidaturas usadas em testes sem interferir nos candidatos reais.",
+    "Enquanto o programador estiver na call de desenvolvimento, o bot mantém o áudio do servidor visualmente ativo e acompanha no próprio status a música do Spotify que estiver visível na atividade do Discord.",
+    "O sistema de nickname do Minecraft passa a dar até 8 avisos distribuídos durante 3 dias antes da aplicação da medida prevista para quem não concluir o cadastro."
   ],
   "correcoes": [
-    "📝 Uma candidatura que já avançou para avaliação/call não reutiliza mais um código antigo que levaria a uma página bloqueada.",
-    "📋 Ao tentar iniciar outra prova com candidatura em andamento, o bot agora informa a etapa atual em vez de entregar um link inválido.",
-    "🧹 O reset de teste também remove o cooldown e tenta apagar os canais temporários daquela candidatura."
+    "Corrigida a rota do site utilizada pelo reset de candidaturas de teste, eliminando o erro HTTP 404.",
+    "Campos automáticos do Google Forms, como endereço de e-mail, pontuação e data/hora, deixam de aparecer no relatório da prova enviado ao Discord.",
+    "Corrigida a limpeza das Futuras Atualizações quando uma nota real é publicada; a busca agora cobre uma janela maior e remove também blocos divididos em várias mensagens e a figurinha associada.",
+    "A publicação das Futuras Atualizações agora recebe um título fixo, permitindo que o bot identifique a prévia com mais segurança na hora de removê-la."
   ],
   "alteracoes": [
-    "🔒 O reset é restrito ao dono do bot e usa a mesma autenticação segura entre bot e site.",
-    "⏱️ O encerramento do recrutamento mantém os canais por 3 minutos para o candidato e a equipe verem o resultado antes da remoção."
+    "Após um candidato ser aprovado ou reprovado, o canal privado e a call temporária do recrutamento permanecem por 3 minutos e depois são apagados automaticamente.",
+    "As frases da call de desenvolvimento e das Futuras Atualizações receberam mais variações de resenha, com referências como ADM-G, Baiano do Vini e outras piadas aleatórias, evitando repetição imediata.",
+    "As notas publicadas pelo sistema passam a usar somente o título '## Notas de atualização', deixando o canal mais organizado e evitando títulos diferentes a cada versão.",
+    "O status de reunião é restaurado automaticamente quando nenhuma atividade do Spotify estiver visível e é removido quando o programador sai da call de desenvolvimento."
   ],
   "problemas_conhecidos": []
 }

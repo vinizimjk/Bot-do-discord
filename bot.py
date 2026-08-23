@@ -71,7 +71,7 @@ INTERVALO_MINECRAFT_SEGUNDOS = 60
 FALHAS_OFFLINE_NECESSARIAS = 3
 SUCESSOS_ONLINE_NECESSARIOS = 2
 
-AVISOS_NICK_HORAS = (12, 24, 36, 48)
+AVISOS_NICK_HORAS = (9, 18, 27, 36, 45, 54, 63, 72)
 INTERVALO_NICKS_MINUTOS = 10
 
 FUSO_SERVIDOR = ZoneInfo("America/Cuiaba")
@@ -4630,9 +4630,9 @@ async def enviar_pergunta_nick(membro, aviso=None):
         )
     else:
         texto = (
-            f"⚠️ **Aviso {aviso}/4 — nickname pendente**\n\n"
+            f"⚠️ **Aviso {aviso}/8 — nickname pendente**\n\n"
             "Responda esta DM com o seu nickname no Minecraft. "
-            "Após o 4º aviso, será aplicado timeout até o cadastro."
+            "Após o 8º aviso, será aplicado timeout até o cadastro."
         )
     try:
         await membro.send(texto)
@@ -4890,7 +4890,7 @@ async def aplicar_castigo_nick(membro):
         return False, 'Hierarquia impede o timeout.'
     try:
         ate = datetime.now(timezone.utc) + timedelta(days=CASTIGO_DIAS)
-        await membro.timeout(ate, reason='Nickname Minecraft não informado após 4 avisos em 48h.')
+        await membro.timeout(ate, reason='Nickname Minecraft não informado após 8 avisos em 3 dias.')
         atualizar_cadastro_nick(membro.guild.id, membro.id, castigo_aplicado=1)
         return True, None
     except (discord.Forbidden, discord.HTTPException) as erro:
@@ -5106,14 +5106,14 @@ async def verificar_nicknames_minecraft():
         enviados = int(cadastro['avisos_enviados'] or 0)
         proximo = enviados + 1
 
-        if proximo <= 4 and horas >= AVISOS_NICK_HORAS[proximo - 1]:
+        if proximo <= len(AVISOS_NICK_HORAS) and horas >= AVISOS_NICK_HORAS[proximo - 1]:
             dm = await enviar_pergunta_nick(membro, proximo)
             atualizar_cadastro_nick(guild.id, membro.id, avisos_enviados=proximo)
             await enviar_log_dono(
-                f"⚠️ Aviso {proximo}/4 de nickname para {membro} ({membro.id}). "
+                f"⚠️ Aviso {proximo}/{len(AVISOS_NICK_HORAS)} de nickname para {membro} ({membro.id}). "
                 f"DM: {'enviada' if dm else 'falhou/bloqueada'}."
             )
-            if proximo == 4:
+            if proximo == len(AVISOS_NICK_HORAS):
                 ok, erro = await aplicar_castigo_nick(membro)
                 await enviar_log_dono(
                     f"🔒 Timeout de nickname para {membro}: " + ('aplicado.' if ok else f'falhou — {erro}')
@@ -5778,7 +5778,7 @@ def criar_texto_atualizacao_bot(nota=None):
     )
 
     partes = [
-        f"# 📝 {nota['titulo']}",
+        "## Notas de atualização",
         f"**Versão:** `{versao}`\n**Data:** {data_exibicao}",
     ]
 
@@ -5825,61 +5825,110 @@ def mensagem_e_atualizacao_pendente(mensagem: discord.Message):
     if mensagem.author.id != bot.user.id:
         return False
 
-    conteudo = str(mensagem.content or "").casefold()
+    linhas = [
+        linha.strip()
+        for linha in str(mensagem.content or "").splitlines()
+        if linha.strip()
+    ]
+    if not linhas:
+        return False
+
     marcadores = (
         "futuras atualizações",
         "futuras atualizacoes",
         "próximas atualizações",
         "proximas atualizacoes",
     )
-    return any(marcador in conteudo for marcador in marcadores)
+
+    # Só considera prévia quando o marcador aparece como título/início do
+    # bloco. Assim uma nota real pode citar "Futuras Atualizações" no corpo
+    # sem ser confundida com a própria prévia.
+    for linha in linhas[:3]:
+        normalizada = linha.casefold()
+        if linha.startswith("#") and any(
+            marcador in normalizada
+            for marcador in marcadores
+        ):
+            return True
+
+    primeira = linhas[0].casefold().lstrip("# ").strip()
+    return any(
+        primeira.startswith(marcador)
+        for marcador in marcadores
+    )
 
 
 async def remover_atualizacoes_pendentes(canal):
-    """Remove a prévia textual e, se existir, a figurinha publicada logo depois dela."""
+    """Remove blocos antigos de Futuras Atualizações e o sticker ligado a eles.
+
+    A busca não depende do arquivo do painel web, porque BOT e SITE podem
+    usar volumes separados na Railway. O marcador textual no Discord é a
+    fonte de verdade para esta limpeza.
+    """
     removidas = 0
+
     try:
+        # Usa uma janela maior para não deixar a prévia escapar em canais
+        # movimentados. history() retorna do mais novo para o mais antigo.
         mensagens = [
             mensagem
-            async for mensagem in canal.history(limit=100)
+            async for mensagem in canal.history(limit=500)
         ]
+    except (discord.Forbidden, discord.HTTPException):
+        return 0
 
-        ids_apagados = set()
+    if bot.user is None:
+        return 0
 
-        for indice, mensagem in enumerate(mensagens):
-            if not mensagem_e_atualizacao_pendente(mensagem):
+    ids_apagados = set()
+
+    for indice, mensagem in enumerate(mensagens):
+        if mensagem.id in ids_apagados:
+            continue
+        if not mensagem_e_atualizacao_pendente(mensagem):
+            continue
+
+        alvo_ids = {mensagem.id}
+        instante_base = mensagem.created_at
+
+        # As partes seguintes da mesma prévia aparecem ANTES deste índice
+        # porque a lista está em ordem reversa. O sticker encerra o bloco.
+        passos = 0
+        pos = indice - 1
+        while pos >= 0 and passos < 12:
+            candidata = mensagens[pos]
+            passos += 1
+
+            if candidata.author.id != bot.user.id:
+                break
+
+            conteudo = str(candidata.content or "").strip()
+
+            # Nunca toca na nota real recém-publicada.
+            if conteudo.casefold().startswith("## notas de atualização") or conteudo.casefold().startswith("## notas de atualizacao"):
+                break
+
+            diferenca = abs((candidata.created_at - instante_base).total_seconds())
+            if diferenca > 45:
+                break
+
+            alvo_ids.add(candidata.id)
+
+            if candidata.stickers and not conteudo:
+                break
+
+            pos -= 1
+
+        # Apaga do mais novo para o mais antigo.
+        for candidata in mensagens:
+            if candidata.id not in alvo_ids or candidata.id in ids_apagados:
                 continue
-
-            # O painel publica a figurinha imediatamente DEPOIS do texto.
-            # Como history() vem do mais novo para o mais antigo, ela fica
-            # uma posição antes da mensagem textual nesta lista.
-            if indice > 0:
-                possivel_sticker = mensagens[indice - 1]
-                if (
-                    possivel_sticker.author.id == bot.user.id
-                    and possivel_sticker.stickers
-                    and not str(possivel_sticker.content or "").strip()
-                    and possivel_sticker.id not in ids_apagados
-                ):
-                    try:
-                        await possivel_sticker.delete()
-                        ids_apagados.add(possivel_sticker.id)
-                        removidas += 1
-                    except (discord.Forbidden, discord.HTTPException):
-                        pass
-
-            if mensagem.id in ids_apagados:
-                continue
-
             try:
-                await mensagem.delete()
-                ids_apagados.add(mensagem.id)
+                await candidata.delete()
+                ids_apagados.add(candidata.id)
                 removidas += 1
             except (discord.Forbidden, discord.HTTPException):
                 pass
-
-    except (discord.Forbidden, discord.HTTPException):
-        pass
 
     return removidas
 
@@ -7984,45 +8033,51 @@ MANUTENCAO_VOZ_GRACE_SEGUNDOS = 4
 
 MANUTENCAO_RESPOSTAS = {
     1: [
-        "marca não randola, o cara tá me configurando",
+        "marca não, randola. o ADM-G tá em reunião comigo",
         "deixa o Vini trabalhar, peste, ele tá mexendo em mim",
-        "ô criatura, para de marcar o programador enquanto ele tá me arrumando",
+        "ô criatura, o Baiano do Vini tá no código. segura esse @ aí",
         "meu parceiro, o homem tá em manutenção comigo. larga ele um minuto kkk",
-        "tu viu que o cara tá trabalhando e pensou: vou marcar ele. gênio demais",
-        "primeira marcação anotada. deixa o ADM trabalhar em paz",
+        "tu viu que a call chama desenvolvimento e decidiu testar a paciência do desenvolvedor",
+        "primeira marcação anotada. deixa o ADM-G trabalhar em paz",
         "o homem abriu a oficina e tu já veio buzinar na porta kkk",
-        "Vini tá mexendo no meu código, tenta não mexer na paciência dele",
-        "ele tá ocupado me consertando. teu @ pode esperar um pouco",
-        "calma aí, fiscal de programador, deixa o cara terminar a manutenção",
+        "esse corno que me programa tá ocupado me consertando. teu @ pode esperar",
+        "o Vini tá fingindo que isso aqui é reunião séria. não estraga a encenação kkk",
+        "calma aí, fiscal de programador. a reunião dos dois desempregados ainda não acabou",
+        "o Baiano entrou na call pra programar e tu já veio pedir audiência kkk",
+        "não interrompe a reunião não, campeão. tem código sendo quebrado com responsabilidade",
     ],
     2: [
-        "já te avisei, desgraça kkk deixa o cara configurar o bot",
+        "já te avisei, desgraça kkk deixa o ADM-G configurar o bot",
         "segunda marcação já? tu tá fazendo speedrun pra tomar castigo?",
-        "irmão, ele tá ocupado comigo. vai arrumar outra pessoa pra perturbar",
+        "irmão, o Baiano do Vini tá ocupado comigo. vai perturbar outro setor",
         "tu ignorou o primeiro aviso com uma confiança impressionante",
         "continua marcando pra tu ver uma coisa rapidinho kkk",
         "segunda vez. teu dedo tá com problema ou é vontade de sofrer?",
-        "dois @ no ADM e contando. tá montando combo?",
-        "eu falei deixa o homem trabalhar, não era sugestão decorativa",
+        "dois @ no ADM-G e contando. tá montando combo?",
+        "eu falei deixa esse corno que me programa trabalhar, não era decoração",
         "tu voltou no @ como quem volta no lugar do crime kkk",
         "a insistência tá bonita, pena que o prêmio é castigo",
+        "reunião em andamento e tu tentando abrir chamado direto com a diretoria kkk",
+        "o Vini ainda nem terminou de quebrar uma função e tu já chamou de novo",
     ],
     3: [
-        "caralho, tu é persistente mesmo. DEIXA O HOMEM TRABALHAR",
+        "caralho, tu é persistente mesmo. DEIXA O ADM-G TRABALHAR",
         "terceira vez, animal kkk tua meta é testar meu timeout?",
         "eu tô contando, viu? depois não mete essa de que não sabia",
-        "tu realmente acordou e escolheu perturbar o programador em manutenção",
+        "tu realmente acordou e escolheu perturbar o Baiano em manutenção",
         "mais uma marcação e tua ficha tá ficando bonita aqui, campeão",
         "três marcações. já dá pra chamar isso de projeto pessoal",
-        "terceira tentativa de invocar o ADM. nenhuma delas melhorou tua situação",
+        "terceira tentativa de invocar o Vini. nenhuma delas melhorou tua situação",
         "tu tá colecionando aviso igual figurinha rara kkk",
         "o contador tá subindo e tua paz tá descendo",
         "não sei se é coragem ou falta de interpretação, mas já é a terceira",
+        "esse corno que me programa tá tentando parecer ocupado. coopera com o teatro kkk",
+        "a call tá parecendo reunião e tu tá fazendo questão de virar pauta",
     ],
     4: [
         "quarta vez. tu tá praticamente preenchendo o formulário do próprio castigo",
         "meu deus do céu, tu não aprende nem com desenho né kkk",
-        "último aviso moral: para de marcar o Vini enquanto ele tá me configurando",
+        "último aviso moral: para de marcar o ADM-G enquanto ele tá me configurando",
         "tu tá a UMA marcação de descobrir se eu tenho permissão de timeout",
         "continua, vai. confia no teu potencial kkkkk",
         "quatro. agora qualquer @ a mais vem com brinde de 1 minuto",
@@ -8030,18 +8085,22 @@ MANUTENCAO_RESPOSTAS = {
         "faltou só tu assinar embaixo pedindo o timeout",
         "mais uma marcação e o Discord vai te dar férias obrigatórias de 60 segundos",
         "quarta chamada. a próxima eu atendo com o botão de castigo",
+        "o Baiano do Vini já te deu quatro chances sem nem falar contigo. valoriza kkk",
+        "a próxima interrupção da reunião vai ser respondida pelo RH: Recursos de Timeout",
     ],
 }
 
 MANUTENCAO_POS_TIMEOUT_1M = [
-    "voltou do minutinho e a primeira coisa que fez foi marcar o ADM? agora complicou kkk",
+    "voltou do minutinho e a primeira coisa que fez foi marcar o ADM-G? agora complicou kkk",
     "tu saiu do castigo e decidiu pedir a versão premium de 1 hora?",
-    "o minuto era o aviso final, campeão. marcou de novo, vem promoção maior",
+    "o minuto era o aviso final, campeão. marcou o Baiano de novo, vem promoção maior",
     "um minuto não ensinou? então o próximo pacote é de uma hora",
     "tu realmente voltou do timeout pra repetir exatamente o motivo do timeout kkkkk",
     "eu avisei que o minuto não era trailer. agora tu desbloqueou a versão longa",
     "persistência admirável, decisão questionável: próxima parada, 1 hora",
     "acabou o castigo curto e tu já veio renovar a assinatura? beleza então",
+    "a reunião continuou, tu voltou e decidiu interromper de novo. visão de carreira incrível",
+    "esse corno que me programa nem terminou a manutenção e tu já voltou pro @ kkk",
 ]
 
 MANUTENCAO_POS_TIMEOUT_1H = [
@@ -8051,23 +8110,27 @@ MANUTENCAO_POS_TIMEOUT_1H = [
     "campeão, teu histórico dessa manutenção já tá completo. larga o @",
     "o sistema já te explicou em 1 minuto e depois em 1 hora. agora ajuda ele a descansar",
     "não tem conquista secreta depois de 1 hora não, pode parar de marcar",
+    "o ADM-G já terminou uma reunião inteira e tu ainda tá nessa guerra contra o @",
+    "o Baiano do Vini já te deu a versão completa do curso de não marcar programador kkk",
 ]
 
 MANUTENCAO_ZOEIRAS_GERAL_1M = [
-    "{mencao} conseguiu a façanha de tomar 1 minuto de castigo porque não parava de marcar o Vini em manutenção kkkkk",
-    "parabéns {mencao}: 5 marcações no programador em manutenção e um timeout de brinde. promoção encerrada",
+    "{mencao} conseguiu a façanha de tomar 1 minuto porque não parava de marcar o ADM-G em reunião kkkkk",
+    "parabéns {mencao}: 5 marcações no Baiano do Vini e um timeout de brinde. promoção encerrada",
     "{mencao} testou o sistema anti-randola até o fim e descobriu que o botão de timeout funciona kkk",
     "o cidadão {mencao} foi avisado QUATRO vezes e escolheu a quinta marcação. ganhou 1 minuto pra pensar nas escolhas",
     "{mencao} completou o bingo das 5 marcações e ganhou 60 segundos de silêncio patrocinado pelo Discord",
-    "o guerreiro {mencao} insistiu até desbloquear o primeiro castigo da manutenção kkk",
+    "o guerreiro {mencao} insistiu até desbloquear o primeiro castigo da reunião de desenvolvimento kkk",
+    "{mencao} interrompeu tanto esse corno que me programa que acabou entrando oficialmente na pauta do timeout",
 ]
 
 MANUTENCAO_ZOEIRAS_GERAL_1H = [
-    "{mencao} voltou do castigo de 1 minuto e marcou o Vini de novo. resultado: upgrade gratuito pra 1 HORA kkkkk",
+    "{mencao} voltou do castigo de 1 minuto e marcou o ADM-G de novo. resultado: upgrade gratuito pra 1 HORA kkkkk",
     "o cidadão {mencao} achou 1 minuto pouco e foi buscar o plano de 1 hora. objetivo concluído",
     "{mencao} recebeu 60 segundos pra refletir, voltou e repetiu. agora são 60 MINUTOS pra caprichar na reflexão kkk",
     "recorde da manutenção: {mencao} ignorou até o timeout e desbloqueou 1 hora de descanso obrigatório",
     "{mencao} conseguiu transformar um castigo de 1 minuto em 1 hora usando apenas uma marcação. eficiência absurda",
+    "{mencao} insistiu tanto em chamar o Baiano que ganhou uma reunião particular de 1 hora com o próprio silêncio",
 ]
 
 def dono_esta_na_call_manutencao(guild):
@@ -8176,16 +8239,24 @@ async def garantir_bot_na_call_manutencao(guild):
 
     try:
         if voice is None or not voice.is_connected():
-            await canal.connect(self_deaf=True)
-            print("Modo manutenção: bot entrou silenciosamente na call de desenvolvimento.")
+            await canal.connect(self_deaf=False)
+            await guild.change_voice_state(channel=canal, self_mute=False, self_deaf=False)
+            print("Modo manutenção: bot entrou na call de desenvolvimento com o áudio do servidor visualmente ativo.")
             return True
 
         if voice.channel != canal:
             if voice.is_playing():
                 return False
             await voice.move_to(canal)
-            print("Modo manutenção: bot voltou para a call de desenvolvimento.")
+            print("Modo manutenção: bot voltou para a call de desenvolvimento com o áudio do servidor ativo.")
 
+        # Mesmo se o bot já estava nessa call, garante que o ícone não fique ensurdecido.
+        # O bot não grava/interpreta a conversa; isso é apenas o estado visual da conexão.
+        await guild.change_voice_state(
+            channel=canal,
+            self_mute=False,
+            self_deaf=False,
+        )
         return True
     except (discord.ClientException, discord.Forbidden, discord.HTTPException) as erro:
         print(f"Modo manutenção: falha ao acompanhar o dono na call | erro={erro}")
@@ -8200,9 +8271,14 @@ async def finalizar_uso_voice(guild, *, desconectar_se_sem_manutencao=True):
     if canal_manutencao is not None:
         try:
             if voice is None or not voice.is_connected():
-                await canal_manutencao.connect(self_deaf=True)
+                await canal_manutencao.connect(self_deaf=False)
             elif voice.channel != canal_manutencao:
                 await voice.move_to(canal_manutencao)
+            await guild.change_voice_state(
+                channel=canal_manutencao,
+                self_mute=False,
+                self_deaf=False,
+            )
             return
         except (discord.ClientException, discord.Forbidden, discord.HTTPException) as erro:
             print(f"Modo manutenção: não consegui voltar para a call | erro={erro}")
@@ -8257,6 +8333,88 @@ def agendar_saida_call_manutencao(guild):
     _manutencao_voice_disconnect_tasks[guild.id] = asyncio.create_task(
         desconectar_call_manutencao_apos_graca(guild)
     )
+
+_manutencao_presence_ultima = None
+
+
+def obter_spotify_do_dono(guild):
+    """Lê a atividade Spotify que o Discord já exibe para o dono, sem acessar áudio."""
+    if guild is None:
+        return None
+
+    dono = guild.get_member(DONO_ID)
+    if dono is None:
+        return None
+
+    for atividade in getattr(dono, "activities", ()) or ():
+        if isinstance(atividade, discord.Spotify):
+            return atividade
+
+    return None
+
+
+def texto_presence_manutencao(guild):
+    spotify = obter_spotify_do_dono(guild)
+    if spotify is None:
+        return "Reunião de desenvolvimento"
+
+    titulo = str(getattr(spotify, "title", "") or "").strip()
+    artista = str(getattr(spotify, "artist", "") or "").strip()
+
+    if titulo and artista:
+        texto = f"{titulo} — {artista}"
+    elif titulo:
+        texto = titulo
+    else:
+        texto = "Reunião de desenvolvimento"
+
+    return texto[:128]
+
+
+async def atualizar_presence_manutencao(force=False):
+    """Durante a call de desenvolvimento, espelha no status do bot a música do Spotify do dono."""
+    global _manutencao_presence_ultima
+
+    guild_manutencao = None
+    for guild in bot.guilds:
+        if dono_esta_na_call_manutencao(guild):
+            guild_manutencao = guild
+            break
+
+    if guild_manutencao is None:
+        if _manutencao_presence_ultima is not None or force:
+            await bot.change_presence(activity=None)
+            _manutencao_presence_ultima = None
+        return
+
+    texto = texto_presence_manutencao(guild_manutencao)
+    if not force and texto == _manutencao_presence_ultima:
+        return
+
+    await bot.change_presence(
+        activity=discord.Activity(
+            type=discord.ActivityType.listening,
+            name=texto,
+        )
+    )
+    _manutencao_presence_ultima = texto
+
+
+@tasks.loop(seconds=15)
+async def sincronizar_spotify_manutencao():
+    try:
+        await atualizar_presence_manutencao()
+    except Exception as erro:
+        print(
+            "Modo manutenção: falha ao sincronizar presença/Spotify | "
+            f"{type(erro).__name__}: {erro}"
+        )
+
+
+@sincronizar_spotify_manutencao.before_loop
+async def antes_sincronizar_spotify_manutencao():
+    await bot.wait_until_ready()
+
 
 def mensagem_menciona_dono_diretamente(message):
     # Exige a menção literal de usuário. Cargo, @everyone, @here, reply e nome escrito não contam.
@@ -8479,10 +8637,12 @@ async def on_voice_state_update(member, before, after):
         iniciar_sessao_manutencao()
         print("Modo manutenção: ATIVO — nova sessão iniciada.")
         await garantir_bot_na_call_manutencao(member.guild)
+        await atualizar_presence_manutencao(force=True)
 
     elif antes_manutencao and not depois_manutencao:
         resetar_sessao_manutencao()
         agendar_saida_call_manutencao(member.guild)
+        await atualizar_presence_manutencao(force=True)
         print(
             "Modo manutenção: ENCERRADO — contadores zerados; "
             "saída da call agendada com proteção contra oscilação."
@@ -8828,7 +8988,7 @@ FUNCOES_ATUAIS_CATEGORIAS = {
         "🎮 Monitoramento do servidor Bedrock",
         "🟢 Status Online / Offline do Aternos",
         "📝 Cadastro e tabela única de nicknames",
-        "⚠️ Nick pendente — até 4 avisos em 48h",
+        "⚠️ Nick pendente — até 8 avisos em 3 dias",
         "👤 Cadastro manual e solicitação de novo nickname",
         "📩 Aviso quando a DM estiver fechada",
         "⏳ Remoção do nick após 48h fora do servidor",
@@ -8848,7 +9008,8 @@ FUNCOES_ATUAIS_CATEGORIAS = {
         "🎲 Reprodução de áudios aleatórios em call",
         "🔉 A IA pode entrar na call quando o usuário realmente pedir/desafiar",
         "⏱️ Cooldown de entrada automática em call por usuário com tempo restante informado",
-        "🛠️ Durante manutenção, o bot acompanha o dono em silêncio na call de desenvolvimento",
+        "🛠️ Durante manutenção, o bot acompanha o dono na call de desenvolvimento sem ficar ensurdecido",
+        "🎧 Na call de desenvolvimento, o status do bot acompanha a música do Spotify visível no Discord do dono",
         "🔇 Enquanto o dono estiver na call de desenvolvimento, nenhum áudio toca sem pedido explícito dele",
         "↩️ Quando o dono autoriza uma zoeira por áudio, o bot volta para a call de desenvolvimento ao terminar",
         "✅ O bot espera os áudios terminarem antes de sair ou voltar para a call de manutenção",
@@ -8887,7 +9048,8 @@ FUNCOES_ATUAIS_CATEGORIAS = {
         "🛠️ Modo manutenção pela call de desenvolvimento",
         "🚫 Proteção contra menções diretas ao programador durante manutenção",
         "⏳ 5 menções diretas = 1 minuto de timeout; nova menção após o castigo = 1 hora",
-        "🎭 Respostas da proteção de manutenção com maior variedade e antirrepetição",
+        "🎭 Respostas da proteção de manutenção com maior variedade, apelidos do programador e antirrepetição",
+        "👂 O bot permanece com o áudio do servidor visualmente ativo durante a reunião, sem gravar nem interpretar a call",
         "📝 Nota de atualização automática por ID com proteção persistente em /data",
     ],
 }
@@ -11896,14 +12058,18 @@ async def on_ready():
     if not zoeira_call_automatica.is_running():
         zoeira_call_automatica.start()
 
+    if not sincronizar_spotify_manutencao.is_running():
+        sincronizar_spotify_manutencao.start()
+
     # Se o bot reiniciar enquanto o programador já estiver na call de manutenção,
-    # inicia a sessão e entra silenciosamente junto, sem emitir aviso público.
+    # inicia a sessão, entra junto sem emitir aviso público e atualiza a presença.
     if not getattr(bot, "_manutencao_inicial_verificada", False):
         bot._manutencao_inicial_verificada = True
         for guild in bot.guilds:
             if dono_esta_na_call_manutencao(guild):
                 iniciar_sessao_manutencao()
                 await garantir_bot_na_call_manutencao(guild)
+                await atualizar_presence_manutencao(force=True)
 
     if not getattr(
         bot,
