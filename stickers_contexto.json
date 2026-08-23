@@ -1,0 +1,852 @@
+{
+  "versao": 1,
+  "projeto": "RESENHA MÁXIMA",
+  "finalidade": "Memória visual textual das figurinhas para a IA entender o sentido de cada sticker e selecionar reações adequadas ao contexto.",
+  "regras_gerais": {
+    "nao_e_visao_em_tempo_real": true,
+    "descricao": "O bot usa este catálogo textual como memória visual; ele não analisa os pixels da figurinha em tempo real.",
+    "preferir_sticker_sem_texto": "Quando a figurinha já comunica bem a reação, a IA pode responder apenas com o sticker.",
+    "evitar_spam": "Não enviar stickers em toda mensagem; usar apenas quando houver correspondência clara com o contexto.",
+    "nao_repetir": "Evitar repetir o mesmo sticker em sequência.",
+    "respeitar_auto_uso": "Itens com auto_uso=false só podem ser usados manualmente pelo dono."
+  },
+  "total_stickers": 26,
+  "stickers": [
+    {
+      "id": "1532737415729381507",
+      "nome_interno": "meme_gato_com_insulto",
+      "descricao_visual": "Imagem de baixa resolução com uma pessoa ajoelhada de costas em primeiro plano e um gato dentro de um cesto ao lado. Há texto grande na parte superior.",
+      "texto_na_imagem": "boiola nojento espalhafatoso",
+      "emocao": [
+        "deboche",
+        "provocação",
+        "zoeira agressiva"
+      ],
+      "tom": [
+        "meme",
+        "ofensivo"
+      ],
+      "usar_quando": [
+        "somente se o dono escolher manualmente e souber o contexto"
+      ],
+      "evitar_quando": [
+        "resposta automática",
+        "discussões sérias",
+        "ataques pessoais"
+      ],
+      "palavras_chave": [
+        "gato",
+        "deboche",
+        "insulto",
+        "meme"
+      ],
+      "resposta_recomendada": "manual_only",
+      "auto_uso": false,
+      "motivo_restricao": "O texto contém termo ofensivo relacionado à orientação sexual; não deve ser selecionado automaticamente."
+    },
+    {
+      "id": "1532829434246201434",
+      "nome_interno": "cabeca_refletindo_ceu",
+      "descricao_visual": "Close de uma cabeça raspada com edição que faz o topo parecer extremamente brilhante, refletindo céu azul, nuvens e até a silhueta de um avião.",
+      "texto_na_imagem": "",
+      "emocao": [
+        "surpresa",
+        "deboche leve",
+        "absurdo"
+      ],
+      "tom": [
+        "meme",
+        "visual",
+        "zoeira"
+      ],
+      "usar_quando": [
+        "alguém falar de brilho",
+        "careca em contexto de brincadeira consentida",
+        "algo estiver 'refletindo' ou chamando muita atenção"
+      ],
+      "evitar_quando": [
+        "a brincadeira puder virar ataque pessoal sobre aparência"
+      ],
+      "palavras_chave": [
+        "brilho",
+        "cabeça",
+        "reflexo",
+        "céu",
+        "careca"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1532830409014902956",
+      "nome_interno": "homem_bone_olhar_neutro",
+      "descricao_visual": "Homem encarando a câmera com expressão séria e quase sem reação. Usa um boné claro inclinado para baixo, cobrindo parte da testa.",
+      "texto_na_imagem": "",
+      "emocao": [
+        "sem reação",
+        "desconfiança",
+        "julgamento silencioso"
+      ],
+      "tom": [
+        "deadpan",
+        "meme"
+      ],
+      "usar_quando": [
+        "alguém falar algo estranho",
+        "uma mensagem não fizer sentido",
+        "o bot quiser reagir sem texto"
+      ],
+      "evitar_quando": [
+        "situações formais de moderação"
+      ],
+      "palavras_chave": [
+        "olhar",
+        "silêncio",
+        "estranho",
+        "desconfiança",
+        "sem reação"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1532830961283371179",
+      "nome_interno": "isso_foi_uma_ameaca",
+      "descricao_visual": "Pessoa em pose exagerada com uma perna levantada, em cenário noturno. Texto azul atravessa o centro da imagem.",
+      "texto_na_imagem": "isso foi uma ameaça?",
+      "emocao": [
+        "suspeita",
+        "desafio",
+        "confusão"
+      ],
+      "tom": [
+        "meme",
+        "provocação leve"
+      ],
+      "usar_quando": [
+        "alguém fizer uma ameaça obviamente brincalhona",
+        "alguém mandar uma frase que parece desafio",
+        "o bot quiser fingir que ficou desconfiado"
+      ],
+      "evitar_quando": [
+        "ameaças reais",
+        "situações de segurança ou moderação"
+      ],
+      "palavras_chave": [
+        "ameaça",
+        "desafio",
+        "suspeita",
+        "briga",
+        "medo"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1532831592093978684",
+      "nome_interno": "homem_com_bolo",
+      "descricao_visual": "Homem sem camisa sentado em uma cama ou sofá, segurando um prato ou bolo e olhando para a câmera com expressão séria.",
+      "texto_na_imagem": "",
+      "emocao": [
+        "expectativa",
+        "silêncio constrangedor",
+        "espera"
+      ],
+      "tom": [
+        "meme",
+        "absurdo"
+      ],
+      "usar_quando": [
+        "aniversário",
+        "comida",
+        "alguém estiver esperando alguma coisa",
+        "um silêncio estranho surgir na conversa"
+      ],
+      "evitar_quando": [
+        "situações formais"
+      ],
+      "palavras_chave": [
+        "bolo",
+        "aniversário",
+        "comida",
+        "esperando",
+        "encarando"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1532832168290685129",
+      "nome_interno": "rapaz_de_terno_com_bandeja",
+      "descricao_visual": "Rapaz usando terno escuro grande para o corpo, segurando uma bandeja, pasta ou objeto retangular com as duas mãos. A expressão é séria e comportada.",
+      "texto_na_imagem": "",
+      "emocao": [
+        "formalidade exagerada",
+        "seriedade",
+        "obediência"
+      ],
+      "tom": [
+        "meme",
+        "formal cômico"
+      ],
+      "usar_quando": [
+        "alguém pedir algo de forma muito formal",
+        "o bot quiser fingir que está prestando serviço",
+        "entrega de algo imaginário"
+      ],
+      "evitar_quando": [
+        "sem restrição especial"
+      ],
+      "palavras_chave": [
+        "terno",
+        "formal",
+        "serviço",
+        "entrega",
+        "bandeja"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1532835198712942762",
+      "nome_interno": "pose_dramatica",
+      "descricao_visual": "Pessoa de porte grande usando roupa preta e fazendo uma pose bastante teatral, com um braço levantado e o outro apoiado à frente.",
+      "texto_na_imagem": "",
+      "emocao": [
+        "atitude",
+        "confiança",
+        "drama"
+      ],
+      "tom": [
+        "meme",
+        "exagerado"
+      ],
+      "usar_quando": [
+        "alguém se achar muito",
+        "uma pessoa fizer uma entrada dramática",
+        "para responder com energia de 'cheguei'"
+      ],
+      "evitar_quando": [
+        "qualquer uso voltado a zombar do corpo ou do peso da pessoa"
+      ],
+      "palavras_chave": [
+        "pose",
+        "atitude",
+        "drama",
+        "cheguei",
+        "confiança"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1533118564456992908",
+      "nome_interno": "animal_borrado_gritando",
+      "descricao_visual": "Close extremamente borrado e distorcido de um animal com a boca muito aberta, dando aparência de grito ou gargalhada.",
+      "texto_na_imagem": "",
+      "emocao": [
+        "grito",
+        "choque",
+        "gargalhada",
+        "caos"
+      ],
+      "tom": [
+        "meme",
+        "reação extrema"
+      ],
+      "usar_quando": [
+        "algo for muito engraçado",
+        "alguém mandar uma mensagem absurda",
+        "uma situação virar caos"
+      ],
+      "evitar_quando": [
+        "conversas sérias"
+      ],
+      "palavras_chave": [
+        "grito",
+        "kkkk",
+        "choque",
+        "caos",
+        "animal"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1534429173400076368",
+      "nome_interno": "print_chat_sexual",
+      "descricao_visual": "Print pequeno e de baixa resolução de uma conversa em chat. É possível ler uma fala curta e vulgar de cunho sexual; outros nomes e trechos ficam parcialmente ilegíveis.",
+      "texto_na_imagem": "Trechos visíveis incluem 'Meu pau' e algo parecido com 'Me come dniz'.",
+      "emocao": [
+        "absurdo",
+        "vergonha alheia",
+        "zoeira sexual"
+      ],
+      "tom": [
+        "meme",
+        "vulgar"
+      ],
+      "usar_quando": [
+        "somente por escolha manual do dono"
+      ],
+      "evitar_quando": [
+        "resposta automática",
+        "conversa com menores",
+        "situações formais"
+      ],
+      "palavras_chave": [
+        "print",
+        "chat",
+        "sexual",
+        "vergonha",
+        "absurdo"
+      ],
+      "resposta_recomendada": "manual_only",
+      "auto_uso": false,
+      "motivo_restricao": "Conteúdo sexual/vulgar e texto parcialmente ilegível."
+    },
+    {
+      "id": "1534434567786598420",
+      "nome_interno": "jovem_fone_pessoa_ao_fundo",
+      "descricao_visual": "Pessoa jovem em primeiro plano usando fones grandes e fazendo um gesto próximo à cabeça. Ao fundo aparece outra pessoa com pouca roupa, em um cômodo de parede vermelha.",
+      "texto_na_imagem": "",
+      "emocao": [
+        "confusão",
+        "flagra",
+        "absurdo"
+      ],
+      "tom": [
+        "meme"
+      ],
+      "usar_quando": [
+        "somente por escolha manual do dono"
+      ],
+      "evitar_quando": [
+        "resposta automática"
+      ],
+      "palavras_chave": [
+        "fone",
+        "flagra",
+        "fundo",
+        "estranho"
+      ],
+      "resposta_recomendada": "manual_only",
+      "auto_uso": false,
+      "motivo_restricao": "A imagem inclui pessoa aparentemente jovem e outra pessoa com pouca roupa ao fundo; melhor não selecionar automaticamente."
+    },
+    {
+      "id": "1534435078413746306",
+      "nome_interno": "boneco_ruivo_planejando",
+      "descricao_visual": "Boneco/personagem ruivo com expressão fechada, sobrancelhas baixas e mãos juntas, como se estivesse tramando ou esperando o momento de agir.",
+      "texto_na_imagem": "",
+      "emocao": [
+        "malícia",
+        "planejamento",
+        "ameaça cômica"
+      ],
+      "tom": [
+        "meme",
+        "sinistro cômico"
+      ],
+      "usar_quando": [
+        "alguém disser que vai aprontar",
+        "o bot quiser demonstrar que está planejando algo",
+        "antes de uma zoeira"
+      ],
+      "evitar_quando": [
+        "ameaças reais"
+      ],
+      "palavras_chave": [
+        "plano",
+        "tramando",
+        "malícia",
+        "vingança",
+        "espera"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1534435954557845724",
+      "nome_interno": "sonic_vish_kkk",
+      "descricao_visual": "Sonic aparece de costas em uma montagem de meme, com enquadramento cômico. Há a legenda 'vish kkk' na parte inferior.",
+      "texto_na_imagem": "vish kkk",
+      "emocao": [
+        "vergonha",
+        "deu ruim",
+        "risada"
+      ],
+      "tom": [
+        "meme",
+        "zoeira"
+      ],
+      "usar_quando": [
+        "alguém contar uma situação que deu errado",
+        "uma mensagem for constrangedora",
+        "o bot quiser reagir com 'vish'"
+      ],
+      "evitar_quando": [
+        "situações sérias"
+      ],
+      "palavras_chave": [
+        "vish",
+        "kkkk",
+        "deu ruim",
+        "vergonha",
+        "Sonic"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1534436041111376022",
+      "nome_interno": "pao_formato_bunda_kkk",
+      "descricao_visual": "Imagem de um pão ou objeto semelhante visto por trás, com formato que lembra nádegas. A palavra 'kkk...' aparece em letras brancas sobre a imagem.",
+      "texto_na_imagem": "kkk...",
+      "emocao": [
+        "risada contida",
+        "constrangimento",
+        "absurdo"
+      ],
+      "tom": [
+        "meme",
+        "duplo sentido"
+      ],
+      "usar_quando": [
+        "algo tiver duplo sentido",
+        "uma situação ficar constrangedora",
+        "o bot quiser rir sem comentar"
+      ],
+      "evitar_quando": [
+        "situações formais"
+      ],
+      "palavras_chave": [
+        "kkk",
+        "pão",
+        "duplo sentido",
+        "constrangimento"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1534436139232923679",
+      "nome_interno": "goku_jae_entao",
+      "descricao_visual": "Goku aparece de costas em montagem de meme, com a roupa rasgada e enquadramento propositalmente sugestivo. Sobre a imagem está escrito 'Jae então'.",
+      "texto_na_imagem": "Jae então",
+      "emocao": [
+        "aceitação",
+        "provocação",
+        "zoeira"
+      ],
+      "tom": [
+        "meme",
+        "sugestivo"
+      ],
+      "usar_quando": [
+        "alguém aceitar uma proposta",
+        "uma conversa tiver duplo sentido",
+        "o bot quiser responder 'já é então' de forma absurda"
+      ],
+      "evitar_quando": [
+        "conversa séria",
+        "contextos inadequados para humor sugestivo"
+      ],
+      "palavras_chave": [
+        "jae",
+        "já é",
+        "aceito",
+        "Goku",
+        "duplo sentido"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1534436211823742976",
+      "nome_interno": "personagem_comeram_meu_cu",
+      "descricao_visual": "Personagem animado com expressão cansada/triste em uma cena escura. A imagem traz uma frase vulgar dividida entre a parte superior e inferior.",
+      "texto_na_imagem": "comeram meu cu",
+      "emocao": [
+        "derrota",
+        "desespero",
+        "humor vulgar"
+      ],
+      "tom": [
+        "meme",
+        "sexual/vulgar"
+      ],
+      "usar_quando": [
+        "somente por escolha manual do dono"
+      ],
+      "evitar_quando": [
+        "resposta automática",
+        "situações formais",
+        "conversas inadequadas para conteúdo sexual"
+      ],
+      "palavras_chave": [
+        "derrota",
+        "desgraça",
+        "vulgar",
+        "meme"
+      ],
+      "resposta_recomendada": "manual_only",
+      "auto_uso": false,
+      "motivo_restricao": "Texto sexual/vulgar explícito; não deve ser selecionado automaticamente."
+    },
+    {
+      "id": "1534436312730570785",
+      "nome_interno": "homem_de_terno_sentado",
+      "descricao_visual": "Homem de terno cinza sentado em uma cadeira, sorrindo com as mãos entrelaçadas e postura muito arrumada.",
+      "texto_na_imagem": "",
+      "emocao": [
+        "confiança",
+        "satisfação",
+        "formalidade"
+      ],
+      "tom": [
+        "meme",
+        "elegante"
+      ],
+      "usar_quando": [
+        "algo der certo",
+        "o bot quiser parecer educado ou sofisticado",
+        "alguém fizer uma proposta interessante"
+      ],
+      "evitar_quando": [
+        "sem restrição especial"
+      ],
+      "palavras_chave": [
+        "terno",
+        "sorriso",
+        "elegante",
+        "confiança",
+        "formal"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1534440284358705222",
+      "nome_interno": "jogador_beijando_trofeu",
+      "descricao_visual": "Jogador de futebol com uniforme listrado em azul-claro e branco beijando um grande troféu prateado em meio a uma comemoração.",
+      "texto_na_imagem": "",
+      "emocao": [
+        "vitória",
+        "orgulho",
+        "comemoração"
+      ],
+      "tom": [
+        "celebração",
+        "meme positivo"
+      ],
+      "usar_quando": [
+        "alguém ganhar algo",
+        "uma meta for concluída",
+        "o servidor tiver uma conquista",
+        "o bot quiser dizer 'campeão' sem texto"
+      ],
+      "evitar_quando": [
+        "derrotas ou notícias ruins"
+      ],
+      "palavras_chave": [
+        "vitória",
+        "campeão",
+        "troféu",
+        "ganhou",
+        "futebol"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1534440355393568859",
+      "nome_interno": "homem_olhar_parado_fundo_azul",
+      "descricao_visual": "Close do rosto de um homem diante de fundo azul/ciano. Ele olha para a câmera com expressão muito neutra, olhos parcialmente fechados e aparência de total falta de reação.",
+      "texto_na_imagem": "",
+      "emocao": [
+        "tédio",
+        "sem reação",
+        "julgamento"
+      ],
+      "tom": [
+        "deadpan",
+        "meme"
+      ],
+      "usar_quando": [
+        "alguém falar besteira",
+        "uma piada for ruim",
+        "o bot não souber nem o que responder"
+      ],
+      "evitar_quando": [
+        "situações sensíveis"
+      ],
+      "palavras_chave": [
+        "sem reação",
+        "tédio",
+        "olhar",
+        "julgando",
+        "silêncio"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1534440451824816139",
+      "nome_interno": "metade_civil_metade_super_heroi",
+      "descricao_visual": "Montagem dividindo uma pessoa ao meio: um lado aparece com roupa casual azul e o outro com uniforme de super-herói, criando efeito de transformação ou dupla identidade.",
+      "texto_na_imagem": "",
+      "emocao": [
+        "transformação",
+        "poder",
+        "dualidade"
+      ],
+      "tom": [
+        "meme",
+        "épico cômico"
+      ],
+      "usar_quando": [
+        "alguém mudar de personalidade",
+        "antes/depois",
+        "alguém ativar 'modo sério' ou 'modo ADM'"
+      ],
+      "evitar_quando": [
+        "sem restrição especial"
+      ],
+      "palavras_chave": [
+        "transformação",
+        "modo",
+        "dupla identidade",
+        "super-herói",
+        "antes e depois"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1534440530358829286",
+      "nome_interno": "selfie_dupla_sorrindo",
+      "descricao_visual": "Selfie de duas pessoas sorrindo lado a lado; uma delas usa óculos escuros de armação grande e a outra se inclina para caber na foto.",
+      "texto_na_imagem": "",
+      "emocao": [
+        "amizade",
+        "parceria",
+        "alegria"
+      ],
+      "tom": [
+        "meme",
+        "foto casual"
+      ],
+      "usar_quando": [
+        "duas pessoas concordarem",
+        "alguém falar de parceria",
+        "o bot quiser reagir a uma dupla improvável"
+      ],
+      "evitar_quando": [
+        "sem restrição especial"
+      ],
+      "palavras_chave": [
+        "dupla",
+        "amizade",
+        "parceria",
+        "selfie",
+        "sorriso"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1534440607001477198",
+      "nome_interno": "homem_sorrindo_mao_no_queixo",
+      "alias_existente": "Posso ser admin?",
+      "descricao_visual": "Homem bem vestido sorrindo para a câmera com uma mão apoiada no queixo, usando relógio e anéis. A pose passa confiança e um ar convencido de propósito.",
+      "texto_na_imagem": "",
+      "emocao": [
+        "confiança",
+        "malícia",
+        "convencimento"
+      ],
+      "tom": [
+        "meme",
+        "metido cômico"
+      ],
+      "usar_quando": [
+        "alguém pedir cargo ou poder",
+        "alguém se achar importante",
+        "o bot quiser fingir que está se candidatando a alguma coisa"
+      ],
+      "evitar_quando": [
+        "pedidos administrativos reais que precisem de resposta séria"
+      ],
+      "palavras_chave": [
+        "admin",
+        "cargo",
+        "poder",
+        "sorriso",
+        "confiança"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1534440685329973288",
+      "nome_interno": "pedro_of_war",
+      "descricao_visual": "Pessoa muito magra usando roupa vermelha e fazendo uma pose de batalha, com os braços afastados. A legenda em inglês aparece sobre a imagem.",
+      "texto_na_imagem": "Pedro of war",
+      "emocao": [
+        "coragem exagerada",
+        "combate",
+        "ameaça cômica"
+      ],
+      "tom": [
+        "meme",
+        "épico cômico"
+      ],
+      "usar_quando": [
+        "alguém disser que vai lutar",
+        "o chat entrar em clima de batalha",
+        "uma discussão claramente brincalhona começar"
+      ],
+      "evitar_quando": [
+        "ameaças reais ou violência séria"
+      ],
+      "palavras_chave": [
+        "guerra",
+        "luta",
+        "batalha",
+        "Pedro",
+        "modo guerra"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1536824203297296434",
+      "nome_interno": "animal_gritando_borrado",
+      "descricao_visual": "Imagem muito borrada de um animal com a boca escancarada, parecendo estar gritando ou gargalhando de forma descontrolada.",
+      "texto_na_imagem": "",
+      "emocao": [
+        "grito",
+        "gargalhada",
+        "pânico"
+      ],
+      "tom": [
+        "meme",
+        "reação extrema"
+      ],
+      "usar_quando": [
+        "algo for muito engraçado",
+        "o bot quiser reagir a uma mensagem caótica",
+        "alguém tomar um susto cômico"
+      ],
+      "evitar_quando": [
+        "situações graves"
+      ],
+      "palavras_chave": [
+        "grito",
+        "kkkk",
+        "pânico",
+        "caos",
+        "animal"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1536824358822092931",
+      "nome_interno": "rosto_distorcido_gritando",
+      "descricao_visual": "Rosto humano extremamente distorcido, com boca muito grande e aberta, criando aparência de grito, susto ou gargalhada monstruosa.",
+      "texto_na_imagem": "",
+      "emocao": [
+        "choque",
+        "grito",
+        "histeria",
+        "gargalhada"
+      ],
+      "tom": [
+        "meme",
+        "caótico"
+      ],
+      "usar_quando": [
+        "algo for absurdo demais",
+        "uma piada acertar em cheio",
+        "o chat ficar caótico"
+      ],
+      "evitar_quando": [
+        "conversas sérias"
+      ],
+      "palavras_chave": [
+        "grito",
+        "choque",
+        "histeria",
+        "kkkk",
+        "caos"
+      ],
+      "resposta_recomendada": "sticker_only",
+      "auto_uso": true
+    },
+    {
+      "id": "1538484786346070076",
+      "nome_interno": "anime_pressinto_digitando",
+      "descricao_visual": "Personagem de anime com expressão irritada e efeitos vermelhos ao redor da cabeça. Na parte superior há uma frase grande em fundo branco.",
+      "texto_na_imagem": "pressinto que um viado vai digitar agora",
+      "emocao": [
+        "provocação",
+        "irritação",
+        "antecipação"
+      ],
+      "tom": [
+        "meme",
+        "ofensivo"
+      ],
+      "usar_quando": [
+        "somente por escolha manual do dono"
+      ],
+      "evitar_quando": [
+        "resposta automática",
+        "ataques pessoais",
+        "qualquer contexto em que a frase possa atingir alguém pela orientação sexual"
+      ],
+      "palavras_chave": [
+        "digitando",
+        "anime",
+        "provocação"
+      ],
+      "resposta_recomendada": "manual_only",
+      "auto_uso": false,
+      "motivo_restricao": "Contém termo ofensivo relacionado à orientação sexual; não deve ser escolhido automaticamente."
+    },
+    {
+      "id": "1540872675063504896",
+      "nome_interno": "tatuagem_borboleta_nadegas",
+      "descricao_visual": "Close das nádegas de uma pessoa com uma tatuagem grande de borboleta centralizada, formando uma composição visual cômica.",
+      "texto_na_imagem": "",
+      "emocao": [
+        "surpresa",
+        "duplo sentido",
+        "zoeira sexual"
+      ],
+      "tom": [
+        "meme",
+        "sexual/sugestivo"
+      ],
+      "usar_quando": [
+        "somente por escolha manual do dono"
+      ],
+      "evitar_quando": [
+        "resposta automática",
+        "conversas com menores",
+        "situações formais"
+      ],
+      "palavras_chave": [
+        "borboleta",
+        "tatuagem",
+        "bunda",
+        "duplo sentido"
+      ],
+      "resposta_recomendada": "manual_only",
+      "auto_uso": false,
+      "motivo_restricao": "Imagem sexualizada/sugestiva; não deve ser selecionada automaticamente."
+    }
+  ]
+}

@@ -1,23 +1,27 @@
 {
-  "id": "2026-08-22-10",
-  "versao": "2026.08.22-manutencao-voz-escalada",
+  "id": "2026-08-22-11",
+  "versao": "2026.08.22-ia-stickers-silencio",
   "data": "2026-08-22",
-  "titulo": "Atualização — companhia na manutenção e proteção reforçada",
+  "titulo": "Atualização — IA com memória visual de figurinhas",
   "novidades": [
-    "Durante a sessão de manutenção, o bot agora entra automaticamente na call de desenvolvimento e permanece conectado em silêncio enquanto o dono estiver nela.",
-    "Se /zoarcall ou a IA precisarem usar outra call durante a manutenção, o bot volta para a call de desenvolvimento ao terminar, caso o dono ainda esteja lá.",
-    "O cooldown individual da IA em call agora informa exatamente quanto tempo falta para cada usuário poder chamar o bot novamente.",
-    "A proteção da manutenção agora escala o castigo: 5 menções diretas ao programador geram 1 minuto de timeout; se a pessoa voltar e marcar novamente na mesma sessão, recebe 1 hora."
+    "A IA agora carrega o arquivo stickers_contexto.json e usa as descrições cadastradas como memória visual das figurinhas do servidor.",
+    "Quando uma figurinha catalogada é enviada em uma conversa com a IA, o bot interpreta descrição, emoção, tom e texto visível da imagem como contexto.",
+    "A IA pode responder somente com uma figurinha ou com texto curto + figurinha, usando exclusivamente IDs liberados no catálogo.",
+    "O catálogo inicial contém 26 figurinhas cadastradas a partir das imagens e IDs fornecidos pelo dono."
   ],
   "correcoes": [
-    "Aumentada a variedade de respostas quando o bot ou o programador são marcados repetidamente, reduzindo frases iguais em sequência.",
-    "Adicionada proteção de alguns segundos antes de o bot sair da call de desenvolvimento, evitando entra-e-sai em oscilações rápidas de conexão.",
-    "Ao publicar a atualização automática, a limpeza da prévia de Futuras Atualizações também remove a figurinha que o painel publicou junto do texto, evitando sticker órfão no canal."
+    "Figurinhas conhecidas deixam de cair na resposta genérica de figurinha e passam pelo contexto visual da IA.",
+    "Adicionado controle antirrepetição e cooldown de stickers para evitar spam.",
+    "Stickers marcados como auto_uso=false nunca podem ser escolhidos automaticamente.",
+    "Enquanto o dono estiver na call de desenvolvimento, áudios automáticos e pedidos de outros usuários ficam bloqueados; somente pedido explícito do próprio dono libera áudio."
   ],
   "alteracoes": [
-    "O histórico antirrepetição das respostas rápidas e das respostas geradas foi ampliado.",
-    "A zoeira automática nunca toca áudio dentro da call de desenvolvimento; quando aplicável, usa outra call e retorna para a manutenção.",
-    "Ao encerrar a sessão de manutenção, os contadores e níveis de castigo da sessão são zerados normalmente."
+    "A ficha Funções do Bot agora informa a memória visual e respostas por figurinha.",
+    "A proteção de silêncio da manutenção também é aplicada dentro das funções de reprodução de áudio.",
+    "Se o dono entrar na call de desenvolvimento durante áudio não autorizado, o bot interrompe a reprodução."
   ],
-  "problemas_conhecidos": []
+  "problemas_conhecidos": [
+    "O bot não analisa pixels das figurinhas em tempo real; reconhece o significado pelo catálogo textual stickers_contexto.json.",
+    "Se uma figurinha for removida do servidor ou trocar de ID, o catálogo precisa ser atualizado."
+  ]
 }
