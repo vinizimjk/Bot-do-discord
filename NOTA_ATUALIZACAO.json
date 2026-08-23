@@ -1,23 +1,21 @@
 {
-  "id": "2026-08-23-02",
-  "versao": "2026.08.23-hotfix-ia-resiliencia",
+  "id": "2026-08-23-03",
+  "versao": "2026.08.23-hotfix-call-direta",
   "data": "2026-08-23",
-  "titulo": "Hotfix da IA — modo de emergência e menos travamentos",
+  "titulo": "Hotfix de voz — entrada em call sem depender da IA externa",
   "novidades": [
-    "A IA agora possui um modo de emergência local para continuar respondendo quando a Groq estiver temporariamente indisponível.",
-    "Figurinhas catalogadas continuam sendo interpretadas no modo de emergência e podem receber uma reação textual ou outra figurinha relacionada."
+    "Pedidos explícitos para o bot entrar em call agora são executados localmente e não dependem de uma resposta da Groq.",
+    "O detector de pedidos de call passou a reconhecer expressões como 'brota na call', 'brota pra call', 'chega na call' e outras variações."
   ],
   "correcoes": [
-    "A mensagem repetitiva 'minha IA externa deu uma travada' deixou de ser a resposta padrão quando a API externa falha.",
-    "O catálogo de stickers enviado à IA foi reduzido para apenas os candidatos mais relevantes, diminuindo o peso de cada requisição.",
-    "Adicionada proteção contra várias chamadas seguidas à Groq durante uma sequência de falhas."
+    "Corrigido o caso em que a Groq falhava e o modo local respondia frases como 'tô aqui' ou 'continue...' em vez de entrar na call.",
+    "Frases já suportadas como 'vem pra call' agora disparam a entrada em voz mesmo quando a IA externa estiver em pausa ou indisponível."
   ],
   "alteracoes": [
-    "O limite máximo de geração externa foi reduzido para respostas mais curtas, compatíveis com o estilo do bot.",
-    "Após falhas consecutivas, a IA externa entra em uma pausa temporária de proteção e o bot usa respostas locais até tentar novamente.",
-    "Os erros reais da Groq continuam aparecendo nos logs da Railway para diagnóstico, sem interromper a conversa do usuário."
+    "Cooldown individual, sequência de áudios e restrição de silêncio durante a call de desenvolvimento continuam sendo respeitados.",
+    "Se o usuário pedir call sem estar conectado a uma call, o bot continua avisando que ele não está em voz."
   ],
   "problemas_conhecidos": [
-    "A causa exata das falhas atuais da Groq ainda depende da mensagem de erro registrada nos logs da Railway; o hotfix evita que essas falhas parem a conversa."
+    "Falhas da Groq podem continuar aparecendo nos logs, mas não impedem mais pedidos explícitos de entrada em call."
   ]
 }

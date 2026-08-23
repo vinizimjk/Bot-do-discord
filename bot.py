@@ -7109,6 +7109,18 @@ async def responder_com_ia(
     ):
         return False
 
+    # Pedido explícito de call é uma ação determinística e não depende da Groq.
+    # Assim, mesmo se a IA externa estiver em fallback/pausa, frases como
+    # "vem pra call" e "brota na call" continuam fazendo o bot entrar.
+    if mensagem_pede_bot_na_call(message.content):
+        asyncio.create_task(
+            executar_ia_na_call(
+                message,
+                ""
+            )
+        )
+        return True
+
     resposta_rapida = escolher_resposta_rapida_ia(
         message
     )
@@ -10266,12 +10278,18 @@ def mensagem_pede_bot_na_call(texto):
     texto = str(texto or "").casefold()
 
     padroes = (
-        r"\bentra (?:na|no|aqui na|minha) call\b",
-        r"\bvem (?:pra|para|na|minha) call\b",
-        r"\bcola (?:na|aqui na|minha) call\b",
+        r"\bentra (?:na|no|aqui na|minha|nessa) call\b",
+        r"\bvem (?:pra|para|na|minha|nessa) call\b",
+        r"\bvem (?:aqui )?(?:pra|para) (?:a )?call\b",
+        r"\bbrota (?:na|pra|para|aqui na|minha|nessa) call\b",
+        r"\bbrota call\b",
+        r"\bcola (?:na|pra|para|aqui na|minha|nessa) call\b",
+        r"\bchega (?:na|pra|para|aqui na|minha|nessa) call\b",
+        r"\baparece (?:na|aqui na|minha|nessa) call\b",
         r"\bentra a[ií] na call\b",
         r"\bvai entrar na call\b",
         r"\bentra call\b",
+        r"\bvem call\b",
         r"\bduvido (?:vc|você|tu|o bot)?\s*(?:de )?entrar (?:na|minha) call\b",
         r"\bduvido (?:vc|você|tu|o bot)?\s*(?:vir|vim) (?:pra|para|na|minha) call\b",
         r"\bquero (?:que )?(?:vc|você|tu|o bot)?\s*entre (?:na|minha) call\b",
