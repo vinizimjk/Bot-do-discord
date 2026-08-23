@@ -1,17 +1,23 @@
 {
-  "id": "2026-08-23-01",
-  "versao": "2026.08.23-hotfix-permissao-ban",
+  "id": "2026-08-23-02",
+  "versao": "2026.08.23-hotfix-ia-resiliencia",
   "data": "2026-08-23",
-  "titulo": "Hotfix — permissão do Departamento de Banimentos",
-  "novidades": [],
+  "titulo": "Hotfix da IA — modo de emergência e menos travamentos",
+  "novidades": [
+    "A IA agora possui um modo de emergência local para continuar respondendo quando a Groq estiver temporariamente indisponível.",
+    "Figurinhas catalogadas continuam sendo interpretadas no modo de emergência e podem receber uma reação textual ou outra figurinha relacionada."
+  ],
   "correcoes": [
-    "Corrigida a autorização do sistema de Ban para reconhecer o cargo Departamento de Banimentos (ID 1536734408277491863).",
-    "Membros do Departamento de Banimentos agora podem usar /ban painel, /ban solicitar e os botões de Solicitar Ban/Hackban.",
-    "A Equipe de Desenvolvimento e o dono continuam autorizados a criar solicitações normalmente."
+    "A mensagem repetitiva 'minha IA externa deu uma travada' deixou de ser a resposta padrão quando a API externa falha.",
+    "O catálogo de stickers enviado à IA foi reduzido para apenas os candidatos mais relevantes, diminuindo o peso de cada requisição.",
+    "Adicionada proteção contra várias chamadas seguidas à Groq durante uma sequência de falhas."
   ],
   "alteracoes": [
-    "O rodapé do painel de Ban agora informa corretamente que o Departamento de Banimentos também possui acesso.",
-    "A aprovação e a negação das solicitações continuam restritas ao dono, sem alteração na segurança da decisão final."
+    "O limite máximo de geração externa foi reduzido para respostas mais curtas, compatíveis com o estilo do bot.",
+    "Após falhas consecutivas, a IA externa entra em uma pausa temporária de proteção e o bot usa respostas locais até tentar novamente.",
+    "Os erros reais da Groq continuam aparecendo nos logs da Railway para diagnóstico, sem interromper a conversa do usuário."
   ],
-  "problemas_conhecidos": []
+  "problemas_conhecidos": [
+    "A causa exata das falhas atuais da Groq ainda depende da mensagem de erro registrada nos logs da Railway; o hotfix evita que essas falhas parem a conversa."
+  ]
 }

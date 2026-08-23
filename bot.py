@@ -471,6 +471,14 @@ _ia_catalogo_stickers = {}
 _ia_stickers_recentes = {}
 _ia_sticker_ultimo_envio = {}
 
+# Resiliência da IA externa. Se a Groq oscilar ou limitar requisições,
+# o bot usa respostas locais por um curto período em vez de parecer quebrado.
+IA_GROQ_FALHAS_PARA_PAUSA = max(1, int(os.getenv("IA_GROQ_FALHAS_PARA_PAUSA", "2")))
+IA_GROQ_PAUSA_SEGUNDOS = max(15, int(os.getenv("IA_GROQ_PAUSA_SEGUNDOS", "60")))
+IA_STICKERS_MAX_NO_PROMPT = max(3, int(os.getenv("IA_STICKERS_MAX_NO_PROMPT", "8")))
+_ia_groq_falhas_consecutivas = 0
+_ia_groq_pausa_ate = 0.0
+
 
 def carregar_catalogo_stickers_ia():
     """Carrega a memória visual textual criada a partir das figurinhas do servidor."""
@@ -588,20 +596,52 @@ def contexto_catalogo_stickers_ia(message):
         )
 
     recentes = set(_stickers_recentes_canal(message))
-    candidatos = []
+
+    # Não envia o catálogo inteiro para a Groq em TODA mensagem.
+    # Seleciona poucos candidatos relevantes e reduz bastante o consumo de tokens.
+    texto_busca = limpar_mencao_do_bot(message.content).casefold()
+    partes_busca = [texto_busca]
+    for sticker in message.stickers:
+        item_recebido = obter_contexto_sticker(sticker.id)
+        if not item_recebido:
+            continue
+        partes_busca.extend(str(x).casefold() for x in item_recebido.get("emocao", []))
+        partes_busca.extend(str(x).casefold() for x in item_recebido.get("palavras_chave", []))
+        partes_busca.append(str(item_recebido.get("texto_na_imagem") or "").casefold())
+    busca = " ".join(partes_busca)
+
+    ranqueados = []
     for sticker_id, item in _ia_catalogo_stickers.items():
         if not item.get("auto_uso", False) or sticker_id in recentes:
             continue
-        nome = str(item.get("nome_interno") or "sticker").strip()
-        emocoes = ", ".join(str(x) for x in item.get("emocao", [])[:4])
-        palavras = ", ".join(str(x) for x in item.get("palavras_chave", [])[:6])
-        usar = "; ".join(str(x) for x in item.get("usar_quando", [])[:3])
-        candidatos.append(
-            f"- {sticker_id} | {nome} | emoção: {emocoes} | usar: {usar} | palavras: {palavras}"
-        )
 
-    if not candidatos:
+        nome = str(item.get("nome_interno") or "sticker").strip()
+        emocoes_lista = [str(x) for x in item.get("emocao", [])[:4]]
+        palavras_lista = [str(x) for x in item.get("palavras_chave", [])[:6]]
+        usar_lista = [str(x) for x in item.get("usar_quando", [])[:3]]
+
+        termos = [nome, *emocoes_lista, *palavras_lista, *usar_lista]
+        pontuacao = 0
+        for termo in termos:
+            t = termo.casefold().strip()
+            if t and len(t) >= 3 and t in busca:
+                pontuacao += 3
+            else:
+                for palavra in re.findall(r"[a-záàâãéêíóôõúç0-9]+", t):
+                    if len(palavra) >= 4 and palavra in busca:
+                        pontuacao += 1
+
+        linha = (
+            f"- {sticker_id} | {nome} | emoção: {', '.join(emocoes_lista)} | "
+            f"usar: {'; '.join(usar_lista)} | palavras: {', '.join(palavras_lista)}"
+        )
+        ranqueados.append((pontuacao, random.random(), linha))
+
+    if not ranqueados:
         return recebido
+
+    ranqueados.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    candidatos = [linha for _, _, linha in ranqueados[:IA_STICKERS_MAX_NO_PROMPT]]
 
     regras = """
 MEMÓRIA VISUAL — STICKERS QUE VOCÊ PODE ENVIAR AGORA:
@@ -6806,6 +6846,178 @@ async def enviar_resposta_rapida_ia(message: discord.Message, texto):
     return True
 
 
+def groq_em_pausa_temporaria():
+    return time.monotonic() < _ia_groq_pausa_ate
+
+
+def registrar_sucesso_groq():
+    global _ia_groq_falhas_consecutivas, _ia_groq_pausa_ate
+    _ia_groq_falhas_consecutivas = 0
+    _ia_groq_pausa_ate = 0.0
+
+
+def registrar_falha_groq():
+    global _ia_groq_falhas_consecutivas, _ia_groq_pausa_ate
+    _ia_groq_falhas_consecutivas += 1
+    if _ia_groq_falhas_consecutivas >= IA_GROQ_FALHAS_PARA_PAUSA:
+        _ia_groq_pausa_ate = max(
+            _ia_groq_pausa_ate,
+            time.monotonic() + IA_GROQ_PAUSA_SEGUNDOS,
+        )
+        print(
+            "IA Groq: pausa temporária ativada | "
+            f"falhas={_ia_groq_falhas_consecutivas} | segundos={IA_GROQ_PAUSA_SEGUNDOS}",
+            flush=True,
+        )
+
+
+def escolher_texto_fallback_sticker(message):
+    if not message.stickers:
+        return None
+
+    respostas = []
+    for sticker in message.stickers:
+        item = obter_contexto_sticker(sticker.id)
+        if not item:
+            continue
+        sinais = " ".join(
+            [
+                *[str(x) for x in item.get("emocao", [])],
+                *[str(x) for x in item.get("tom", [])],
+                *[str(x) for x in item.get("palavras_chave", [])],
+                str(item.get("texto_na_imagem") or ""),
+            ]
+        ).casefold()
+
+        if any(x in sinais for x in ("vitória", "campeão", "troféu", "comemoração")):
+            respostas += ["aí sim kkk", "brabo demais", "campeão porra kkk"]
+        elif any(x in sinais for x in ("grito", "gargalhada", "caos", "histeria")):
+            respostas += ["KKKKKKKKKK", "q desgraça é essa kkk", "eu tankei foi nada"]
+        elif any(x in sinais for x in ("sem reação", "tédio", "julgamento", "desconfiança")):
+            respostas += ["eu nem sei oq responder pra isso kkk", "🤨", "tá bom então né kkk"]
+        elif any(x in sinais for x in ("ameaça", "desafio", "batalha", "guerra")):
+            respostas += ["isso foi uma ameaça? kkk", "calma guerreiro", "ih começou"]
+        elif any(x in sinais for x in ("vergonha", "deu ruim", "constrangimento")):
+            respostas += ["vish kkk", "deu ruim bonito", "aí é foda kkk"]
+        elif any(x in sinais for x in ("formal", "terno", "elegante")):
+            respostas += ["muito profissional graças a deus kkk", "finíssimo", "postura de empresário"]
+        elif any(x in sinais for x in ("planejamento", "tramando", "malícia")):
+            respostas += ["tu tá tramando alguma merda né", "já vi esse plano aí", "ih olha a ideia vindo"]
+        else:
+            respostas += ["essa figurinha me quebrou kkk", "KKKKKK", "q porra é essa"]
+
+    if not respostas:
+        return None
+    return escolher_sem_repetir_ia(message.author.id, respostas)
+
+
+def escolher_sticker_fallback_local(message):
+    if message.guild is None or sticker_ia_em_cooldown(message):
+        return None
+
+    # Se o usuário enviou um sticker conhecido, procura uma resposta visual
+    # parecida pelo catálogo, sem depender da IA externa.
+    termos = set()
+    for sticker in message.stickers:
+        item = obter_contexto_sticker(sticker.id)
+        if not item:
+            continue
+        for campo in ("emocao", "tom", "palavras_chave"):
+            termos.update(str(x).casefold() for x in item.get(campo, []))
+
+    if not termos:
+        return None
+
+    recentes = set(_stickers_recentes_canal(message))
+    recebidos = {str(sticker.id) for sticker in message.stickers}
+    opcoes = []
+    for sid, item in _ia_catalogo_stickers.items():
+        if not item.get("auto_uso", False) or sid in recentes or sid in recebidos:
+            continue
+        alvo = set()
+        for campo in ("emocao", "tom", "palavras_chave"):
+            alvo.update(str(x).casefold() for x in item.get(campo, []))
+        score = len(termos & alvo)
+        if score:
+            opcoes.append((score, random.random(), sid))
+
+    if not opcoes:
+        return None
+    opcoes.sort(reverse=True)
+    return opcoes[0][2]
+
+
+async def responder_ia_fallback_local(message, pergunta=""):
+    """Resposta de emergência quando a IA externa oscila.
+
+    Mantém o bot conversando e entendendo stickers catalogados sem fingir que
+    houve geração inteligente quando a Groq está indisponível.
+    """
+    texto_sticker = escolher_texto_fallback_sticker(message)
+
+    # Para stickers conhecidos, às vezes responde visualmente com outro sticker
+    # relacionado. Continua respeitando auto_uso, cooldown e antirrepetição.
+    if message.stickers and random.random() < 0.45:
+        sid = escolher_sticker_fallback_local(message)
+        if sid and await enviar_sticker_ia(message, sid, ""):
+            return True
+
+    texto = limpar_mencao_do_bot(message.content).strip()
+    baixo = texto.casefold()
+    pode_palavrao = mensagem_tem_palavrao_ia(texto)
+
+    if texto_sticker:
+        resposta = texto_sticker
+    elif re.search(r"\b(oi|ola|olá|ei|eae|iae|salve|fala)\b", baixo):
+        resposta = escolher_sem_repetir_ia(
+            message.author.id,
+            ["fala meu mano", "eae", "salve", "q foi?", "tô aqui kkk"],
+        )
+    elif "?" in texto or baixo.startswith(("oq ", "o que ", "que ", "pq ", "por que ")):
+        opcoes = [
+            "essa aí me pegou kkk, me dá mais contexto",
+            "depende, explica melhor aí",
+            "manda o contexto direito q eu tento acompanhar",
+            "essa eu n vou inventar resposta do nada não kkk",
+        ]
+        if pode_palavrao:
+            opcoes.append("depende, explica melhor essa porra aí")
+        resposta = escolher_sem_repetir_ia(message.author.id, opcoes)
+    elif message.attachments:
+        opcoes = ["essa imagem me quebrou kkk", "KKKKKK olha isso", "q isso kkk"]
+        if pode_palavrao:
+            opcoes.append("q desgraça é essa kkk")
+        resposta = escolher_sem_repetir_ia(message.author.id, opcoes)
+    else:
+        opcoes = [
+            "tô meio lesado agora mas tô te ouvindo kkk",
+            "fala mais q eu tô acompanhando",
+            "tô aqui kkk",
+            "continue, quero ver onde isso vai dar",
+            "essa conversa tá ficando suspeita kkk",
+        ]
+        if pode_palavrao:
+            opcoes.append("tô aqui porra kkk")
+        resposta = escolher_sem_repetir_ia(message.author.id, opcoes)
+
+    try:
+        await message.reply(
+            resposta,
+            mention_author=False,
+            allowed_mentions=discord.AllowedMentions(
+                users=True, roles=False, everyone=False, replied_user=False
+            ),
+        )
+        registrar_resposta_textual_ia(message.author.id, resposta)
+        return True
+    except (discord.Forbidden, discord.HTTPException):
+        try:
+            await message.add_reaction("💀")
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+        return True
+
+
 async def gerar_resposta_groq_resiliente(mensagens):
     """Gera resposta na Groq sem deixar o bot preso em "digitando".
 
@@ -6815,6 +7027,9 @@ async def gerar_resposta_groq_resiliente(mensagens):
     """
     if groq_client is None:
         raise RuntimeError("Cliente Groq não inicializado; confira GROQ_API_KEY.")
+    if groq_em_pausa_temporaria():
+        restante = max(0, int(_ia_groq_pausa_ate - time.monotonic()))
+        raise RuntimeError(f"Groq em pausa temporária de proteção ({restante}s restantes).")
 
     inicio = time.monotonic()
     erros = []
@@ -6837,7 +7052,7 @@ async def gerar_resposta_groq_resiliente(mensagens):
                     model=modelo,
                     messages=mensagens,
                     temperature=1.02,
-                    max_completion_tokens=650,
+                    max_completion_tokens=320,
                 ),
                 timeout=timeout_modelo,
             )
@@ -6857,6 +7072,7 @@ async def gerar_resposta_groq_resiliente(mensagens):
                     flush=True,
                 )
 
+            registrar_sucesso_groq()
             return resposta
 
         except Exception as erro:
@@ -6869,6 +7085,7 @@ async def gerar_resposta_groq_resiliente(mensagens):
             )
 
     tempo_total = time.monotonic() - inicio
+    registrar_falha_groq()
     if erros:
         modelo, erro = erros[-1]
         raise RuntimeError(
@@ -6937,6 +7154,12 @@ async def responder_com_ia(
                 "A pessoa apenas chamou você. "
                 "Responda naturalmente."
             )
+
+    # Se a proteção temporária da Groq estiver ativa, responde localmente
+    # sem gastar mais uma chamada que provavelmente falharia.
+    if groq_em_pausa_temporaria():
+        print("IA fallback local | motivo=pausa_protecao_groq", flush=True)
+        return await responder_ia_fallback_local(message, pergunta)
 
     contexto_stickers = contexto_catalogo_stickers_ia(
         message
@@ -7041,20 +7264,10 @@ async def responder_com_ia(
             flush=True,
         )
 
-        # Nunca mais fica em silêncio: se a API falhar completamente,
-        # o usuário recebe um aviso curto e o erro real continua nos logs.
-        try:
-            await message.reply(
-                "minha IA externa deu uma travada agora, tenta de novo em alguns segundos",
-                mention_author=False,
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
-        except (discord.Forbidden, discord.HTTPException):
-            try:
-                await message.add_reaction("💀")
-            except (discord.Forbidden, discord.HTTPException):
-                pass
-        return True
+        # O erro real continua nos logs, mas o usuário recebe uma resposta
+        # local variada. Assim uma oscilação da Groq não faz o bot parecer quebrado.
+        print("IA fallback local | motivo=falha_groq", flush=True)
+        return await responder_ia_fallback_local(message, pergunta)
 
     memoria.append(
         {
