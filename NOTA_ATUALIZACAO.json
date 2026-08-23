@@ -1,27 +1,20 @@
 {
-  "id": "2026-08-23-05",
-  "versao": "2026.08.23-recrutamento-eventos-prefill",
+  "id": "2026-08-23-08",
+  "versao": "2026.08.23-hotfix-recrutamento-limpeza",
   "data": "2026-08-23",
-  "titulo": "Admissão de Eventos — código automático no Forms",
+  "titulo": "Hotfix do recrutamento — testes e limpeza automática",
   "novidades": [
-    "Novo painel de admissão do Departamento de Eventos no canal configurado, com botão para iniciar a prova.",
-    "O botão Fazer prova agora abre o Google Forms com o Código da candidatura preenchido automaticamente.",
-    "Cada candidato recebe um código individual de candidatura para usar no Google Forms.",
-    "As respostas enviadas pelo Forms são recebidas pelo site e publicadas automaticamente em um canal privado do candidato.",
-    "Diretores de Eventos e administradores podem chamar o candidato para uma call privada de entrevista.",
-    "Após a entrevista, o avaliador pode aprovar ou reprovar diretamente pelo Discord.",
-    "A aprovação entrega automaticamente o cargo Aprendiz de Eventos."
+    "🧪 Novo comando /resetarprovaeventos, exclusivo do dono, para zerar uma conta usada em testes e repetir todo o fluxo de admissão.",
+    "🧹 Após aprovação ou reprovação, o canal privado da prova e a call de entrevista são apagados automaticamente depois de 3 minutos."
   ],
-  "correcoes": [],
+  "correcoes": [
+    "📝 Uma candidatura que já avançou para avaliação/call não reutiliza mais um código antigo que levaria a uma página bloqueada.",
+    "📋 Ao tentar iniciar outra prova com candidatura em andamento, o bot agora informa a etapa atual em vez de entregar um link inválido.",
+    "🧹 O reset de teste também remove o cooldown e tenta apagar os canais temporários daquela candidatura."
+  ],
   "alteracoes": [
-    "O candidato não precisa mais copiar e colar o código RM-EVT; o Apps Script gera um link pré-preenchido para cada candidatura.",
-    "Candidatos reprovados ficam 24 horas impedidos de iniciar uma nova candidatura.",
-    "A call de entrevista permite conexão somente do candidato e da equipe autorizada; administradores continuam com acesso normal.",
-    "O convite da entrevista expira em 15 minutos e possui um único uso.",
-    "O bot mantém as respostas completas da prova, pergunta por pergunta, para avaliação da equipe."
+    "🔒 O reset é restrito ao dono do bot e usa a mesma autenticação segura entre bot e site.",
+    "⏱️ O encerramento do recrutamento mantém os canais por 3 minutos para o candidato e a equipe verem o resultado antes da remoção."
   ],
-  "problemas_conhecidos": [
-    "BOT e SITE precisam usar o mesmo EVENTOS_RECRUTAMENTO_SECRET na Railway.",
-    "O Apps Script precisa ser implantado uma vez como Aplicativo da Web e registrado no site pela função registrarWebApp()."
-  ]
+  "problemas_conhecidos": []
 }

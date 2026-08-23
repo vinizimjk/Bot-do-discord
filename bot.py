@@ -51,6 +51,7 @@ EVENTOS_DIRETOR_CARGO_ID = 1541015040029884466
 EVENTOS_APRENDIZ_CARGO_ID = 1541015961715474463
 EVENTOS_FORMS_URL = "https://forms.gle/ZVhPQhdVZ6B3S25E9"
 EVENTOS_REFAZER_HORAS = 24
+EVENTOS_LIMPEZA_CANAIS_SEGUNDOS = 180
 EVENTOS_RECRUTAMENTO_SITE_URL = os.getenv(
     "EVENTOS_RECRUTAMENTO_SITE_URL",
     PAINEL_MENU_URL,
@@ -10997,6 +10998,16 @@ class EventosAdmissaoView(discord.ui.View):
                 )
                 return
 
+            if status == 409 and resposta.get("erro") == "candidatura_em_andamento":
+                etapa = str(resposta.get("status") or "").replace("_", " ")
+                await interaction.followup.send(
+                    "📋 Você já possui uma candidatura em andamento.\n\n"
+                    f"**Etapa atual:** `{etapa or 'em andamento'}`\n"
+                    "Aguarde a equipe finalizar essa candidatura antes de iniciar outra.",
+                    ephemeral=True,
+                )
+                return
+
             await interaction.followup.send(
                 "❌ Não consegui iniciar sua candidatura agora. "
                 f"Detalhe: `{resposta.get('erro', 'erro desconhecido')}`",
@@ -11015,6 +11026,81 @@ class EventosAdmissaoView(discord.ui.View):
             view=EventosProvaLinkView(codigo),
             ephemeral=True,
         )
+
+
+@bot.tree.command(
+    name="resetarprovaeventos",
+    description="Reinicia o recrutamento de uma conta usada em testes",
+)
+@app_commands.describe(
+    usuario="Conta do Discord que terá a candidatura zerada",
+)
+async def resetarprovaeventos(
+    interaction: discord.Interaction,
+    usuario: discord.Member,
+):
+    if interaction.user.id != DONO_ID:
+        await interaction.response.send_message(
+            "❌ Apenas o dono do bot pode resetar candidaturas de teste.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+
+    ok, status_http, resposta = await eventos_api(
+        "/api/recrutamento/eventos/resetar-teste",
+        metodo="POST",
+        payload={
+            "discord_id": str(usuario.id),
+        },
+    )
+
+    if not ok:
+        await interaction.followup.send(
+            "❌ Não consegui resetar a candidatura. "
+            f"Detalhe: `{resposta.get('erro', f'HTTP {status_http}')}`",
+            ephemeral=True,
+        )
+        return
+
+    removidas = resposta.get("removidas") or []
+    canais_apagados = 0
+
+    if interaction.guild:
+        ids_canais = set()
+        for item in removidas:
+            for chave in ("discord_channel_id", "voice_channel_id"):
+                try:
+                    canal_id = int(item.get(chave) or 0)
+                except (TypeError, ValueError):
+                    canal_id = 0
+                if canal_id:
+                    ids_canais.add(canal_id)
+
+        for canal_id in ids_canais:
+            canal = interaction.guild.get_channel(canal_id)
+            if canal is None:
+                continue
+            try:
+                await canal.delete(
+                    reason=(
+                        "Reset de candidatura de teste solicitado pelo dono "
+                        f"({interaction.user})"
+                    )
+                )
+                canais_apagados += 1
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+
+    await interaction.followup.send(
+        "🧪 **Candidatura de teste resetada.**\n\n"
+        f"👤 Conta: {usuario.mention}\n"
+        f"🗑️ Candidaturas removidas: **{len(removidas)}**\n"
+        f"🧹 Canais temporários apagados: **{canais_apagados}**\n\n"
+        "Essa conta já pode clicar em **Fazer prova** novamente e receber um novo código.",
+        ephemeral=True,
+    )
 
 
 async def candidatura_eventos_do_canal(canal_id):
@@ -11047,6 +11133,76 @@ async def negar_avaliador_eventos(interaction):
             ephemeral=True,
         )
     return True
+
+
+async def limpar_canais_recrutamento_eventos_apos_delay(
+    guild_id,
+    canal_texto_id,
+    canal_voz_id,
+    codigo,
+    delay=EVENTOS_LIMPEZA_CANAIS_SEGUNDOS,
+):
+    """Remove a call e o canal privado 3 minutos após a decisão final."""
+    try:
+        await asyncio.sleep(max(0, int(delay)))
+
+        guild = bot.get_guild(int(guild_id))
+        if guild is None:
+            print(
+                "Recrutamento Eventos | limpeza automática cancelada: "
+                f"guild não encontrada | codigo={codigo}"
+            )
+            return
+
+        ids = []
+        for canal_id in (canal_voz_id, canal_texto_id):
+            try:
+                canal_id = int(canal_id or 0)
+            except (TypeError, ValueError):
+                canal_id = 0
+            if canal_id and canal_id not in ids:
+                ids.append(canal_id)
+
+        for canal_id in ids:
+            canal = guild.get_channel(canal_id)
+            if canal is None:
+                continue
+            try:
+                await canal.delete(
+                    reason=(
+                        "Recrutamento de Eventos finalizado — "
+                        f"limpeza automática após 3 minutos | {codigo}"
+                    )
+                )
+            except (discord.Forbidden, discord.HTTPException) as erro:
+                print(
+                    "Recrutamento Eventos | erro ao apagar canal "
+                    f"{canal_id} | codigo={codigo} | {erro!r}"
+                )
+    except asyncio.CancelledError:
+        raise
+    except Exception as erro:
+        print(
+            "Recrutamento Eventos | erro inesperado na limpeza automática "
+            f"| codigo={codigo} | {type(erro).__name__}: {erro}"
+        )
+
+
+def agendar_limpeza_canais_recrutamento_eventos(
+    interaction,
+    candidatura,
+):
+    if not interaction.guild or not interaction.channel:
+        return
+
+    asyncio.create_task(
+        limpar_canais_recrutamento_eventos_apos_delay(
+            guild_id=interaction.guild.id,
+            canal_texto_id=interaction.channel.id,
+            canal_voz_id=candidatura.get("voice_channel_id"),
+            codigo=candidatura.get("codigo"),
+        )
+    )
 
 
 async def reprovar_candidatura_eventos(
@@ -11090,8 +11246,18 @@ async def reprovar_candidatura_eventos(
             everyone=False,
         ),
     )
+    await interaction.channel.send(
+        "🧹 **Encerramento do recrutamento**\n"
+        "Este canal e a call de entrevista, se existir, serão "
+        "apagados automaticamente em **3 minutos**."
+    )
+    agendar_limpeza_canais_recrutamento_eventos(
+        interaction,
+        candidatura,
+    )
     await interaction.followup.send(
-        "✅ Reprovação registrada e cooldown de 24 horas aplicado.",
+        "✅ Reprovação registrada e cooldown de 24 horas aplicado. "
+        "Os canais temporários serão apagados em 3 minutos.",
         ephemeral=True,
     )
 
@@ -11388,8 +11554,18 @@ class EventosResultadoView(discord.ui.View):
                 everyone=False,
             ),
         )
+        await interaction.channel.send(
+            "🧹 **Encerramento do recrutamento**\n"
+            "Este canal e a call de entrevista serão apagados "
+            "automaticamente em **3 minutos**."
+        )
+        agendar_limpeza_canais_recrutamento_eventos(
+            interaction,
+            candidatura,
+        )
         await interaction.followup.send(
-            "✅ Candidato aprovado e cargo entregue.",
+            "✅ Candidato aprovado e cargo entregue. "
+            "Os canais temporários serão apagados em 3 minutos.",
             ephemeral=True,
         )
 
@@ -11520,6 +11696,30 @@ def localizar_canal_prova_existente(categoria, codigo):
     return None
 
 
+def campo_oculto_relatorio_eventos(pergunta):
+    titulo = str(pergunta or "").strip().casefold()
+    substituicoes = str.maketrans({
+        "á": "a", "à": "a", "ã": "a", "â": "a",
+        "é": "e", "ê": "e",
+        "í": "i",
+        "ó": "o", "ô": "o", "õ": "o",
+        "ú": "u", "ç": "c",
+    })
+    titulo = titulo.translate(substituicoes)
+    return titulo in {
+        "carimbo de data/hora",
+        "timestamp",
+        "horario",
+        "data e hora",
+        "endereco de e-mail",
+        "endereco de email",
+        "e-mail",
+        "email",
+        "pontuacao",
+        "score",
+    }
+
+
 async def publicar_prova_eventos(candidatura):
     categoria = bot.get_channel(
         EVENTOS_RECRUTAMENTO_CATEGORIA_ID
@@ -11596,8 +11796,14 @@ async def publicar_prova_eventos(candidatura):
         )
 
         blocos = []
+        respostas_visiveis = [
+            item
+            for item in (candidatura.get("respostas") or [])
+            if isinstance(item, dict)
+            and not campo_oculto_relatorio_eventos(item.get("pergunta"))
+        ]
         for indice, item in enumerate(
-            candidatura.get("respostas") or [],
+            respostas_visiveis,
             1,
         ):
             pergunta = escapar_mencoes_eventos(
