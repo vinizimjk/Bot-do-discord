@@ -1,21 +1,27 @@
 {
-  "id": "2026-08-23-03",
-  "versao": "2026.08.23-hotfix-call-direta",
+  "id": "2026-08-23-05",
+  "versao": "2026.08.23-recrutamento-eventos-prefill",
   "data": "2026-08-23",
-  "titulo": "Hotfix de voz — entrada em call sem depender da IA externa",
+  "titulo": "Admissão de Eventos — código automático no Forms",
   "novidades": [
-    "Pedidos explícitos para o bot entrar em call agora são executados localmente e não dependem de uma resposta da Groq.",
-    "O detector de pedidos de call passou a reconhecer expressões como 'brota na call', 'brota pra call', 'chega na call' e outras variações."
+    "Novo painel de admissão do Departamento de Eventos no canal configurado, com botão para iniciar a prova.",
+    "O botão Fazer prova agora abre o Google Forms com o Código da candidatura preenchido automaticamente.",
+    "Cada candidato recebe um código individual de candidatura para usar no Google Forms.",
+    "As respostas enviadas pelo Forms são recebidas pelo site e publicadas automaticamente em um canal privado do candidato.",
+    "Diretores de Eventos e administradores podem chamar o candidato para uma call privada de entrevista.",
+    "Após a entrevista, o avaliador pode aprovar ou reprovar diretamente pelo Discord.",
+    "A aprovação entrega automaticamente o cargo Aprendiz de Eventos."
   ],
-  "correcoes": [
-    "Corrigido o caso em que a Groq falhava e o modo local respondia frases como 'tô aqui' ou 'continue...' em vez de entrar na call.",
-    "Frases já suportadas como 'vem pra call' agora disparam a entrada em voz mesmo quando a IA externa estiver em pausa ou indisponível."
-  ],
+  "correcoes": [],
   "alteracoes": [
-    "Cooldown individual, sequência de áudios e restrição de silêncio durante a call de desenvolvimento continuam sendo respeitados.",
-    "Se o usuário pedir call sem estar conectado a uma call, o bot continua avisando que ele não está em voz."
+    "O candidato não precisa mais copiar e colar o código RM-EVT; o Apps Script gera um link pré-preenchido para cada candidatura.",
+    "Candidatos reprovados ficam 24 horas impedidos de iniciar uma nova candidatura.",
+    "A call de entrevista permite conexão somente do candidato e da equipe autorizada; administradores continuam com acesso normal.",
+    "O convite da entrevista expira em 15 minutos e possui um único uso.",
+    "O bot mantém as respostas completas da prova, pergunta por pergunta, para avaliação da equipe."
   ],
   "problemas_conhecidos": [
-    "Falhas da Groq podem continuar aparecendo nos logs, mas não impedem mais pedidos explícitos de entrada em call."
+    "BOT e SITE precisam usar o mesmo EVENTOS_RECRUTAMENTO_SECRET na Railway.",
+    "O Apps Script precisa ser implantado uma vez como Aplicativo da Web e registrado no site pela função registrarWebApp()."
   ]
 }

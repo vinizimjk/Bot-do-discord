@@ -7,6 +7,8 @@ import random
 import re
 import sqlite3
 import uuid
+import urllib.request
+import urllib.error
 from collections import deque
 from datetime import datetime, timedelta, timezone, time as dt_time
 from zoneinfo import ZoneInfo
@@ -41,6 +43,23 @@ CANAL_STATUS_MINECRAFT_ID = 1538109074779144253
 CANAL_NICKNAMES_MINECRAFT_ID = 1534423515183448155
 CARGO_DESENVOLVIMENTO_ID = 1533625836874498181
 CARGO_BANIMENTOS_ID = 1536734408277491863
+
+# Recrutamento — Departamento de Eventos
+EVENTOS_RECRUTAMENTO_CATEGORIA_ID = 1541034599130341406
+EVENTOS_RECRUTAMENTO_PAINEL_CANAL_ID = 1541035337709649990
+EVENTOS_DIRETOR_CARGO_ID = 1541015040029884466
+EVENTOS_APRENDIZ_CARGO_ID = 1541015961715474463
+EVENTOS_FORMS_URL = "https://forms.gle/ZVhPQhdVZ6B3S25E9"
+EVENTOS_REFAZER_HORAS = 24
+EVENTOS_RECRUTAMENTO_SITE_URL = os.getenv(
+    "EVENTOS_RECRUTAMENTO_SITE_URL",
+    PAINEL_MENU_URL,
+).rstrip("/")
+EVENTOS_RECRUTAMENTO_SECRET = os.getenv(
+    "EVENTOS_RECRUTAMENTO_SECRET",
+    "",
+).strip()
+CHAVE_PAINEL_RECRUTAMENTO_EVENTOS = "painel_recrutamento_eventos_msg_id"
 MINECRAFT_HOST = "Rmax-j8Un.aternos.me"
 MINECRAFT_PORTA = 16184
 MINECRAFT_EDICAO = "bedrock"  # servidor atual é Bedrock
@@ -8837,6 +8856,11 @@ FUNCOES_ATUAIS_CATEGORIAS = {
         "👑 Evento Rei da Madrugada",
         "⏰ Rodadas automáticas durante a madrugada",
         "🏆 Registro de respostas e ranking do evento",
+        "📝 Admissão do Departamento de Eventos integrada ao Google Forms",
+        "🔐 Canal privado por candidato com perguntas e respostas completas da prova",
+        "🔊 Entrevista em call privada acessível somente ao candidato e à equipe",
+        "✅ Aprovação com entrega automática do cargo Aprendiz de Eventos",
+        "⏳ Reprovação com nova tentativa liberada após 24 horas",
     ],
     "🚪 Entradas": [
         "🔗 Controle de entrada por convites do Discord",
@@ -8847,6 +8871,7 @@ FUNCOES_ATUAIS_CATEGORIAS = {
         "📋 Menus configurados por canal",
         "🤖 Configuração remota da IA",
         "📢 Central de atualizações",
+        "🔗 Ponte segura Google Forms → Discord para recrutamento de Eventos",
         "🔐 Permissões administrativas e do Departamento de Eventos",
     ],
     "🛡️ Moderação": [
@@ -10763,11 +10788,902 @@ async def antes_zoeira_call_automatica():
 
 
 # ==========================================================
+# RECRUTAMENTO — DEPARTAMENTO DE EVENTOS / GOOGLE FORMS
+# ==========================================================
+
+
+def _eventos_api_sync(caminho, *, metodo="GET", payload=None):
+    if not EVENTOS_RECRUTAMENTO_SECRET:
+        return False, 503, {
+            "ok": False,
+            "erro": "EVENTOS_RECRUTAMENTO_SECRET não configurado.",
+        }
+
+    url = EVENTOS_RECRUTAMENTO_SITE_URL + caminho
+    dados = None
+    headers = {
+        "Accept": "application/json",
+        "X-Eventos-Secret": EVENTOS_RECRUTAMENTO_SECRET,
+    }
+    if payload is not None:
+        dados = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    requisicao = urllib.request.Request(
+        url,
+        data=dados,
+        headers=headers,
+        method=metodo,
+    )
+    try:
+        with urllib.request.urlopen(requisicao, timeout=15) as resposta:
+            bruto = resposta.read().decode("utf-8", errors="replace")
+            corpo = json.loads(bruto) if bruto else {}
+            return True, int(resposta.status), corpo
+    except urllib.error.HTTPError as erro:
+        try:
+            corpo = json.loads(
+                erro.read().decode("utf-8", errors="replace")
+            )
+        except Exception:
+            corpo = {"ok": False, "erro": str(erro)}
+        return False, int(erro.code), corpo
+    except Exception as erro:
+        return False, 0, {
+            "ok": False,
+            "erro": f"{type(erro).__name__}: {erro}",
+        }
+
+
+async def eventos_api(caminho, *, metodo="GET", payload=None):
+    return await asyncio.to_thread(
+        _eventos_api_sync,
+        caminho,
+        metodo=metodo,
+        payload=payload,
+    )
+
+
+def formatar_tempo_eventos(segundos):
+    segundos = max(0, int(segundos or 0))
+    horas, resto = divmod(segundos, 3600)
+    minutos, segundos = divmod(resto, 60)
+    if horas:
+        return f"{horas}h {minutos}min"
+    if minutos:
+        return f"{minutos}min {segundos}s"
+    return f"{segundos}s"
+
+
+def pode_avaliar_eventos(membro):
+    if not isinstance(membro, discord.Member):
+        return False
+    if membro.id == DONO_ID or membro.guild_permissions.administrator:
+        return True
+    return any(
+        cargo.id == EVENTOS_DIRETOR_CARGO_ID
+        for cargo in membro.roles
+    )
+
+
+def nome_canal_candidato(membro):
+    base = re.sub(
+        r"[^a-z0-9-]+",
+        "-",
+        membro.display_name.casefold(),
+    ).strip("-")
+    base = base[:70] or str(membro.id)
+    return f"prova-{base}"[:90]
+
+
+def escapar_mencoes_eventos(texto):
+    return str(texto or "").replace("@", "@\u200b")
+
+
+def dividir_texto_eventos(texto, limite=1850):
+    texto = str(texto or "").strip()
+    if len(texto) <= limite:
+        return [texto] if texto else []
+
+    partes = []
+    atual = ""
+    for bloco in texto.split("\n\n"):
+        candidato = (
+            f"{atual}\n\n{bloco}".strip()
+            if atual
+            else bloco
+        )
+        if len(candidato) <= limite:
+            atual = candidato
+            continue
+        if atual:
+            partes.append(atual)
+        while len(bloco) > limite:
+            partes.append(bloco[:limite])
+            bloco = bloco[limite:]
+        atual = bloco
+    if atual:
+        partes.append(atual)
+    return partes
+
+
+def url_prova_eventos_preenchida(codigo):
+    codigo = str(codigo or "").strip().upper()
+    return (
+        f"{EVENTOS_RECRUTAMENTO_SITE_URL}"
+        f"/recrutamento/eventos/abrir-prova/{codigo}"
+    )
+
+
+class EventosProvaLinkView(discord.ui.View):
+    def __init__(self, codigo):
+        super().__init__(timeout=600)
+        self.add_item(
+            discord.ui.Button(
+                label="Abrir prova já preenchida",
+                emoji="📝",
+                style=discord.ButtonStyle.link,
+                url=url_prova_eventos_preenchida(codigo),
+            )
+        )
+
+
+class EventosAdmissaoView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Informações",
+        emoji="📖",
+        style=discord.ButtonStyle.secondary,
+        custom_id="eventos_admissao_info_v1",
+    )
+    async def informacoes(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        await interaction.response.send_message(
+            "📖 **Admissão — Departamento de Eventos**\n\n"
+            "A seleção possui uma prova no Google Forms e, se a "
+            "equipe decidir continuar, um questionário em call.\n\n"
+            "Se você for reprovado, poderá tentar novamente após "
+            "**24 horas**.",
+            ephemeral=True,
+        )
+
+    @discord.ui.button(
+        label="Fazer prova",
+        emoji="📝",
+        style=discord.ButtonStyle.primary,
+        custom_id="eventos_admissao_fazer_prova_v1",
+    )
+    async def fazer_prova(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        await interaction.response.defer(
+            ephemeral=True,
+            thinking=True,
+        )
+        if (
+            not interaction.guild
+            or not isinstance(interaction.user, discord.Member)
+        ):
+            await interaction.followup.send(
+                "❌ Use este painel dentro do servidor.",
+                ephemeral=True,
+            )
+            return
+
+        ok, status, resposta = await eventos_api(
+            "/api/recrutamento/eventos/candidatura",
+            metodo="POST",
+            payload={
+                "discord_id": str(interaction.user.id),
+                "discord_nome": str(interaction.user),
+            },
+        )
+        if not ok:
+            if status == 429 and resposta.get("erro") == "cooldown":
+                falta = formatar_tempo_eventos(
+                    resposta.get("segundos_restantes", 0)
+                )
+                await interaction.followup.send(
+                    "⏳ Você foi reprovado recentemente. "
+                    f"Poderá tentar novamente em **{falta}**.",
+                    ephemeral=True,
+                )
+                return
+
+            await interaction.followup.send(
+                "❌ Não consegui iniciar sua candidatura agora. "
+                f"Detalhe: `{resposta.get('erro', 'erro desconhecido')}`",
+                ephemeral=True,
+            )
+            return
+
+        codigo = str(resposta.get("codigo") or "").strip()
+        await interaction.followup.send(
+            "📝 **Prova — Departamento de Eventos**\n\n"
+            f"Sua candidatura é: **`{codigo}`**\n\n"
+            "Clique no botão abaixo. O campo **Código da candidatura** "
+            "já será preenchido automaticamente no Google Forms.\n\n"
+            "⚠️ Não altere esse código no formulário e não compartilhe "
+            "sua candidatura com outra pessoa.",
+            view=EventosProvaLinkView(codigo),
+            ephemeral=True,
+        )
+
+
+async def candidatura_eventos_do_canal(canal_id):
+    ok, _, resposta = await eventos_api(
+        f"/api/recrutamento/eventos/por-canal/{int(canal_id)}"
+    )
+    if not ok:
+        return None, resposta.get(
+            "erro",
+            "Candidatura não encontrada.",
+        )
+    return resposta.get("candidatura"), None
+
+
+async def negar_avaliador_eventos(interaction):
+    if pode_avaliar_eventos(interaction.user):
+        return False
+
+    mensagem = (
+        "❌ Apenas Diretor de Eventos ou administrador pode usar esta ação."
+    )
+    if interaction.response.is_done():
+        await interaction.followup.send(
+            mensagem,
+            ephemeral=True,
+        )
+    else:
+        await interaction.response.send_message(
+            mensagem,
+            ephemeral=True,
+        )
+    return True
+
+
+async def reprovar_candidatura_eventos(
+    interaction,
+    candidatura,
+):
+    if candidatura.get("status") in {"aprovado", "reprovado", "encerrado"}:
+        await interaction.followup.send(
+            "ℹ️ Esta candidatura já foi finalizada.",
+            ephemeral=True,
+        )
+        return
+
+    codigo = candidatura.get("codigo")
+    ok, _, resposta = await eventos_api(
+        "/api/recrutamento/eventos/status",
+        metodo="POST",
+        payload={
+            "codigo": codigo,
+            "status": "reprovado",
+            "avaliador_id": str(interaction.user.id),
+            "avaliador_nome": str(interaction.user),
+        },
+    )
+    if not ok:
+        await interaction.followup.send(
+            "❌ Não consegui registrar a reprovação: "
+            f"`{resposta.get('erro', 'erro')}`",
+            ephemeral=True,
+        )
+        return
+
+    membro_id = int(candidatura.get("discord_id") or 0)
+    await interaction.channel.send(
+        f"<@{membro_id}> ❌ **Você foi reprovado no recrutamento "
+        "do Departamento de Eventos.**\n"
+        "Uma nova tentativa poderá ser feita após **24 horas**.",
+        allowed_mentions=discord.AllowedMentions(
+            users=True,
+            roles=False,
+            everyone=False,
+        ),
+    )
+    await interaction.followup.send(
+        "✅ Reprovação registrada e cooldown de 24 horas aplicado.",
+        ephemeral=True,
+    )
+
+
+class EventosAvaliacaoView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Chamar para call",
+        emoji="🔊",
+        style=discord.ButtonStyle.success,
+        custom_id="eventos_recrutamento_chamar_call_v1",
+    )
+    async def chamar_call(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        if await negar_avaliador_eventos(interaction):
+            return
+
+        await interaction.response.defer(
+            ephemeral=True,
+            thinking=True,
+        )
+        candidatura, erro = await candidatura_eventos_do_canal(
+            interaction.channel.id
+        )
+        if not candidatura:
+            await interaction.followup.send(
+                f"❌ {erro}",
+                ephemeral=True,
+            )
+            return
+        if candidatura.get("status") in {"aprovado", "reprovado", "encerrado"}:
+            await interaction.followup.send(
+                "ℹ️ Esta candidatura já foi finalizada.",
+                ephemeral=True,
+            )
+            return
+
+        guild = interaction.guild
+        categoria = guild.get_channel(
+            EVENTOS_RECRUTAMENTO_CATEGORIA_ID
+        )
+        if not isinstance(categoria, discord.CategoryChannel):
+            await interaction.followup.send(
+                "❌ Categoria do recrutamento não encontrada.",
+                ephemeral=True,
+            )
+            return
+
+        membro_id = int(candidatura.get("discord_id") or 0)
+        membro = guild.get_member(membro_id)
+        if membro is None:
+            try:
+                membro = await guild.fetch_member(membro_id)
+            except discord.HTTPException:
+                membro = None
+
+        if membro is None:
+            await interaction.followup.send(
+                "❌ O candidato não está mais no servidor.",
+                ephemeral=True,
+            )
+            return
+
+        diretor = guild.get_role(EVENTOS_DIRETOR_CARGO_ID)
+        voice = None
+        voice_id = str(
+            candidatura.get("voice_channel_id") or ""
+        )
+        if voice_id.isdigit():
+            achado = guild.get_channel(int(voice_id))
+            if isinstance(achado, discord.VoiceChannel):
+                voice = achado
+
+        if voice is None:
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(
+                    view_channel=False,
+                    connect=False,
+                ),
+                membro: discord.PermissionOverwrite(
+                    view_channel=True,
+                    connect=True,
+                    speak=True,
+                ),
+                guild.me: discord.PermissionOverwrite(
+                    view_channel=True,
+                    connect=True,
+                    speak=True,
+                    manage_channels=True,
+                    create_instant_invite=True,
+                ),
+            }
+            if diretor is not None:
+                overwrites[diretor] = discord.PermissionOverwrite(
+                    view_channel=True,
+                    connect=True,
+                    speak=True,
+                    move_members=True,
+                )
+
+            voice = await guild.create_voice_channel(
+                name=f"Entrevista • {membro.display_name}"[:90],
+                category=categoria,
+                overwrites=overwrites,
+                reason=(
+                    "Entrevista do recrutamento de Eventos — "
+                    f"{candidatura.get('codigo')}"
+                ),
+            )
+
+        try:
+            convite = await voice.create_invite(
+                max_age=900,
+                max_uses=1,
+                unique=True,
+                reason=(
+                    "Convite de entrevista — "
+                    f"{candidatura.get('codigo')}"
+                ),
+            )
+            destino = convite.url
+        except (discord.Forbidden, discord.HTTPException):
+            destino = voice.mention
+
+        await eventos_api(
+            "/api/recrutamento/eventos/status",
+            metodo="POST",
+            payload={
+                "codigo": candidatura.get("codigo"),
+                "status": "em_call",
+                "voice_channel_id": str(voice.id),
+                "avaliador_id": str(interaction.user.id),
+                "avaliador_nome": str(interaction.user),
+            },
+        )
+
+        await interaction.channel.send(
+            "🔊 **QUESTIONÁRIO EM CALL**\n\n"
+            f"<@{membro.id}>, sua prova foi analisada e você foi "
+            "chamado para a próxima etapa.\n\n"
+            f"➡️ Entre aqui: {destino}\n"
+            "⏱️ O convite expira em 15 minutos e possui 1 uso.\n"
+            "🔒 Mesmo com o link, apenas você e a equipe autorizada "
+            "possuem permissão para conectar.",
+            allowed_mentions=discord.AllowedMentions(
+                users=True,
+                roles=False,
+                everyone=False,
+            ),
+        )
+        await interaction.channel.send(
+            "📋 **Após o questionário em call:**",
+            view=EventosResultadoView(),
+        )
+        await interaction.followup.send(
+            "✅ Candidato chamado e call privada preparada.",
+            ephemeral=True,
+        )
+
+    @discord.ui.button(
+        label="Reprovar",
+        emoji="❌",
+        style=discord.ButtonStyle.danger,
+        custom_id="eventos_recrutamento_reprovar_inicial_v1",
+    )
+    async def reprovar(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        if await negar_avaliador_eventos(interaction):
+            return
+        await interaction.response.defer(
+            ephemeral=True,
+            thinking=True,
+        )
+        candidatura, erro = await candidatura_eventos_do_canal(
+            interaction.channel.id
+        )
+        if not candidatura:
+            await interaction.followup.send(
+                f"❌ {erro}",
+                ephemeral=True,
+            )
+            return
+        await reprovar_candidatura_eventos(
+            interaction,
+            candidatura,
+        )
+
+
+class EventosResultadoView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Aprovar",
+        emoji="✅",
+        style=discord.ButtonStyle.success,
+        custom_id="eventos_recrutamento_aprovar_final_v1",
+    )
+    async def aprovar(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        if await negar_avaliador_eventos(interaction):
+            return
+        await interaction.response.defer(
+            ephemeral=True,
+            thinking=True,
+        )
+        candidatura, erro = await candidatura_eventos_do_canal(
+            interaction.channel.id
+        )
+        if not candidatura:
+            await interaction.followup.send(
+                f"❌ {erro}",
+                ephemeral=True,
+            )
+            return
+        if candidatura.get("status") in {"aprovado", "reprovado", "encerrado"}:
+            await interaction.followup.send(
+                "ℹ️ Esta candidatura já foi finalizada.",
+                ephemeral=True,
+            )
+            return
+
+        membro_id = int(candidatura.get("discord_id") or 0)
+        membro = interaction.guild.get_member(membro_id)
+        if membro is None:
+            try:
+                membro = await interaction.guild.fetch_member(
+                    membro_id
+                )
+            except discord.HTTPException:
+                membro = None
+
+        cargo = interaction.guild.get_role(
+            EVENTOS_APRENDIZ_CARGO_ID
+        )
+        if membro is None or cargo is None:
+            await interaction.followup.send(
+                "❌ Não encontrei o candidato ou o cargo "
+                "Aprendiz de Eventos.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            await membro.add_roles(
+                cargo,
+                reason=(
+                    "Aprovado no recrutamento de Eventos por "
+                    f"{interaction.user}"
+                ),
+            )
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "❌ Não consegui entregar o cargo. Coloque o cargo "
+                "do bot acima de Aprendiz de Eventos.",
+                ephemeral=True,
+            )
+            return
+
+        ok, _, resposta = await eventos_api(
+            "/api/recrutamento/eventos/status",
+            metodo="POST",
+            payload={
+                "codigo": candidatura.get("codigo"),
+                "status": "aprovado",
+                "avaliador_id": str(interaction.user.id),
+                "avaliador_nome": str(interaction.user),
+            },
+        )
+        if not ok:
+            print(
+                "Aviso: cargo entregue, mas status da candidatura "
+                "não foi salvo |",
+                resposta,
+            )
+
+        await interaction.channel.send(
+            f"<@{membro.id}> ✅ **APROVADO!** Você agora é "
+            f"{cargo.mention}.",
+            allowed_mentions=discord.AllowedMentions(
+                users=True,
+                roles=False,
+                everyone=False,
+            ),
+        )
+        await interaction.followup.send(
+            "✅ Candidato aprovado e cargo entregue.",
+            ephemeral=True,
+        )
+
+    @discord.ui.button(
+        label="Reprovar",
+        emoji="❌",
+        style=discord.ButtonStyle.danger,
+        custom_id="eventos_recrutamento_reprovar_final_v1",
+    )
+    async def reprovar(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        if await negar_avaliador_eventos(interaction):
+            return
+        await interaction.response.defer(
+            ephemeral=True,
+            thinking=True,
+        )
+        candidatura, erro = await candidatura_eventos_do_canal(
+            interaction.channel.id
+        )
+        if not candidatura:
+            await interaction.followup.send(
+                f"❌ {erro}",
+                ephemeral=True,
+            )
+            return
+        await reprovar_candidatura_eventos(
+            interaction,
+            candidatura,
+        )
+
+
+async def garantir_painel_recrutamento_eventos():
+    canal = bot.get_channel(
+        EVENTOS_RECRUTAMENTO_PAINEL_CANAL_ID
+    )
+    if not isinstance(canal, discord.TextChannel):
+        print(
+            "Recrutamento Eventos | canal do painel não encontrado"
+        )
+        return
+
+    mensagem = None
+    salvo = obter_estado(
+        CHAVE_PAINEL_RECRUTAMENTO_EVENTOS
+    )
+    if str(salvo or "").isdigit():
+        try:
+            mensagem = await canal.fetch_message(int(salvo))
+        except (
+            discord.NotFound,
+            discord.Forbidden,
+            discord.HTTPException,
+        ):
+            mensagem = None
+
+    if mensagem is None:
+        try:
+            async for antiga in canal.history(limit=50):
+                if antiga.author.id != bot.user.id:
+                    continue
+                titulo = (
+                    antiga.embeds[0].title
+                    if antiga.embeds
+                    else ""
+                )
+                if (
+                    titulo
+                    and "ADMISSÃO — DEPARTAMENTO DE EVENTOS"
+                    in titulo.upper()
+                ):
+                    mensagem = antiga
+                    break
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+
+    embed = discord.Embed(
+        title="📋 ADMISSÃO — DEPARTAMENTO DE EVENTOS",
+        description=(
+            "Quer fazer parte da equipe responsável pelos eventos "
+            "da Resenha Máxima?\n\n"
+            "A seleção começa por uma **prova no Google Forms**. "
+            "Depois da análise, você poderá ser chamado para um "
+            "**questionário em call**.\n\n"
+            "Clique em **Fazer prova** para receber seu código "
+            "individual e o link da prova."
+        ),
+        color=discord.Color.blurple(),
+    )
+    embed.set_footer(
+        text="Reprovados podem tentar novamente após 24 horas."
+    )
+
+    if mensagem is None:
+        mensagem = await canal.send(
+            embed=embed,
+            view=EventosAdmissaoView(),
+        )
+        salvar_estado(
+            CHAVE_PAINEL_RECRUTAMENTO_EVENTOS,
+            mensagem.id,
+        )
+    else:
+        try:
+            await mensagem.edit(
+                embed=embed,
+                view=EventosAdmissaoView(),
+            )
+            salvar_estado(
+                CHAVE_PAINEL_RECRUTAMENTO_EVENTOS,
+                mensagem.id,
+            )
+        except discord.HTTPException as erro:
+            print(
+                "Recrutamento Eventos | erro ao atualizar painel: "
+                f"{erro}"
+            )
+
+
+def localizar_canal_prova_existente(categoria, codigo):
+    marcador = f"Candidatura {codigo}"
+    for canal in categoria.text_channels:
+        if marcador in str(canal.topic or ""):
+            return canal
+    return None
+
+
+async def publicar_prova_eventos(candidatura):
+    categoria = bot.get_channel(
+        EVENTOS_RECRUTAMENTO_CATEGORIA_ID
+    )
+    if not isinstance(categoria, discord.CategoryChannel):
+        raise RuntimeError(
+            "Categoria de recrutamento não encontrada."
+        )
+
+    guild = categoria.guild
+    membro_id = int(candidatura.get("discord_id") or 0)
+    membro = guild.get_member(membro_id)
+    if membro is None:
+        try:
+            membro = await guild.fetch_member(membro_id)
+        except discord.HTTPException:
+            membro = None
+    if membro is None:
+        raise RuntimeError("Candidato não está no servidor.")
+
+    codigo = str(candidatura.get("codigo") or "")
+    canal = localizar_canal_prova_existente(
+        categoria,
+        codigo,
+    )
+    if canal is None:
+        diretor = guild.get_role(EVENTOS_DIRETOR_CARGO_ID)
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(
+                view_channel=False
+            ),
+            membro: discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                attach_files=True,
+            ),
+            guild.me: discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_channels=True,
+            ),
+        }
+        if diretor is not None:
+            overwrites[diretor] = discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_messages=True,
+            )
+
+        canal = await guild.create_text_channel(
+            nome_canal_candidato(membro),
+            category=categoria,
+            topic=(
+                f"Candidatura {codigo} | Discord {membro.id}"
+            ),
+            overwrites=overwrites,
+            reason=f"Prova recebida — {codigo}",
+        )
+
+        await canal.send(
+            "📝 **NOVA PROVA — DEPARTAMENTO DE EVENTOS**\n\n"
+            f"👤 Candidato: {membro.mention}\n"
+            f"🆔 ID: `{membro.id}`\n"
+            f"🎫 Candidatura: `{codigo}`\n\n"
+            "📋 **Perguntas e respostas:**",
+            allowed_mentions=discord.AllowedMentions(
+                users=True,
+                roles=False,
+                everyone=False,
+            ),
+        )
+
+        blocos = []
+        for indice, item in enumerate(
+            candidatura.get("respostas") or [],
+            1,
+        ):
+            pergunta = escapar_mencoes_eventos(
+                item.get("pergunta") or "(sem pergunta)"
+            )
+            resposta = escapar_mencoes_eventos(
+                item.get("resposta") or "(sem resposta)"
+            )
+            blocos.append(
+                f"**{indice}. {pergunta}**\n\n"
+                f"**Resposta do usuário:**\n{resposta}"
+            )
+
+        texto = (
+            "\n\n━━━━━━━━━━━━━━━━━━\n\n".join(blocos)
+        )
+        for parte in dividir_texto_eventos(texto):
+            await canal.send(
+                parte,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+
+        await canal.send(
+            "📌 **Decisão da primeira etapa:**",
+            view=EventosAvaliacaoView(),
+        )
+
+    ok, _, resposta = await eventos_api(
+        "/api/recrutamento/eventos/entregue",
+        metodo="POST",
+        payload={
+            "codigo": codigo,
+            "discord_channel_id": str(canal.id),
+        },
+    )
+    if not ok:
+        raise RuntimeError(
+            "Canal criado, mas o site não confirmou: "
+            f"{resposta.get('erro')}"
+        )
+
+
+@tasks.loop(seconds=10)
+async def processar_provas_eventos():
+    if not EVENTOS_RECRUTAMENTO_SECRET:
+        return
+
+    ok, _, resposta = await eventos_api(
+        "/api/recrutamento/eventos/pendentes"
+    )
+    if not ok:
+        return
+
+    for candidatura in resposta.get("candidaturas", []):
+        try:
+            await publicar_prova_eventos(candidatura)
+        except Exception as erro:
+            print(
+                "Recrutamento Eventos | falha ao publicar prova | "
+                f"codigo={candidatura.get('codigo')} | "
+                f"{type(erro).__name__}: {erro}"
+            )
+
+
+@processar_provas_eventos.before_loop
+async def antes_processar_provas_eventos():
+    await bot.wait_until_ready()
 # ONLINE
 # ==========================================================
 
 @bot.event
 async def on_ready():
+    if not getattr(bot, "_views_recrutamento_eventos_registradas", False):
+        bot._views_recrutamento_eventos_registradas = True
+        bot.add_view(EventosAdmissaoView())
+        bot.add_view(EventosAvaliacaoView())
+        bot.add_view(EventosResultadoView())
+
+    if not processar_provas_eventos.is_running():
+        processar_provas_eventos.start()
+
+    try:
+        await garantir_painel_recrutamento_eventos()
+    except Exception as erro:
+        print(f"Recrutamento Eventos | erro ao garantir painel: {erro}")
+
     if not gerenciar_rei_madrugada.is_running():
         gerenciar_rei_madrugada.start()
 
