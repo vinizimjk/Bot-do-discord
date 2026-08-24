@@ -465,12 +465,12 @@ PING_BOT_EVITAR_NOVO_ALVO_SEGUNDOS = 30 * 60
 # Anti-spam de menções (vale para todos, inclusive ADMs; somente o dono é isento).
 # Detecta tanto várias @ na mesma mensagem quanto rajadas de uma @ por mensagem.
 _antispam_mencoes_estado = {}
-ANTISPAM_MENCOES_JANELA_SEGUNDOS = 12
+ANTISPAM_MENCOES_JANELA_SEGUNDOS = 30
 ANTISPAM_MENCOES_REPETICAO_ALVO_LIMITE = 3
 ANTISPAM_MENCOES_MENSAGENS_LIMITE = 5
 ANTISPAM_MENCOES_POR_MENSAGEM = 5
 ANTISPAM_MENCOES_TOTAL_JANELA = 6
-ANTISPAM_MENCOES_BLOQUEIO_SEGUNDOS = 20
+ANTISPAM_MENCOES_BLOQUEIO_SEGUNDOS = 30
 ANTISPAM_MENCOES_AVISO_COOLDOWN_SEGUNDOS = 20
 
 # Menções vazias/repetidas: evita resposta de atendente em loop.
@@ -6642,13 +6642,50 @@ def usuario_respondeu_ping_recentemente(usuario_id):
 
 
 def _alvos_mencao_mensagem(message: discord.Message):
+    """Extrai @ por múltiplas fontes para não depender só do parser do Discord.py."""
     alvos = set()
+    conteudo = str(getattr(message, "content", "") or "")
+
+    # 1) Parser nativo do discord.py.
     for usuario_id in (getattr(message, "raw_mentions", []) or []):
-        alvos.add(f"u:{int(usuario_id)}")
+        try:
+            alvos.add(f"u:{int(usuario_id)}")
+        except (TypeError, ValueError):
+            pass
+
     for cargo_id in (getattr(message, "raw_role_mentions", []) or []):
+        try:
+            alvos.add(f"r:{int(cargo_id)}")
+        except (TypeError, ValueError):
+            pass
+
+    # 2) Objetos resolvidos — cobre alguns casos em que raw_* não veio preenchido.
+    for membro in (getattr(message, "mentions", []) or []):
+        try:
+            alvos.add(f"u:{int(membro.id)}")
+        except (AttributeError, TypeError, ValueError):
+            pass
+
+    for cargo in (getattr(message, "role_mentions", []) or []):
+        try:
+            alvos.add(f"r:{int(cargo.id)}")
+        except (AttributeError, TypeError, ValueError):
+            pass
+
+    # 3) Fallback bruto no texto. É importante para spam de uma @ por mensagem.
+    for usuario_id in re.findall(r"<@!?(\\d+)>", conteudo):
+        alvos.add(f"u:{int(usuario_id)}")
+    for cargo_id in re.findall(r"<@&(\\d+)>", conteudo):
         alvos.add(f"r:{int(cargo_id)}")
-    if getattr(message, "mention_everyone", False):
+
+    conteudo_cf = conteudo.casefold()
+    if (
+        getattr(message, "mention_everyone", False)
+        or "@everyone" in conteudo_cf
+        or "@here" in conteudo_cf
+    ):
         alvos.add("everyone")
+
     return alvos
 
 
@@ -6689,7 +6726,7 @@ async def _apagar_rajada_mencoes(eventos, mensagem_atual=None):
 
 
 async def processar_antispam_mencoes(message: discord.Message):
-    """Bloqueia spam de @ inclusive quando vem em várias mensagens separadas."""
+    """Bloqueia rajadas de @, inclusive 1 menção por mensagem em sequência."""
     if message.guild is None or message.author.bot or message.author.id == DONO_ID:
         return False
 
@@ -6722,8 +6759,6 @@ async def processar_antispam_mencoes(message: discord.Message):
     }
     eventos.append(evento_atual)
 
-    # Depois que uma rajada é reconhecida, novas mensagens com @ do mesmo autor
-    # são removidas imediatamente por alguns segundos.
     bloqueado_agora = agora < float(estado.get("bloqueado_ate", 0) or 0)
 
     repeticoes_por_alvo = {}
@@ -6740,12 +6775,20 @@ async def processar_antispam_mencoes(message: discord.Message):
     total_janela = sum(int(item.get("quantidade", 0)) for item in eventos)
     muitas_na_janela = total_janela >= ANTISPAM_MENCOES_TOTAL_JANELA
 
+    # Rajada rápida: três mensagens com @ em até 10 segundos, mesmo com alvos diferentes.
+    eventos_10s = [
+        item for item in eventos
+        if agora - float(item.get("quando", 0)) <= 10
+    ]
+    rajada_rapida = len(eventos_10s) >= 3
+
     bloquear = (
         bloqueado_agora
         or repetiu_mesmo_alvo
         or muitas_mensagens
         or muitas_na_mesma
         or muitas_na_janela
+        or rajada_rapida
     )
     if not bloquear:
         return False
@@ -6755,8 +6798,16 @@ async def processar_antispam_mencoes(message: discord.Message):
         agora + ANTISPAM_MENCOES_BLOQUEIO_SEGUNDOS,
     )
 
-    # Remove toda a pequena sequência que levou ao bloqueio, e não apenas a
-    # última mensagem. Isso cobre o padrão @PK / @PK / @PK em mensagens separadas.
+    print(
+        "ANTI-SPAM MENÇÕES | "
+        f"guild={message.guild.id} autor={message.author.id} canal={message.channel.id} "
+        f"alvos={sorted(alvos)} eventos={len(eventos)} total={total_janela} "
+        f"mesmo_alvo={repetiu_mesmo_alvo} rajada10s={rajada_rapida}",
+        flush=True,
+    )
+
+    # Apaga toda a rajada visível. Se não houver Manage Messages, o log acima
+    # deixa claro que o detector funcionou mas o Discord negou a remoção.
     await _apagar_rajada_mencoes(eventos, mensagem_atual=message)
 
     ultimo_aviso = float(estado.get("ultimo_aviso", 0) or 0)
@@ -6764,9 +6815,9 @@ async def processar_antispam_mencoes(message: discord.Message):
         estado["ultimo_aviso"] = agora
         try:
             await message.channel.send(
-                f"⚠️ **Anti-spam de menções:** {message.author.display_name}, diminui as marcações. "
-                "Rajadas de @ são bloqueadas mesmo quando cada menção é enviada em uma mensagem separada "
-                "e a regra também vale para cargos administrativos.",
+                "⚠️ **Anti-spam de menções ativado.** "
+                f"{message.author.display_name}, para com a rajada de @. "
+                "As próximas menções serão removidas temporariamente.",
                 allowed_mentions=discord.AllowedMentions.none(),
                 delete_after=12,
             )
@@ -9697,6 +9748,12 @@ async def on_message(
                     )
                     return
 
+    # Anti-spam precisa rodar antes de memória/IA/manutenção para não ser
+    # engolido por nenhuma outra automação.
+    if await processar_antispam_mencoes(message):
+        await bot.process_commands(message)
+        return
+
     # Aprende contexto social leve antes das demais automações.
     await observar_memoria_social_publica(message)
 
@@ -9708,10 +9765,6 @@ async def on_message(
     )
 
     if tratado_manutencao:
-        await bot.process_commands(message)
-        return
-
-    if await processar_antispam_mencoes(message):
         await bot.process_commands(message)
         return
 

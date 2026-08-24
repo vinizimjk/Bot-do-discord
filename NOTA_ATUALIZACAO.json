@@ -1,6 +1,6 @@
 {
-  "id": "2026-08-24-02",
-  "versao": "2026.08.24-antispam-mencoes-rajada",
+  "id": "2026-08-24-03",
+  "versao": "2026.08.24-antispam-mencoes-hardfix",
   "data": "2026-08-24",
   "titulo": "Notas de atualização",
   "novidades": [
@@ -11,6 +11,7 @@
     "O SITE passa a contar com o Construtor de Estruturas do Discord para criar a Categoria de Eventos e seus canais com permissões configuradas pelo painel."
   ],
   "correcoes": [
+    "O anti-spam de menções passou a extrair marcações tanto pelo parser do Discord quanto diretamente do conteúdo bruto da mensagem, evitando que rajadas de uma @ por mensagem escapem da detecção.",
     "O anti-spam de menções agora detecta rajadas em mensagens separadas, como várias mensagens consecutivas contendo uma única @ para o mesmo usuário.",
     "Respostas a marcações do modo IA causando deixam de ser tratadas como uma conversa iniciada pelo usuário, inclusive quando chegam depois da sequência de pings.",
     "Futuras Atualizações agora têm limpeza de duplicadas por varredura do próprio canal, sem depender somente dos IDs salvos no SITE.",
@@ -18,6 +19,7 @@
     "A limpeza de Futuras Atualizações também tenta remover a figurinha associada quando ela foi enviada logo após a prévia."
   ],
   "alteracoes": [
+    "A janela do anti-spam foi ampliada para 30 segundos e três mensagens com menção em até 10 segundos já caracterizam uma rajada rápida; após o disparo, novas menções do mesmo autor ficam bloqueadas temporariamente.",
     "Ao identificar uma rajada de menções, o bot tenta apagar também as mensagens recentes que formaram o spam, bloqueia novas @ do autor por alguns segundos e envia somente um aviso por janela de cooldown.",
     "Depois que alguém responde a um chamado do bot, essa pessoa fica temporariamente fora da seleção aleatória do modo causando para reduzir marcações repetitivas.",
     "A memória social aprendida guarda apenas apelidos/formas de tratamento leves e exige evidência repetida antes de apresentar a informação à IA como contexto.",
