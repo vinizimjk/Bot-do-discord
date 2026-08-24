@@ -463,11 +463,15 @@ PING_BOT_TTL_SEGUNDOS = 15 * 60
 PING_BOT_EVITAR_NOVO_ALVO_SEGUNDOS = 30 * 60
 
 # Anti-spam de menções (vale para todos, inclusive ADMs; somente o dono é isento).
+# Detecta tanto várias @ na mesma mensagem quanto rajadas de uma @ por mensagem.
 _antispam_mencoes_estado = {}
 ANTISPAM_MENCOES_JANELA_SEGUNDOS = 12
-ANTISPAM_MENCOES_MENSAGENS_LIMITE = 3
+ANTISPAM_MENCOES_REPETICAO_ALVO_LIMITE = 3
+ANTISPAM_MENCOES_MENSAGENS_LIMITE = 5
 ANTISPAM_MENCOES_POR_MENSAGEM = 5
 ANTISPAM_MENCOES_TOTAL_JANELA = 6
+ANTISPAM_MENCOES_BLOQUEIO_SEGUNDOS = 20
+ANTISPAM_MENCOES_AVISO_COOLDOWN_SEGUNDOS = 20
 
 # Menções vazias/repetidas: evita resposta de atendente em loop.
 _ia_mencoes_recentes = {}
@@ -6637,50 +6641,138 @@ def usuario_respondeu_ping_recentemente(usuario_id):
     return (_agora_ts() - float(instante)) < PING_BOT_EVITAR_NOVO_ALVO_SEGUNDOS
 
 
+def _alvos_mencao_mensagem(message: discord.Message):
+    alvos = set()
+    for usuario_id in (getattr(message, "raw_mentions", []) or []):
+        alvos.add(f"u:{int(usuario_id)}")
+    for cargo_id in (getattr(message, "raw_role_mentions", []) or []):
+        alvos.add(f"r:{int(cargo_id)}")
+    if getattr(message, "mention_everyone", False):
+        alvos.add("everyone")
+    return alvos
+
+
 def _total_mencoes_mensagem(message: discord.Message):
-    usuarios = len(set(getattr(message, "raw_mentions", []) or []))
-    cargos = len(set(getattr(message, "raw_role_mentions", []) or []))
-    todos = 1 if getattr(message, "mention_everyone", False) else 0
-    return usuarios + cargos + todos
+    return len(_alvos_mencao_mensagem(message))
+
+
+async def _apagar_rajada_mencoes(eventos, mensagem_atual=None):
+    """Tenta remover as mensagens recentes que formaram a rajada de @."""
+    atual_id = getattr(mensagem_atual, "id", None)
+    vistos = set()
+
+    for evento in list(eventos):
+        mensagem_id = int(evento.get("mensagem_id") or 0)
+        canal_id = int(evento.get("canal_id") or 0)
+        if not mensagem_id or mensagem_id in vistos:
+            continue
+        vistos.add(mensagem_id)
+
+        if atual_id and mensagem_id == int(atual_id):
+            try:
+                await mensagem_atual.delete(
+                    reason="Anti-spam de menções da Resenha Máxima"
+                )
+            except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                pass
+            continue
+
+        canal = bot.get_channel(canal_id)
+        if canal is None or not hasattr(canal, "fetch_message"):
+            continue
+
+        try:
+            antiga = await canal.fetch_message(mensagem_id)
+            await antiga.delete(reason="Anti-spam de menções da Resenha Máxima")
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+            pass
 
 
 async def processar_antispam_mencoes(message: discord.Message):
-    """Bloqueia rajadas de menções mesmo quando o autor é administrador."""
+    """Bloqueia spam de @ inclusive quando vem em várias mensagens separadas."""
     if message.guild is None or message.author.bot or message.author.id == DONO_ID:
         return False
 
-    quantidade = _total_mencoes_mensagem(message)
+    alvos = _alvos_mencao_mensagem(message)
+    quantidade = len(alvos)
     if quantidade <= 0:
         return False
 
     agora = _agora_ts()
-    estado = _antispam_mencoes_estado.setdefault(message.author.id, deque())
-    estado.append((agora, quantidade))
-    while estado and agora - estado[0][0] > ANTISPAM_MENCOES_JANELA_SEGUNDOS:
-        estado.popleft()
+    chave = (message.guild.id, message.author.id)
+    estado = _antispam_mencoes_estado.setdefault(
+        chave,
+        {
+            "eventos": deque(),
+            "bloqueado_ate": 0.0,
+            "ultimo_aviso": 0.0,
+        },
+    )
+
+    eventos = estado["eventos"]
+    while eventos and agora - float(eventos[0].get("quando", 0)) > ANTISPAM_MENCOES_JANELA_SEGUNDOS:
+        eventos.popleft()
+
+    evento_atual = {
+        "quando": agora,
+        "quantidade": quantidade,
+        "alvos": set(alvos),
+        "mensagem_id": message.id,
+        "canal_id": message.channel.id,
+    }
+    eventos.append(evento_atual)
+
+    # Depois que uma rajada é reconhecida, novas mensagens com @ do mesmo autor
+    # são removidas imediatamente por alguns segundos.
+    bloqueado_agora = agora < float(estado.get("bloqueado_ate", 0) or 0)
+
+    repeticoes_por_alvo = {}
+    for evento in eventos:
+        for alvo in evento.get("alvos", set()):
+            repeticoes_por_alvo[alvo] = repeticoes_por_alvo.get(alvo, 0) + 1
+
+    repetiu_mesmo_alvo = any(
+        total >= ANTISPAM_MENCOES_REPETICAO_ALVO_LIMITE
+        for total in repeticoes_por_alvo.values()
+    )
+    muitas_mensagens = len(eventos) >= ANTISPAM_MENCOES_MENSAGENS_LIMITE
+    muitas_na_mesma = quantidade >= ANTISPAM_MENCOES_POR_MENSAGEM
+    total_janela = sum(int(item.get("quantidade", 0)) for item in eventos)
+    muitas_na_janela = total_janela >= ANTISPAM_MENCOES_TOTAL_JANELA
 
     bloquear = (
-        quantidade >= ANTISPAM_MENCOES_POR_MENSAGEM
-        or len(estado) >= ANTISPAM_MENCOES_MENSAGENS_LIMITE
-        or sum(item[1] for item in estado) >= ANTISPAM_MENCOES_TOTAL_JANELA
+        bloqueado_agora
+        or repetiu_mesmo_alvo
+        or muitas_mensagens
+        or muitas_na_mesma
+        or muitas_na_janela
     )
     if not bloquear:
         return False
 
-    try:
-        await message.delete(reason="Anti-spam de menções da Resenha Máxima")
-    except (discord.Forbidden, discord.NotFound, discord.HTTPException):
-        pass
+    estado["bloqueado_ate"] = max(
+        float(estado.get("bloqueado_ate", 0) or 0),
+        agora + ANTISPAM_MENCOES_BLOQUEIO_SEGUNDOS,
+    )
 
-    try:
-        await message.channel.send(
-            f"⚠️ **Anti-spam de menções:** {message.author.display_name}, diminui as marcações. "
-            "Spam de @ é bloqueado mesmo para cargos administrativos.",
-            allowed_mentions=discord.AllowedMentions.none(),
-            delete_after=10,
-        )
-    except (discord.Forbidden, discord.HTTPException):
-        pass
+    # Remove toda a pequena sequência que levou ao bloqueio, e não apenas a
+    # última mensagem. Isso cobre o padrão @PK / @PK / @PK em mensagens separadas.
+    await _apagar_rajada_mencoes(eventos, mensagem_atual=message)
+
+    ultimo_aviso = float(estado.get("ultimo_aviso", 0) or 0)
+    if agora - ultimo_aviso >= ANTISPAM_MENCOES_AVISO_COOLDOWN_SEGUNDOS:
+        estado["ultimo_aviso"] = agora
+        try:
+            await message.channel.send(
+                f"⚠️ **Anti-spam de menções:** {message.author.display_name}, diminui as marcações. "
+                "Rajadas de @ são bloqueadas mesmo quando cada menção é enviada em uma mensagem separada "
+                "e a regra também vale para cargos administrativos.",
+                allowed_mentions=discord.AllowedMentions.none(),
+                delete_after=12,
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+
     return True
 
 

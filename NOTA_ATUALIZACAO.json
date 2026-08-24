@@ -1,6 +1,6 @@
 {
-  "id": "2026-08-24-01",
-  "versao": "2026.08.24-contexto-social-protecao-e-estruturas",
+  "id": "2026-08-24-02",
+  "versao": "2026.08.24-antispam-mencoes-rajada",
   "data": "2026-08-24",
   "titulo": "Notas de atualização",
   "novidades": [
@@ -11,12 +11,14 @@
     "O SITE passa a contar com o Construtor de Estruturas do Discord para criar a Categoria de Eventos e seus canais com permissões configuradas pelo painel."
   ],
   "correcoes": [
+    "O anti-spam de menções agora detecta rajadas em mensagens separadas, como várias mensagens consecutivas contendo uma única @ para o mesmo usuário.",
     "Respostas a marcações do modo IA causando deixam de ser tratadas como uma conversa iniciada pelo usuário, inclusive quando chegam depois da sequência de pings.",
     "Futuras Atualizações agora têm limpeza de duplicadas por varredura do próprio canal, sem depender somente dos IDs salvos no SITE.",
     "O título duplicado de Futuras Atualizações foi corrigido e títulos gerais passam a usar o tamanho maior do Markdown do Discord.",
     "A limpeza de Futuras Atualizações também tenta remover a figurinha associada quando ela foi enviada logo após a prévia."
   ],
   "alteracoes": [
+    "Ao identificar uma rajada de menções, o bot tenta apagar também as mensagens recentes que formaram o spam, bloqueia novas @ do autor por alguns segundos e envia somente um aviso por janela de cooldown.",
     "Depois que alguém responde a um chamado do bot, essa pessoa fica temporariamente fora da seleção aleatória do modo causando para reduzir marcações repetitivas.",
     "A memória social aprendida guarda apenas apelidos/formas de tratamento leves e exige evidência repetida antes de apresentar a informação à IA como contexto.",
     "No Construtor de Estruturas, todo cargo que recebe Ver canal também recebe automaticamente Ler histórico de mensagens; Enviar mensagens continua variando conforme chat, anúncios, sugestões e hierarquia.",
