@@ -1,16 +1,33 @@
 {
-  "id": "2026-08-24-antispam-mencoes-v3",
-  "versao": "2026.08.24-antispam-mencoes-v3",
-  "data": "2026-08-24",
-  "titulo": "Anti-spam de menções — correção definitiva do parser",
-  "novidades": [],
+  "id": "24-08-2026-consolidada",
+  "versao": "24.08.2026-consolidada-v2",
+  "data": "24/08/2026",
+  "titulo": "Notas de atualização",
+  "novidades": [
+    "O bot mantém contexto de quem ele próprio marcou e reconhece respostas posteriores, evitando repetir chamadas como se a pessoa não tivesse respondido.",
+    "Foi adicionada memória social leve para registrar possíveis apelidos ou formas de tratamento quando houver evidência pública repetida.",
+    "O SITE ganhou o Construtor de Estruturas do Discord para montar categorias e canais com permissões específicas, incluindo Ver canal e Ler histórico de mensagens.",
+    "Foi adicionada proteção da call de desenvolvimento: o bot tenta restaurar movimento, server mute e server deaf do ADM-G enquanto a sessão estiver ativa.",
+    "O anti-spam de menções foi reforçado para funcionar também quando as menções são enviadas em várias mensagens separadas."
+  ],
   "correcoes": [
-    "Corrigido o parser de menções em texto bruto que estava com a expressão regular escapada incorretamente.",
-    "Rajadas de uma menção por mensagem agora são reconhecidas também diretamente pelos tokens <@ID> do Discord.",
-    "Falhas ao apagar mensagens por falta de permissão agora aparecem claramente nos logs da Railway."
+    "Futuras Atualizações passam a ser limpas por varredura do próprio canal para evitar notas duplicadas.",
+    "O título geral das notas foi padronizado como ## Notas de atualização.",
+    "O parser reconhece <@ID>, <@!ID> e <@&ID> diretamente no conteúdo, além dos dados nativos do Discord.",
+    "Corrigido o erro causado por passar reason= para PartialMessage.delete().",
+    "Corrigida a brecha em que novas menções podiam escapar enquanto o bot apagava a rajada anterior."
   ],
   "alteracoes": [
-    "Adicionado diagnóstico temporário de menções vistas pelo anti-spam para confirmar o recebimento dos eventos durante os testes."
+    "Depois que alguém responde a uma marcação do bot, essa pessoa fica temporariamente fora da seleção aleatória do modo causando.",
+    "Ao detectar uma rajada, o autor é bloqueado imediatamente antes da exclusão; novas menções durante esse período são removidas sem esperar o processamento da rajada anterior.",
+    "As mensagens da rajada são removidas em paralelo quando possível para diminuir a janela de fuga.",
+    "A detecção considera repetição do mesmo alvo, quantidade de mensagens em sequência, quantidade total na janela e rajada rápida.",
+    "A proteção de desenvolvimento mantém tolerância de 5 minutos após a saída do ADM-G e tenta restaurar a call quando ele retorna ao servidor de voz.",
+    "A memória social exige evidência repetida e guarda apenas contexto leve."
   ],
-  "problemas_conhecidos": []
+  "resumo": "Resumo: esta é a nota consolidada das mudanças de hoje, com melhorias no contexto social do bot, proteção da call de desenvolvimento, construtor de estruturas do SITE, organização das notas e um anti-spam de menções mais resistente a rajadas e a novas mensagens durante a exclusão.",
+  "problemas_conhecidos": [
+    "A restauração de movimento, server mute e server deaf depende das permissões concedidas ao bot pelo Discord.",
+    "Depois de uma desconexão completa do ADM-G, o bot não consegue reconectar o cliente Discord à força; ele só consegue restaurar a call quando o usuário entra novamente em algum canal de voz."
+  ]
 }
