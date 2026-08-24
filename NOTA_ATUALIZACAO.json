@@ -1,29 +1,30 @@
 {
-  "id": "2026-08-23-11",
-  "versao": "2026.08.23-identidade-gamer-modo-teste-e-recrutamento",
-  "data": "2026-08-23",
+  "id": "2026-08-24-01",
+  "versao": "2026.08.24-contexto-social-protecao-e-estruturas",
+  "data": "2026-08-24",
   "titulo": "Notas de atualização",
   "novidades": [
-    "Foi adicionada a Identidade Gamer em modo de teste, liberada inicialmente apenas para o ADM-G e para a Conta de Testes.",
-    "O Roblox agora pode ser vinculado oficialmente ao Discord pelo site usando OAuth 2.0, com os comandos /roblox e exibição no /perfil.",
-    "Minecraft e Roblox passam a usar um menu unificado de verificação, mostrando apenas as opções correspondentes aos cargos que o membro possui.",
-    "O recrutamento do Departamento de Eventos agora pergunta ao candidato qual horário ele está livre para uma entrevista em call e exibe a resposta no canal privado da candidatura.",
-    "A Conta de Testes recebe automaticamente o cargo de teste ao retornar ao servidor e cargos extras usados em testes passam a expirar automaticamente após 1 hora."
+    "O bot agora mantém contexto de quem ele próprio marcou e reconhece respostas tardias no mesmo canal, evitando continuar chamando a pessoa como se ela não tivesse respondido.",
+    "Foi adicionada memória social leve: o bot pode aprender possíveis apelidos a partir de evidências públicas repetidas no chat e usar isso como contexto opcional nas conversas.",
+    "Foi adicionado anti-spam de menções que também vale para cargos administrativos; apenas o ADM-G fica isento.",
+    "A call de desenvolvimento ganhou proteção de reunião: movimentos para outra call e server mute/server deaf são desfeitos automaticamente quando a API e as permissões do Discord permitem.",
+    "O SITE passa a contar com o Construtor de Estruturas do Discord para criar a Categoria de Eventos e seus canais com permissões configuradas pelo painel."
   ],
   "correcoes": [
-    "A Conta de Testes não precisa mais esperar o cooldown de 24 horas após uma reprovação no recrutamento de Eventos, permitindo repetir o fluxo imediatamente durante os testes.",
-    "Durante a call de desenvolvimento, tentativas de marcar diretamente o programador passam a ser removidas do chat sem deixar de contar para a progressão de castigos.",
-    "O bot continua avisando no canal que o programador está ocupado mesmo quando a mensagem de marcação é removida, deixando claro o motivo da contagem e da punição.",
-    "Os registros de entrada e saída da Conta de Testes enviados pela Loritta passam a ser removidos automaticamente quando o bot consegue identificá-los e possui permissão de Gerenciar Mensagens."
+    "Respostas a marcações do modo IA causando deixam de ser tratadas como uma conversa iniciada pelo usuário, inclusive quando chegam depois da sequência de pings.",
+    "Futuras Atualizações agora têm limpeza de duplicadas por varredura do próprio canal, sem depender somente dos IDs salvos no SITE.",
+    "O título duplicado de Futuras Atualizações foi corrigido e títulos gerais passam a usar o tamanho maior do Markdown do Discord.",
+    "A limpeza de Futuras Atualizações também tenta remover a figurinha associada quando ela foi enviada logo após a prévia."
   ],
   "alteracoes": [
-    "O modo de teste da Identidade Gamer pode ser liberado para todo o servidor pelo comando /identidade modoteste; ao liberar, membros com Minecraft pendente recebem uma nova chance com o contador reiniciado.",
-    "Enquanto a Identidade Gamer estiver em teste, os contadores antigos de Minecraft dos demais membros ficam congelados para ninguém ser prejudicado enquanto ainda não pode usar o fluxo novo.",
-    "Quem já possui nickname Minecraft cadastrado não recebe uma nova solicitação de Minecraft; membros com os dois cargos podem receber as duas opções no mesmo menu.",
-    "O sistema de Minecraft mantém o limite de 8 avisos ao longo de 3 dias para cadastros ainda pendentes.",
-    "A tolerância da call de desenvolvimento foi ampliada para 5 minutos após a saída do ADM-G. Se ele voltar nesse período, a mesma sessão e os contadores são preservados; caso contrário, o bot encerra a reunião e sai da call.",
-    "Durante os 5 minutos de tolerância o bot continua aparentando estar em reunião na call de desenvolvimento e mantém a presença de reunião ativa.",
-    "A Conta de Testes continua sujeita normalmente a banimentos, mutes, timeouts e demais punições de moderação; as exceções são apenas para facilitar testes de funcionalidades específicas."
+    "Depois que alguém responde a um chamado do bot, essa pessoa fica temporariamente fora da seleção aleatória do modo causando para reduzir marcações repetitivas.",
+    "A memória social aprendida guarda apenas apelidos/formas de tratamento leves e exige evidência repetida antes de apresentar a informação à IA como contexto.",
+    "No Construtor de Estruturas, todo cargo que recebe Ver canal também recebe automaticamente Ler histórico de mensagens; Enviar mensagens continua variando conforme chat, anúncios, sugestões e hierarquia.",
+    "As figurinhas das Futuras Atualizações passam a ser escolhidas por contexto da frase e evitam repetição imediata.",
+    "Quando o ADM-G é desconectado da call de desenvolvimento, o bot mantém a sessão por 5 minutos; se ele reconectar em outra call nesse período, tenta devolvê-lo à call de desenvolvimento."
   ],
-  "problemas_conhecidos": []
+  "problemas_conhecidos": [
+    "O bot não consegue reconectar à força o cliente Discord do ADM-G depois de uma desconexão completa; ele só consegue restaurar a call quando o usuário entra novamente em algum canal de voz.",
+    "A restauração de movimento, server mute e server deaf depende das permissões que o Discord conceder ao bot."
+  ]
 }

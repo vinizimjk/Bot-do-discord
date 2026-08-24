@@ -454,6 +454,21 @@ groq_client = (
 _memoria_ia = {}
 _cooldown_ia = {}
 
+# Contexto contínuo do chat / menções do próprio bot.
+# Mantém só estado curto em memória; apelidos confirmados são persistidos no SQLite.
+_pings_pendentes_bot = {}
+_respostas_a_ping_bot = {}
+_usuarios_responderam_ping_bot = {}
+PING_BOT_TTL_SEGUNDOS = 15 * 60
+PING_BOT_EVITAR_NOVO_ALVO_SEGUNDOS = 30 * 60
+
+# Anti-spam de menções (vale para todos, inclusive ADMs; somente o dono é isento).
+_antispam_mencoes_estado = {}
+ANTISPAM_MENCOES_JANELA_SEGUNDOS = 12
+ANTISPAM_MENCOES_MENSAGENS_LIMITE = 3
+ANTISPAM_MENCOES_POR_MENSAGEM = 5
+ANTISPAM_MENCOES_TOTAL_JANELA = 6
+
 # Menções vazias/repetidas: evita resposta de atendente em loop.
 _ia_mencoes_recentes = {}
 _ia_respostas_rapidas_recentes = {}
@@ -973,6 +988,21 @@ def criar_banco():
                 role_id INTEGER NOT NULL,
                 expira_em TEXT NOT NULL,
                 PRIMARY KEY (guild_id, role_id)
+            )
+        """)
+
+        # Memória social aprendida com contexto público do servidor.
+        # Guarda apenas apelidos/formas de tratamento leves, sem dados sensíveis.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ia_memoria_social_apelidos (
+                guild_id INTEGER NOT NULL,
+                usuario_id INTEGER NOT NULL,
+                apelido TEXT NOT NULL,
+                ocorrencias INTEGER NOT NULL DEFAULT 1,
+                ultimo_autor_id INTEGER,
+                ultima_evidencia TEXT,
+                atualizado_em TEXT NOT NULL,
+                PRIMARY KEY (guild_id, usuario_id, apelido)
             )
         """)
 
@@ -6224,7 +6254,7 @@ def criar_texto_atualizacao_bot(nota=None):
     )
 
     partes = [
-        "## Notas de atualização",
+        "# Notas de atualização",
         f"**Versão:** `{versao}`\n**Data:** {data_exibicao}",
     ]
 
@@ -6351,7 +6381,8 @@ async def remover_atualizacoes_pendentes(canal):
             conteudo = str(candidata.content or "").strip()
 
             # Nunca toca na nota real recém-publicada.
-            if conteudo.casefold().startswith("## notas de atualização") or conteudo.casefold().startswith("## notas de atualizacao"):
+            primeira_normalizada = conteudo.casefold().lstrip("# ").strip()
+            if primeira_normalizada.startswith("notas de atualização") or primeira_normalizada.startswith("notas de atualizacao"):
                 break
 
             diferenca = abs((candidata.created_at - instante_base).total_seconds())
@@ -6508,6 +6539,246 @@ def parece_recusa_generica_ia(
 
 
 # ==========================================================
+# CONTEXTO CONTÍNUO — PINGS, ANTI-SPAM E MEMÓRIA SOCIAL
+# ==========================================================
+
+_APELIDOS_STOPWORDS = {
+    "mano", "cara", "irmao", "irmão", "bro", "vei", "véi", "voce", "você",
+    "ele", "ela", "adm", "admin", "bot", "membro", "amigo", "doido", "maluco",
+    "opa", "oi", "eae", "salve", "fala", "calma", "assim", "depois", "agora",
+}
+
+
+def _agora_ts():
+    return datetime.now(timezone.utc).timestamp()
+
+
+def _limpar_estados_contexto_curto():
+    agora = _agora_ts()
+
+    for chave, item in list(_pings_pendentes_bot.items()):
+        if agora - float(item.get("criado_em", 0)) > PING_BOT_TTL_SEGUNDOS:
+            _pings_pendentes_bot.pop(chave, None)
+
+    for mensagem_id, item in list(_respostas_a_ping_bot.items()):
+        if agora - float(item.get("criado_em", 0)) > PING_BOT_TTL_SEGUNDOS:
+            _respostas_a_ping_bot.pop(mensagem_id, None)
+
+    for usuario_id, instante in list(_usuarios_responderam_ping_bot.items()):
+        if agora - float(instante or 0) > PING_BOT_EVITAR_NOVO_ALVO_SEGUNDOS:
+            _usuarios_responderam_ping_bot.pop(usuario_id, None)
+
+
+def registrar_pings_da_mensagem_do_bot(message: discord.Message):
+    """Registra quem o próprio bot chamou para reconhecer respostas tardias."""
+    if bot.user is None or message.author.id != bot.user.id or message.guild is None:
+        return
+
+    _limpar_estados_contexto_curto()
+    agora = _agora_ts()
+    for membro in message.mentions:
+        if membro.bot:
+            continue
+        chave = (message.guild.id, message.channel.id, membro.id)
+        _pings_pendentes_bot[chave] = {
+            "guild_id": message.guild.id,
+            "canal_id": message.channel.id,
+            "usuario_id": membro.id,
+            "mensagem_id": message.id,
+            "conteudo": str(message.content or "")[:500],
+            "criado_em": agora,
+        }
+
+
+async def consumir_ping_pendente_com_resposta(message: discord.Message):
+    """Reconhece reply ao bot OU fala do alvo no mesmo canal após o ping."""
+    if message.guild is None or message.author.bot:
+        return None
+
+    _limpar_estados_contexto_curto()
+    chave = (message.guild.id, message.channel.id, message.author.id)
+    item = _pings_pendentes_bot.get(chave)
+    if not item:
+        return None
+
+    # A fala do próprio alvo no mesmo canal dentro da janela já é considerada resposta.
+    # Reply direto à mensagem do bot é uma evidência ainda mais forte, mas não é obrigatório.
+    respondeu_direto = False
+    referencia = message.reference
+    if referencia is not None and referencia.message_id is not None:
+        respondeu_direto = int(referencia.message_id) == int(item.get("mensagem_id") or 0)
+
+    _pings_pendentes_bot.pop(chave, None)
+    item = dict(item)
+    item["respondeu_direto"] = respondeu_direto
+    item["criado_em"] = _agora_ts()
+    _respostas_a_ping_bot[message.id] = item
+    _usuarios_responderam_ping_bot[message.author.id] = _agora_ts()
+    return item
+
+
+def contexto_resposta_ping_bot_ia(message: discord.Message):
+    item = _respostas_a_ping_bot.pop(message.id, None)
+    if not item:
+        return ""
+    return (
+        "\nCONTEXTO IMPORTANTE DE CONVERSA: foi VOCÊ (o bot) quem chamou/marcou "
+        "essa pessoa anteriormente neste canal. A mensagem atual é a resposta dela ao seu chamado. "
+        "Não pergunte por que ela te chamou, não aja como se a conversa tivesse começado agora e "
+        "não continue repetindo as marcações. Responda naturalmente ao que ela disse."
+    )
+
+
+def usuario_respondeu_ping_recentemente(usuario_id):
+    _limpar_estados_contexto_curto()
+    instante = _usuarios_responderam_ping_bot.get(int(usuario_id))
+    if not instante:
+        return False
+    return (_agora_ts() - float(instante)) < PING_BOT_EVITAR_NOVO_ALVO_SEGUNDOS
+
+
+def _total_mencoes_mensagem(message: discord.Message):
+    usuarios = len(set(getattr(message, "raw_mentions", []) or []))
+    cargos = len(set(getattr(message, "raw_role_mentions", []) or []))
+    todos = 1 if getattr(message, "mention_everyone", False) else 0
+    return usuarios + cargos + todos
+
+
+async def processar_antispam_mencoes(message: discord.Message):
+    """Bloqueia rajadas de menções mesmo quando o autor é administrador."""
+    if message.guild is None or message.author.bot or message.author.id == DONO_ID:
+        return False
+
+    quantidade = _total_mencoes_mensagem(message)
+    if quantidade <= 0:
+        return False
+
+    agora = _agora_ts()
+    estado = _antispam_mencoes_estado.setdefault(message.author.id, deque())
+    estado.append((agora, quantidade))
+    while estado and agora - estado[0][0] > ANTISPAM_MENCOES_JANELA_SEGUNDOS:
+        estado.popleft()
+
+    bloquear = (
+        quantidade >= ANTISPAM_MENCOES_POR_MENSAGEM
+        or len(estado) >= ANTISPAM_MENCOES_MENSAGENS_LIMITE
+        or sum(item[1] for item in estado) >= ANTISPAM_MENCOES_TOTAL_JANELA
+    )
+    if not bloquear:
+        return False
+
+    try:
+        await message.delete(reason="Anti-spam de menções da Resenha Máxima")
+    except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+        pass
+
+    try:
+        await message.channel.send(
+            f"⚠️ **Anti-spam de menções:** {message.author.display_name}, diminui as marcações. "
+            "Spam de @ é bloqueado mesmo para cargos administrativos.",
+            allowed_mentions=discord.AllowedMentions.none(),
+            delete_after=10,
+        )
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+    return True
+
+
+def _normalizar_apelido_social(valor):
+    apelido = re.sub(r"\s+", " ", str(valor or "").strip(" `~!@#$%^&*()[]{}<>.,:;!?\"'"))
+    if not (2 <= len(apelido) <= 24):
+        return None
+    if apelido.casefold() in _APELIDOS_STOPWORDS:
+        return None
+    if apelido.isdigit() or "<@" in apelido or "http" in apelido.casefold():
+        return None
+    if len(apelido.split()) > 2:
+        return None
+    return apelido
+
+
+def registrar_apelido_social(guild_id, usuario_id, apelido, autor_id, evidencia, peso=1):
+    apelido = _normalizar_apelido_social(apelido)
+    if not apelido:
+        return
+    agora = datetime.now(timezone.utc).isoformat()
+    with conectar_banco() as banco:
+        banco.execute(
+            """
+            INSERT INTO ia_memoria_social_apelidos
+                (guild_id, usuario_id, apelido, ocorrencias, ultimo_autor_id, ultima_evidencia, atualizado_em)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(guild_id, usuario_id, apelido)
+            DO UPDATE SET
+                ocorrencias = ia_memoria_social_apelidos.ocorrencias + excluded.ocorrencias,
+                ultimo_autor_id = excluded.ultimo_autor_id,
+                ultima_evidencia = excluded.ultima_evidencia,
+                atualizado_em = excluded.atualizado_em
+            """,
+            (int(guild_id), int(usuario_id), apelido, max(1, int(peso)), int(autor_id), str(evidencia or "")[:300], agora),
+        )
+        banco.commit()
+
+
+def apelidos_sociais_aprendidos(guild_id, usuario_id, minimo_ocorrencias=2, limite=5):
+    with conectar_banco() as banco:
+        linhas = banco.execute(
+            """
+            SELECT apelido, ocorrencias, atualizado_em
+            FROM ia_memoria_social_apelidos
+            WHERE guild_id = ? AND usuario_id = ? AND ocorrencias >= ?
+            ORDER BY ocorrencias DESC, atualizado_em DESC
+            LIMIT ?
+            """,
+            (int(guild_id), int(usuario_id), int(minimo_ocorrencias), int(limite)),
+        ).fetchall()
+    return [dict(linha) for linha in linhas]
+
+
+async def observar_memoria_social_publica(message: discord.Message):
+    """Aprende apenas possíveis apelidos leves em mensagens públicas."""
+    if message.guild is None or message.author.bot:
+        return
+
+    conteudo = str(message.content or "").strip()
+    if not conteudo:
+        return
+
+    # Padrões explícitos com menção: "@fulano vulgo X", "@fulano é o X".
+    for membro in message.mentions[:3]:
+        if membro.bot or membro.id == message.author.id:
+            continue
+        mencoes = (f"<@{membro.id}>", f"<@!{membro.id}>")
+        for mencao in mencoes:
+            if mencao not in conteudo:
+                continue
+            depois = conteudo.split(mencao, 1)[1]
+            padroes = [
+                r"\s*(?:vulgo|apelido(?:\s+é|\s+e)?|chamado\s+de)\s+([A-Za-zÀ-ÿ0-9_ -]{2,24})",
+                r"\s*(?:é|eh)\s+(?:o|a)?\s*([A-Za-zÀ-ÿ0-9_]{2,24})",
+            ]
+            for indice, padrao in enumerate(padroes):
+                achou = re.match(padrao, depois, flags=re.IGNORECASE)
+                if achou:
+                    registrar_apelido_social(
+                        message.guild.id, membro.id, achou.group(1), message.author.id,
+                        conteudo, peso=3 if indice == 0 else 1,
+                    )
+                    break
+
+    # Em uma resposta direta, "Vini, ..." / "PK: ..." é uma pista leve.
+    referencia = message.reference
+    resolvida = referencia.resolved if referencia is not None else None
+    if isinstance(resolvida, discord.Message) and not resolvida.author.bot and resolvida.author.id != message.author.id:
+        achou = re.match(r"^([A-Za-zÀ-ÿ0-9_]{2,20})\s*[, :]\s+", conteudo)
+        if achou:
+            registrar_apelido_social(
+                message.guild.id, resolvida.author.id, achou.group(1), message.author.id,
+                conteudo, peso=1,
+            )
+
+
+# ==========================================================
 # IA DA RESENHA MÁXIMA — CONVERSA POR MENÇÃO / RESPOSTA
 # ==========================================================
 
@@ -6635,6 +6906,11 @@ async def deve_acionar_ia(
         and message.channel.id != canal_id
     ):
         return False
+
+    # Se o próprio bot chamou a pessoa há pouco, a resposta dela também
+    # aciona a IA mesmo sem nova menção ao bot.
+    if message.id in _respostas_a_ping_bot:
+        return True
 
     mencionado = (
         bot.user is not None
@@ -6882,6 +7158,26 @@ def contexto_social_ia(
                 ficha
             )
         )
+
+    # Apelidos aprendidos com evidência pública, apenas para membros envolvidos.
+    if message.guild is not None:
+        aprendidos = []
+        for usuario_id in ids_relevantes:
+            itens = apelidos_sociais_aprendidos(message.guild.id, usuario_id)
+            if itens:
+                aprendidos.append((usuario_id, itens))
+        if aprendidos:
+            linhas.append("APELIDOS POSSÍVEIS APRENDIDOS NO CHAT:")
+            for usuario_id, itens in aprendidos:
+                resumo = ", ".join(
+                    f"{item['apelido']} ({item['ocorrencias']} evidências)"
+                    for item in itens
+                )
+                linhas.append(f"- <@{usuario_id}>: {resumo}")
+            linhas.append(
+                "Use esses apelidos apenas quando parecer natural. São pistas sociais, não fatos absolutos; "
+                "não invente identidade e não exponha essa memória como se fosse um cadastro secreto."
+            )
 
     if fichas:
         linhas.append(
@@ -7711,6 +8007,7 @@ async def responder_com_ia(
     contexto_social = contexto_social_ia(
         message
     )
+    contexto_ping_bot = contexto_resposta_ping_bot_ia(message)
 
     contexto_estilo, usar_abreviacao, usuario_xingou = contexto_estilo_mensagem_ia(
         message
@@ -7767,6 +8064,7 @@ async def responder_com_ia(
                 f"(<@{message.author.id}>)\n"
                 f"Mensagem: {pergunta}"
                 f"{contexto_social}"
+                f"{contexto_ping_bot}"
                 f"{contexto_estilo}"
                 f"{contexto_antirrepeticao}"
                 f"{estado_call}"
@@ -8148,6 +8446,7 @@ def escolher_alvo_caos(
         for membro in guild.members
         if (
             membro.id != DONO_ID
+            and not usuario_respondeu_ping_recentemente(membro.id)
             and membro_esta_online_para_caos(
                 membro
             )
@@ -8475,6 +8774,7 @@ _manutencao_respostas_recentes = {}
 _manutencao_voice_disconnect_tasks = {}
 _manutencao_voice_em_uso = set()
 _manutencao_voice_solicitante = {}
+_manutencao_restaurando_voz_dono = set()
 MANUTENCAO_VOZ_GRACE_SEGUNDOS = 5 * 60
 
 MANUTENCAO_RESPOSTAS = {
@@ -9127,9 +9427,56 @@ async def processar_protecao_manutencao(message: discord.Message):
     return True
 
 
+async def restaurar_protecao_voz_dono(member, after):
+    """Desfaz move/server-mute/server-deaf do dono durante a sessão de desenvolvimento."""
+    guild = member.guild
+    if guild.id in _manutencao_restaurando_voz_dono:
+        return
+
+    sessao = _manutencao_ativa or guild.id in _manutencao_voice_disconnect_tasks
+    if not sessao:
+        return
+
+    canal_dev = guild.get_channel(CANAL_CALL_MANUTENCAO_ID)
+    if not isinstance(canal_dev, discord.VoiceChannel):
+        return
+
+    _manutencao_restaurando_voz_dono.add(guild.id)
+    try:
+        # Server mute/deaf: self mute/deaf do próprio usuário nunca é alterado.
+        if getattr(after, "mute", False) or getattr(after, "deaf", False):
+            try:
+                await member.edit(
+                    mute=False,
+                    deafen=False,
+                    reason="Proteção da call de desenvolvimento — restaurar estado do ADM-G",
+                )
+            except (discord.Forbidden, discord.HTTPException) as erro:
+                print(f"Proteção da call: não consegui remover server mute/deaf | {erro}")
+
+        # Se ele foi movido para outra call enquanto a sessão estava ativa, volta para dev.
+        if after.channel is not None and after.channel.id != CANAL_CALL_MANUTENCAO_ID:
+            try:
+                await member.move_to(
+                    canal_dev,
+                    reason="Proteção da call de desenvolvimento — restaurar canal do ADM-G",
+                )
+                cancelar_saida_call_manutencao(guild.id)
+                await garantir_bot_na_call_manutencao(guild)
+                await atualizar_presence_manutencao(force=True)
+                print("Proteção da call: ADM-G movido de volta para a call de desenvolvimento.")
+            except (discord.Forbidden, discord.HTTPException) as erro:
+                print(f"Proteção da call: não consegui mover ADM-G de volta | {erro}")
+    finally:
+        _manutencao_restaurando_voz_dono.discard(guild.id)
+
+
 @bot.event
 async def on_voice_state_update(member, before, after):
     if member.id != DONO_ID:
+        return
+
+    if member.guild.id in _manutencao_restaurando_voz_dono:
         return
 
     antes_manutencao = (
@@ -9141,6 +9488,7 @@ async def on_voice_state_update(member, before, after):
         and after.channel.id == CANAL_CALL_MANUTENCAO_ID
     )
 
+    # Entrou normalmente na call de desenvolvimento.
     if not antes_manutencao and depois_manutencao:
         estava_em_graca = member.guild.id in _manutencao_voice_disconnect_tasks
         cancelar_saida_call_manutencao(member.guild.id)
@@ -9152,16 +9500,39 @@ async def on_voice_state_update(member, before, after):
             print("Modo manutenção: ADM-G voltou dentro dos 5 minutos — mesma sessão preservada.")
 
         await garantir_bot_na_call_manutencao(member.guild)
+        await restaurar_protecao_voz_dono(member, after)
         await atualizar_presence_manutencao(force=True)
+        return
 
-    elif antes_manutencao and not depois_manutencao:
-        # Não encerra nem zera os contadores aqui. Dá tempo para reiniciar o
-        # Discord/cliente durante atualizações grandes.
+    # Enquanto permanece na dev, desfaz server mute/deaf caso alguém aplique.
+    if antes_manutencao and depois_manutencao:
+        if getattr(after, "mute", False) or getattr(after, "deaf", False):
+            await restaurar_protecao_voz_dono(member, after)
+        return
+
+    # Saiu da dev para OUTRA call: durante a sessão, considera movimento indevido e restaura.
+    if antes_manutencao and after.channel is not None and not depois_manutencao and _manutencao_ativa:
+        await restaurar_protecao_voz_dono(member, after)
+        return
+
+    # Foi desconectado: não há como reconectar o cliente do usuário à força.
+    # Mantém a sessão viva por 5 minutos; quando ele entrar em qualquer call nesse período,
+    # o bloco abaixo o devolve para a call de desenvolvimento.
+    if antes_manutencao and after.channel is None:
         agendar_saida_call_manutencao(member.guild)
         await atualizar_presence_manutencao(force=True)
-        print(
-            "Modo manutenção: ADM-G saiu — aguardando até 5 minutos antes de encerrar a sessão."
-        )
+        print("Modo manutenção: ADM-G desconectado — aguardando até 5 minutos para retorno.")
+        return
+
+    # Reconectou em outra call durante a tolerância: devolve automaticamente para dev.
+    if (
+        not antes_manutencao
+        and after.channel is not None
+        and not depois_manutencao
+        and member.guild.id in _manutencao_voice_disconnect_tasks
+        and _manutencao_ativa
+    ):
+        await restaurar_protecao_voz_dono(member, after)
 
 
 @bot.event
@@ -9169,7 +9540,10 @@ async def on_message(
     message: discord.Message
 ):
     if message.author.bot:
-        await processar_log_loritta_conta_teste(message)
+        if bot.user is not None and message.author.id == bot.user.id:
+            registrar_pings_da_mensagem_do_bot(message)
+        else:
+            await processar_log_loritta_conta_teste(message)
         return
 
     if isinstance(
@@ -9231,11 +9605,21 @@ async def on_message(
                     )
                     return
 
+    # Aprende contexto social leve antes das demais automações.
+    await observar_memoria_social_publica(message)
+
+    # Reconhece resposta a uma marcação anterior do próprio bot, inclusive tardia.
+    await consumir_ping_pendente_com_resposta(message)
+
     tratado_manutencao = await processar_protecao_manutencao(
         message
     )
 
     if tratado_manutencao:
+        await bot.process_commands(message)
+        return
+
+    if await processar_antispam_mencoes(message):
         await bot.process_commands(message)
         return
 
