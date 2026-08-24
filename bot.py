@@ -6673,9 +6673,9 @@ def _alvos_mencao_mensagem(message: discord.Message):
             pass
 
     # 3) Fallback bruto no texto. É importante para spam de uma @ por mensagem.
-    for usuario_id in re.findall(r"<@!?(\\d+)>", conteudo):
+    for usuario_id in re.findall(r"<@!?([0-9]{15,22})>", conteudo):
         alvos.add(f"u:{int(usuario_id)}")
-    for cargo_id in re.findall(r"<@&(\\d+)>", conteudo):
+    for cargo_id in re.findall(r"<@&([0-9]{15,22})>", conteudo):
         alvos.add(f"r:{int(cargo_id)}")
 
     conteudo_cf = conteudo.casefold()
@@ -6685,6 +6685,17 @@ def _alvos_mencao_mensagem(message: discord.Message):
         or "@here" in conteudo_cf
     ):
         alvos.add("everyone")
+
+    # Último fallback: qualquer token bruto de menção válido que tenha escapado
+    # dos parsers acima. Discord envia menções no conteúdo como <@ID>/<@!ID>/<@&ID>.
+    if "<@" in conteudo:
+        for token in re.findall(r"<@(?:!|&)?[0-9]{15,22}>", conteudo):
+            if token.startswith("<@&"):
+                alvo_id = token[3:-1]
+                alvos.add(f"r:{int(alvo_id)}")
+            else:
+                alvo_id = token[3:-1] if token.startswith("<@!") else token[2:-1]
+                alvos.add(f"u:{int(alvo_id)}")
 
     return alvos
 
@@ -6710,8 +6721,20 @@ async def _apagar_rajada_mencoes(eventos, mensagem_atual=None):
                 await mensagem_atual.delete(
                     reason="Anti-spam de menções da Resenha Máxima"
                 )
-            except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+            except discord.Forbidden as erro:
+                print(
+                    "ANTI-SPAM DELETE NEGADO | falta Gerenciar Mensagens? "
+                    f"canal={canal_id} mensagem={mensagem_id} erro={erro}",
+                    flush=True,
+                )
+            except discord.NotFound:
                 pass
+            except discord.HTTPException as erro:
+                print(
+                    "ANTI-SPAM DELETE HTTP | "
+                    f"canal={canal_id} mensagem={mensagem_id} erro={erro}",
+                    flush=True,
+                )
             continue
 
         canal = bot.get_channel(canal_id)
@@ -6721,8 +6744,20 @@ async def _apagar_rajada_mencoes(eventos, mensagem_atual=None):
         try:
             antiga = await canal.fetch_message(mensagem_id)
             await antiga.delete(reason="Anti-spam de menções da Resenha Máxima")
-        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+        except discord.Forbidden as erro:
+            print(
+                "ANTI-SPAM DELETE NEGADO | falta Gerenciar Mensagens? "
+                f"canal={canal_id} mensagem={mensagem_id} erro={erro}",
+                flush=True,
+            )
+        except discord.NotFound:
             pass
+        except discord.HTTPException as erro:
+            print(
+                "ANTI-SPAM DELETE HTTP | "
+                f"canal={canal_id} mensagem={mensagem_id} erro={erro}",
+                flush=True,
+            )
 
 
 async def processar_antispam_mencoes(message: discord.Message):
@@ -6734,6 +6769,13 @@ async def processar_antispam_mencoes(message: discord.Message):
     quantidade = len(alvos)
     if quantidade <= 0:
         return False
+
+    print(
+        "ANTI-SPAM MENÇÃO VISTA | "
+        f"guild={message.guild.id} autor={message.author.id} canal={message.channel.id} "
+        f"alvos={sorted(alvos)} conteudo={str(message.content or '')[:120]!r}",
+        flush=True,
+    )
 
     agora = _agora_ts()
     chave = (message.guild.id, message.author.id)

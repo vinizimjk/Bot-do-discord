@@ -1,34 +1,16 @@
 {
-  "id": "2026-08-24-03",
-  "versao": "2026.08.24-antispam-mencoes-hardfix",
+  "id": "2026-08-24-antispam-mencoes-v3",
+  "versao": "2026.08.24-antispam-mencoes-v3",
   "data": "2026-08-24",
-  "titulo": "Notas de atualização",
-  "novidades": [
-    "O bot agora mantém contexto de quem ele próprio marcou e reconhece respostas tardias no mesmo canal, evitando continuar chamando a pessoa como se ela não tivesse respondido.",
-    "Foi adicionada memória social leve: o bot pode aprender possíveis apelidos a partir de evidências públicas repetidas no chat e usar isso como contexto opcional nas conversas.",
-    "Foi adicionado anti-spam de menções que também vale para cargos administrativos; apenas o ADM-G fica isento.",
-    "A call de desenvolvimento ganhou proteção de reunião: movimentos para outra call e server mute/server deaf são desfeitos automaticamente quando a API e as permissões do Discord permitem.",
-    "O SITE passa a contar com o Construtor de Estruturas do Discord para criar a Categoria de Eventos e seus canais com permissões configuradas pelo painel."
-  ],
+  "titulo": "Anti-spam de menções — correção definitiva do parser",
+  "novidades": [],
   "correcoes": [
-    "O anti-spam de menções passou a extrair marcações tanto pelo parser do Discord quanto diretamente do conteúdo bruto da mensagem, evitando que rajadas de uma @ por mensagem escapem da detecção.",
-    "O anti-spam de menções agora detecta rajadas em mensagens separadas, como várias mensagens consecutivas contendo uma única @ para o mesmo usuário.",
-    "Respostas a marcações do modo IA causando deixam de ser tratadas como uma conversa iniciada pelo usuário, inclusive quando chegam depois da sequência de pings.",
-    "Futuras Atualizações agora têm limpeza de duplicadas por varredura do próprio canal, sem depender somente dos IDs salvos no SITE.",
-    "O título duplicado de Futuras Atualizações foi corrigido e títulos gerais passam a usar o tamanho maior do Markdown do Discord.",
-    "A limpeza de Futuras Atualizações também tenta remover a figurinha associada quando ela foi enviada logo após a prévia."
+    "Corrigido o parser de menções em texto bruto que estava com a expressão regular escapada incorretamente.",
+    "Rajadas de uma menção por mensagem agora são reconhecidas também diretamente pelos tokens <@ID> do Discord.",
+    "Falhas ao apagar mensagens por falta de permissão agora aparecem claramente nos logs da Railway."
   ],
   "alteracoes": [
-    "A janela do anti-spam foi ampliada para 30 segundos e três mensagens com menção em até 10 segundos já caracterizam uma rajada rápida; após o disparo, novas menções do mesmo autor ficam bloqueadas temporariamente.",
-    "Ao identificar uma rajada de menções, o bot tenta apagar também as mensagens recentes que formaram o spam, bloqueia novas @ do autor por alguns segundos e envia somente um aviso por janela de cooldown.",
-    "Depois que alguém responde a um chamado do bot, essa pessoa fica temporariamente fora da seleção aleatória do modo causando para reduzir marcações repetitivas.",
-    "A memória social aprendida guarda apenas apelidos/formas de tratamento leves e exige evidência repetida antes de apresentar a informação à IA como contexto.",
-    "No Construtor de Estruturas, todo cargo que recebe Ver canal também recebe automaticamente Ler histórico de mensagens; Enviar mensagens continua variando conforme chat, anúncios, sugestões e hierarquia.",
-    "As figurinhas das Futuras Atualizações passam a ser escolhidas por contexto da frase e evitam repetição imediata.",
-    "Quando o ADM-G é desconectado da call de desenvolvimento, o bot mantém a sessão por 5 minutos; se ele reconectar em outra call nesse período, tenta devolvê-lo à call de desenvolvimento."
+    "Adicionado diagnóstico temporário de menções vistas pelo anti-spam para confirmar o recebimento dos eventos durante os testes."
   ],
-  "problemas_conhecidos": [
-    "O bot não consegue reconectar à força o cliente Discord do ADM-G depois de uma desconexão completa; ele só consegue restaurar a call quando o usuário entra novamente em algum canal de voz.",
-    "A restauração de movimento, server mute e server deaf depende das permissões que o Discord conceder ao bot."
-  ]
+  "problemas_conhecidos": []
 }
