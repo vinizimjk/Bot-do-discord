@@ -9,6 +9,7 @@ import sqlite3
 import uuid
 import urllib.request
 import urllib.error
+import unicodedata
 from collections import deque
 from datetime import datetime, timedelta, timezone, time as dt_time
 from zoneinfo import ZoneInfo
@@ -44,6 +45,24 @@ CANAL_NICKNAMES_MINECRAFT_ID = 1534423515183448155
 CARGO_DESENVOLVIMENTO_ID = 1533625836874498181
 CARGO_BANIMENTOS_ID = 1536734408277491863
 
+# Conta de testes / identidade gamer
+CONTA_TESTE_ID = 1532838576256057557
+CARGO_CONTA_TESTE_ID = 1536081355711062166
+CARGO_ROBLOX_ID = 1540858217301549176
+try:
+    CARGO_MEMBRO_RESENHA_ID = int(
+        os.getenv("CARGO_MEMBRO_RESENHA_ID", "0") or 0
+    )
+except (TypeError, ValueError):
+    CARGO_MEMBRO_RESENHA_ID = 0
+
+CHAVE_MODO_TESTE_IDENTIDADE = "identidade_gamer_modo_teste"
+CHAVE_RESET_NICKS_LIBERACAO = "identidade_gamer_reset_nicks_v1"
+IDENTIDADE_GAMER_MODO_TESTE_PADRAO = (
+    os.getenv("IDENTIDADE_GAMER_MODO_TESTE", "1").strip().casefold()
+    not in {"0", "false", "nao", "não", "off"}
+)
+
 # Recrutamento — Departamento de Eventos
 EVENTOS_RECRUTAMENTO_CATEGORIA_ID = 1541034599130341406
 EVENTOS_RECRUTAMENTO_PAINEL_CANAL_ID = 1541035337709649990
@@ -61,6 +80,24 @@ EVENTOS_RECRUTAMENTO_SECRET = os.getenv(
     "",
 ).strip()
 CHAVE_PAINEL_RECRUTAMENTO_EVENTOS = "painel_recrutamento_eventos_msg_id"
+
+# Identidade Gamer — Roblox OAuth pelo site
+ROBLOX_SITE_URL = os.getenv(
+    "ROBLOX_SITE_URL",
+    PAINEL_MENU_URL,
+).rstrip("/")
+ROBLOX_VINCULO_SECRET = os.getenv(
+    "ROBLOX_VINCULO_SECRET",
+    "",
+).strip()
+try:
+    ROBLOX_VERIFICADO_CARGO_ID = int(
+        os.getenv("ROBLOX_VERIFICADO_CARGO_ID", "0") or 0
+    )
+except (TypeError, ValueError):
+    ROBLOX_VERIFICADO_CARGO_ID = 0
+ROBLOX_VERIFICADO_CARGO_NOME = "🎮 Roblox Verificado"
+
 MINECRAFT_HOST = "Rmax-j8Un.aternos.me"
 MINECRAFT_PORTA = 16184
 MINECRAFT_EDICAO = "bedrock"  # servidor atual é Bedrock
@@ -928,6 +965,17 @@ def criar_banco():
             )
         """)
 
+        # Cargos temporários usados pela conta de testes.
+        # Persistem no banco para sobreviver a reinícios/deploys.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS conta_teste_cargos_temporarios (
+                guild_id INTEGER NOT NULL,
+                role_id INTEGER NOT NULL,
+                expira_em TEXT NOT NULL,
+                PRIMARY KEY (guild_id, role_id)
+            )
+        """)
+
         banco.commit()
 
 
@@ -976,6 +1024,172 @@ def salvar_estado(chave, valor):
         )
 
         banco.commit()
+
+
+# ==========================================================
+# MODO DE TESTE / CONTA DE TESTES
+# ==========================================================
+
+def identidade_gamer_modo_teste():
+    valor = obter_estado(CHAVE_MODO_TESTE_IDENTIDADE)
+    if valor is None:
+        return IDENTIDADE_GAMER_MODO_TESTE_PADRAO
+    return str(valor).strip().casefold() in {
+        "1", "true", "sim", "on", "ativo"
+    }
+
+
+def pode_testar_identidade(usuario_id):
+    try:
+        usuario_id = int(usuario_id)
+    except (TypeError, ValueError):
+        return False
+
+    if not identidade_gamer_modo_teste():
+        return True
+
+    return usuario_id in {DONO_ID, CONTA_TESTE_ID}
+
+
+def cargo_membro_resenha(guild):
+    if guild is None:
+        return None
+
+    if CARGO_MEMBRO_RESENHA_ID:
+        cargo = guild.get_role(CARGO_MEMBRO_RESENHA_ID)
+        if cargo is not None:
+            return cargo
+
+    for cargo in guild.roles:
+        nome = unicodedata.normalize(
+            "NFKC", str(cargo.name or "")
+        ).casefold()
+        nome = "".join(
+            caractere for caractere in unicodedata.normalize("NFD", nome)
+            if unicodedata.category(caractere) != "Mn"
+        )
+        if "membro" in nome and "resenha" in nome:
+            return cargo
+    return None
+
+
+def cargo_base_conta_teste(guild, cargo):
+    if cargo is None:
+        return True
+    if cargo.is_default() or cargo.managed:
+        return True
+    if cargo.id == CARGO_CONTA_TESTE_ID:
+        return True
+    membro = cargo_membro_resenha(guild)
+    return membro is not None and cargo.id == membro.id
+
+
+def registrar_cargo_temporario_conta_teste(guild_id, role_id, expira_em=None):
+    expira_em = expira_em or (datetime.now(timezone.utc) + timedelta(hours=1))
+    with conectar_banco() as banco:
+        banco.execute(
+            """
+            INSERT INTO conta_teste_cargos_temporarios (guild_id, role_id, expira_em)
+            VALUES (?, ?, ?)
+            ON CONFLICT(guild_id, role_id) DO UPDATE SET
+                expira_em = excluded.expira_em
+            """,
+            (int(guild_id), int(role_id), expira_em.isoformat()),
+        )
+        banco.commit()
+
+
+def remover_registro_cargo_temporario(guild_id, role_id):
+    with conectar_banco() as banco:
+        banco.execute(
+            "DELETE FROM conta_teste_cargos_temporarios WHERE guild_id=? AND role_id=?",
+            (int(guild_id), int(role_id)),
+        )
+        banco.commit()
+
+
+def listar_cargos_temporarios_conta_teste():
+    with conectar_banco() as banco:
+        return banco.execute(
+            "SELECT * FROM conta_teste_cargos_temporarios"
+        ).fetchall()
+
+
+async def garantir_cargos_base_conta_teste(membro):
+    if not isinstance(membro, discord.Member) or membro.id != CONTA_TESTE_ID:
+        return
+
+    adicionar = []
+    cargo_teste = membro.guild.get_role(CARGO_CONTA_TESTE_ID)
+    if cargo_teste is not None and cargo_teste not in membro.roles:
+        adicionar.append(cargo_teste)
+
+    cargo_membro = cargo_membro_resenha(membro.guild)
+    if cargo_membro is not None and cargo_membro not in membro.roles:
+        adicionar.append(cargo_membro)
+
+    if adicionar:
+        try:
+            await membro.add_roles(
+                *adicionar,
+                reason="Restauração automática dos cargos-base da conta de testes",
+            )
+        except (discord.Forbidden, discord.HTTPException) as erro:
+            print(f"Conta de testes | falha ao restaurar cargos-base: {erro}")
+
+
+async def sincronizar_cargos_temporarios_existentes(membro):
+    if not isinstance(membro, discord.Member) or membro.id != CONTA_TESTE_ID:
+        return
+    await garantir_cargos_base_conta_teste(membro)
+    for cargo in membro.roles:
+        if cargo_base_conta_teste(membro.guild, cargo):
+            continue
+        registrar_cargo_temporario_conta_teste(membro.guild.id, cargo.id)
+
+
+@tasks.loop(minutes=1)
+async def limpar_cargos_temporarios_conta_teste():
+    agora = datetime.now(timezone.utc)
+    for registro in listar_cargos_temporarios_conta_teste():
+        try:
+            expira = datetime.fromisoformat(str(registro["expira_em"]))
+            if expira.tzinfo is None:
+                expira = expira.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            expira = agora
+
+        if expira > agora:
+            continue
+
+        guild = bot.get_guild(int(registro["guild_id"]))
+        role_id = int(registro["role_id"])
+        if guild is None:
+            remover_registro_cargo_temporario(registro["guild_id"], role_id)
+            continue
+
+        membro = guild.get_member(CONTA_TESTE_ID)
+        cargo = guild.get_role(role_id)
+        if membro is not None and cargo is not None and cargo in membro.roles:
+            if not cargo_base_conta_teste(guild, cargo):
+                try:
+                    await membro.remove_roles(
+                        cargo,
+                        reason="Cargo temporário da conta de testes expirou após 1 hora",
+                    )
+                except (discord.Forbidden, discord.HTTPException) as erro:
+                    print(f"Conta de testes | falha ao remover cargo temporário {role_id}: {erro}")
+                    continue
+
+        remover_registro_cargo_temporario(guild.id, role_id)
+
+        if membro is not None:
+            await garantir_cargos_base_conta_teste(membro)
+
+
+@limpar_cargos_temporarios_conta_teste.before_loop
+async def antes_limpar_cargos_temporarios_conta_teste():
+    await bot.wait_until_ready()
 
 
 # ==========================================================
@@ -4543,7 +4757,7 @@ async def avisar_dm_fechada_no_chat(membro):
         await canal.send(
             (
                 f"{membro.mention}, preciso falar com você no privado "
-                "para concluir seu cadastro do Minecraft. 🎮\n"
+                "para concluir uma **verificação de conta** do servidor. 🔐\n"
                 "Por favor, **abra suas mensagens diretas (DMs)** "
                 "do servidor e aguarde o próximo aviso do bot."
             ),
@@ -4623,32 +4837,34 @@ async def responder_nick_invalido(
     )
 
 async def enviar_pergunta_nick(membro, aviso=None):
-    if aviso is None:
-        texto = (
-            "🎮 **Cadastro do Minecraft — Resenha Máxima**\n\n"
-            "Você recebeu o cargo de Minecraft. Responda **esta DM** com o seu nickname no Minecraft."
-        )
-    else:
-        texto = (
-            f"⚠️ **Aviso {aviso}/8 — nickname pendente**\n\n"
-            "Responda esta DM com o seu nickname no Minecraft. "
-            "Após o 8º aviso, será aplicado timeout até o cadastro."
-        )
+    # O novo fluxo usa um menu único. A função continua com o mesmo nome
+    # para preservar toda a lógica antiga de 8 avisos/3 dias.
     try:
-        await membro.send(texto)
-        return True
-
-    except (
-        discord.Forbidden,
-        discord.HTTPException
-    ):
-        await avisar_dm_fechada_no_chat(
-            membro
+        return await enviar_menu_verificacao_contas(
+            membro,
+            aviso_minecraft=aviso,
+            forcar_minecraft=True,
         )
-        return False
+    except NameError:
+        # Proteção apenas para inicializações extremamente precoces.
+        texto = (
+            "⛏️ **Cadastro do Minecraft — Resenha Máxima**\n\n"
+            "Responda esta DM com o seu nickname no Minecraft."
+        )
+        try:
+            await membro.send(texto)
+            return True
+        except (discord.Forbidden, discord.HTTPException):
+            await avisar_dm_fechada_no_chat(membro)
+            return False
 
 
 async def iniciar_cadastro_nick(membro):
+    if identidade_gamer_modo_teste() and not pode_testar_identidade(membro.id):
+        # Enquanto a nova Identidade Gamer está em teste, congela o fluxo
+        # antigo para os demais membros. Eles recebem uma nova chance na liberação.
+        return
+
     iniciar_pendencia_nick(membro.guild.id, membro.id)
     cadastro = buscar_cadastro_nick(membro.guild.id, membro.id)
     if cadastro and cadastro['nickname']:
@@ -5071,6 +5287,76 @@ async def importar_nicks_pre_cadastrados():
 
 
 
+async def resetar_nicks_pendentes_nova_chance(guild, somente_ids=None):
+    """Zera somente cadastros ainda pendentes e dá 72h completas novamente."""
+    if guild is None:
+        return 0
+
+    filtro = None
+    if somente_ids is not None:
+        filtro = {int(x) for x in somente_ids}
+
+    agora = datetime.now(timezone.utc).isoformat()
+    total = 0
+    for cadastro in listar_nicks_por_status('pendente'):
+        if int(cadastro['guild_id']) != guild.id:
+            continue
+        usuario_id = int(cadastro['usuario_id'])
+        if filtro is not None and usuario_id not in filtro:
+            continue
+
+        membro = guild.get_member(usuario_id)
+        tinha_castigo_nick = bool(cadastro['castigo_aplicado'])
+
+        atualizar_cadastro_nick(
+            guild.id,
+            usuario_id,
+            pendente_desde=agora,
+            avisos_enviados=0,
+            solicitacao_enviada=0,
+            castigo_aplicado=0,
+        )
+        total += 1
+
+        if (
+            tinha_castigo_nick
+            and membro is not None
+            and not tem_ban_pendente_com_castigo(guild.id, usuario_id)
+        ):
+            try:
+                await membro.timeout(
+                    None,
+                    reason="Nova chance do cadastro Minecraft — contador reiniciado",
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+
+    return total
+
+
+async def preparar_nova_identidade_gamer(guild, *, liberacao=False):
+    """Prepara contadores sem prejudicar membros durante o período de testes."""
+    if guild is None:
+        return 0
+
+    if liberacao:
+        if obter_estado(CHAVE_RESET_NICKS_LIBERACAO) == "1":
+            return 0
+        total = await resetar_nicks_pendentes_nova_chance(guild)
+        salvar_estado(CHAVE_RESET_NICKS_LIBERACAO, "1")
+        return total
+
+    chave = f"identidade_gamer_reset_teste_v1_{guild.id}"
+    if obter_estado(chave) == "1":
+        return 0
+    total = await resetar_nicks_pendentes_nova_chance(
+        guild,
+        somente_ids={DONO_ID, CONTA_TESTE_ID},
+    )
+    salvar_estado(chave, "1")
+    return total
+
+
 async def varrer_membros_minecraft():
     total = 0
     for guild in bot.guilds:
@@ -5079,6 +5365,8 @@ async def varrer_membros_minecraft():
             continue
         for membro in cargo.members:
             if membro.bot:
+                continue
+            if identidade_gamer_modo_teste() and not pode_testar_identidade(membro.id):
                 continue
             cadastro = buscar_cadastro_nick(guild.id, membro.id)
             if cadastro is None or not cadastro['nickname']:
@@ -5095,6 +5383,10 @@ async def verificar_nicknames_minecraft():
         guild = bot.get_guild(cadastro['guild_id'])
         membro = guild.get_member(cadastro['usuario_id']) if guild else None
         if membro is None:
+            continue
+        if identidade_gamer_modo_teste() and not pode_testar_identidade(membro.id):
+            # Não avança contador nem renova castigo enquanto o fluxo novo
+            # ainda está restrito ao dono e à conta de testes.
             continue
 
         try:
@@ -5575,16 +5867,114 @@ async def on_invite_delete(
 
 
 # ==========================================================
+# CONTA DE TESTES — CARGO AUTOMÁTICO / LIMPEZA DE LOGS LORITTA
+# ==========================================================
+
+def canal_parece_entrada_saida(canal):
+    if not isinstance(canal, discord.TextChannel):
+        return False
+    nome = normalizar_nome_canal(canal.name)
+    termos = (
+        "entrada", "entradas", "saida", "saidas",
+        "boas-vindas", "bem-vindo", "despedida",
+        "welcome", "goodbye", "leave",
+    )
+    return any(termo in nome for termo in termos)
+
+
+def texto_completo_mensagem(message):
+    partes = [str(message.content or "")]
+    for embed in message.embeds:
+        partes.extend([
+            str(embed.title or ""),
+            str(embed.description or ""),
+            str(embed.footer.text or "") if embed.footer else "",
+            str(embed.author.name or "") if embed.author else "",
+        ])
+        for campo in embed.fields:
+            partes.append(str(campo.name or ""))
+            partes.append(str(campo.value or ""))
+    return "\n".join(partes)
+
+
+def mensagem_loritta_da_conta_teste(message):
+    if not getattr(message.author, "bot", False):
+        return False
+    autor = (
+        f"{getattr(message.author, 'name', '')} "
+        f"{getattr(message.author, 'display_name', '')} "
+        f"{message.author}"
+    ).casefold()
+    if "loritta" not in autor:
+        return False
+    if not canal_parece_entrada_saida(message.channel):
+        return False
+
+    texto = texto_completo_mensagem(message).casefold()
+    if str(CONTA_TESTE_ID) in texto or f"<@{CONTA_TESTE_ID}>" in texto:
+        return True
+
+    nomes = [
+        obter_estado("conta_teste_ultimo_nome") or "",
+        obter_estado("conta_teste_ultimo_display") or "",
+    ]
+    for nome in nomes:
+        nome = str(nome).strip().casefold()
+        if len(nome) >= 3 and nome in texto:
+            return True
+    return False
+
+
+async def processar_log_loritta_conta_teste(message):
+    if not mensagem_loritta_da_conta_teste(message):
+        return False
+    try:
+        await message.delete()
+        print("Conta de testes | registro da Loritta removido.")
+        return True
+    except (discord.Forbidden, discord.NotFound, discord.HTTPException) as erro:
+        print(f"Conta de testes | não consegui remover registro da Loritta: {erro}")
+        return False
+
+
+async def limpar_logs_loritta_conta_teste(guild, *, atraso=2):
+    if guild is None:
+        return
+    if atraso:
+        await asyncio.sleep(atraso)
+    for canal in guild.text_channels:
+        if not canal_parece_entrada_saida(canal):
+            continue
+        try:
+            async for mensagem in canal.history(limit=60):
+                if mensagem_loritta_da_conta_teste(mensagem):
+                    try:
+                        await mensagem.delete()
+                    except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                        pass
+        except (discord.Forbidden, discord.HTTPException):
+            continue
+
+
+# ==========================================================
 # MEMBRO COM PEDIDO PENDENTE VOLTA
 # ==========================================================
 
 @bot.event
 async def on_member_join(member: discord.Member):
+    if member.id == CONTA_TESTE_ID:
+        salvar_estado("conta_teste_ultimo_nome", str(member))
+        salvar_estado("conta_teste_ultimo_display", member.display_name)
+        await garantir_cargos_base_conta_teste(member)
+        # A Loritta publica o log primeiro; limpamos logo depois e também há
+        # interceptação em on_message para remover praticamente na hora.
+        asyncio.create_task(
+            limpar_logs_loritta_conta_teste(member.guild, atraso=3)
+        )
+
     if not member.bot:
         try:
-            await registrar_entrada_membro(
-                member
-            )
+            await registrar_entrada_membro(member)
         except Exception as erro:
             print(
                 "Erro ao registrar entrada por convite | "
@@ -5593,20 +5983,46 @@ async def on_member_join(member: discord.Member):
 
     cadastro = buscar_cadastro_nick(member.guild.id, member.id)
     if cadastro and cadastro['status'] == 'ausente':
-        atualizar_cadastro_nick(member.guild.id, member.id, status='ativo' if cadastro['nickname'] else 'pendente', saiu_em=None)
-        await enviar_log_dono(f'↩️ {member} ({member.id}) voltou antes da limpeza do nickname.')
+        atualizar_cadastro_nick(
+            member.guild.id,
+            member.id,
+            status='ativo' if cadastro['nickname'] else 'pendente',
+            saiu_em=None,
+        )
+        await enviar_log_dono(
+            f'↩️ {member} ({member.id}) voltou antes da limpeza do nickname.'
+        )
 
     pendente = buscar_pendente_para_usuario(member.guild.id, member.id)
     if pendente is not None:
-        ok, erro = await aplicar_castigo(member, 0, 'Existe uma solicitação de ban pendente para este usuário.')
+        ok, erro = await aplicar_castigo(
+            member,
+            0,
+            'Existe uma solicitação de ban pendente para este usuário.',
+        )
         if ok:
             marcar_castigo(pendente['id'], True)
         else:
             print(f'Não consegui reaplicar castigo para {member.id}: {erro}')
 
+    # Reenvia o menu novo apenas para quem está autorizado no modo atual.
+    if not member.bot and pode_testar_identidade(member.id):
+        if (
+            tem_cargo_jogo(member, CARGO_MINECRAFT_ID)
+            or tem_cargo_jogo(member, CARGO_ROBLOX_ID)
+        ):
+            asyncio.create_task(enviar_menu_verificacao_contas(member))
+
 
 @bot.event
 async def on_member_remove(member: discord.Member):
+    if member.id == CONTA_TESTE_ID:
+        salvar_estado("conta_teste_ultimo_nome", str(member))
+        salvar_estado("conta_teste_ultimo_display", member.display_name)
+        asyncio.create_task(
+            limpar_logs_loritta_conta_teste(member.guild, atraso=3)
+        )
+
     cadastro = buscar_cadastro_nick(member.guild.id, member.id)
     if cadastro:
         atualizar_cadastro_nick(
@@ -5622,10 +6038,40 @@ async def on_member_remove(member: discord.Member):
 
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
-    tinha = any(cargo.id == CARGO_MINECRAFT_ID for cargo in before.roles)
-    tem = any(cargo.id == CARGO_MINECRAFT_ID for cargo in after.roles)
-    if not tinha and tem and not after.bot:
+    ids_antes = {cargo.id for cargo in before.roles}
+    ids_depois = {cargo.id for cargo in after.roles}
+    adicionados = ids_depois - ids_antes
+    removidos = ids_antes - ids_depois
+
+    adicionou_minecraft = CARGO_MINECRAFT_ID in adicionados
+    adicionou_roblox = CARGO_ROBLOX_ID in adicionados
+
+    if adicionou_minecraft and not after.bot:
         await iniciar_cadastro_nick(after)
+
+    if adicionou_roblox and not after.bot and not adicionou_minecraft:
+        if pode_testar_identidade(after.id):
+            await enviar_menu_verificacao_contas(after)
+
+    if after.id == CONTA_TESTE_ID:
+        for role_id in adicionados:
+            cargo = after.guild.get_role(role_id)
+            if cargo is None or cargo_base_conta_teste(after.guild, cargo):
+                continue
+            registrar_cargo_temporario_conta_teste(
+                after.guild.id,
+                role_id,
+                datetime.now(timezone.utc) + timedelta(hours=1),
+            )
+            print(
+                "Conta de testes | cargo temporário registrado por 1h | "
+                f"cargo={cargo.name} ({cargo.id})"
+            )
+
+        for role_id in removidos:
+            remover_registro_cargo_temporario(after.guild.id, role_id)
+
+        await garantir_cargos_base_conta_teste(after)
 
 
 
@@ -8029,7 +8475,7 @@ _manutencao_respostas_recentes = {}
 _manutencao_voice_disconnect_tasks = {}
 _manutencao_voice_em_uso = set()
 _manutencao_voice_solicitante = {}
-MANUTENCAO_VOZ_GRACE_SEGUNDOS = 4
+MANUTENCAO_VOZ_GRACE_SEGUNDOS = 5 * 60
 
 MANUTENCAO_RESPOSTAS = {
     1: [
@@ -8145,9 +8591,33 @@ def dono_esta_na_call_manutencao(guild):
     return canal is not None and canal.id == CANAL_CALL_MANUTENCAO_ID
 
 
+def bot_esta_na_call_manutencao(guild):
+    if guild is None:
+        return False
+    voice = guild.voice_client
+    return bool(
+        voice is not None
+        and voice.is_connected()
+        and voice.channel is not None
+        and voice.channel.id == CANAL_CALL_MANUTENCAO_ID
+    )
+
+
+def manutencao_ativa_ou_em_graca(guild):
+    if dono_esta_na_call_manutencao(guild):
+        return True
+    task = _manutencao_voice_disconnect_tasks.get(getattr(guild, "id", 0))
+    return bool(
+        _manutencao_ativa
+        and task is not None
+        and not task.done()
+        and bot_esta_na_call_manutencao(guild)
+    )
+
+
 def audio_permitido_durante_manutencao(guild, solicitante_id=None):
     """Na call de desenvolvimento, áudio só toca quando o próprio dono pediu."""
-    if not dono_esta_na_call_manutencao(guild):
+    if not manutencao_ativa_ou_em_graca(guild):
         return True
     try:
         return int(solicitante_id or 0) == DONO_ID
@@ -8311,7 +8781,13 @@ async def desconectar_call_manutencao_apos_graca(guild):
             if voice.is_playing():
                 voice.stop()
             await voice.disconnect(force=True)
-            print("Modo manutenção: bot saiu da call de desenvolvimento.")
+            print("Modo manutenção: bot saiu após 5 minutos de tolerância.")
+
+        # Só aqui a sessão realmente termina. Se o dono reiniciar o Discord e
+        # voltar antes disso, os contadores e o estado da reunião são preservados.
+        resetar_sessao_manutencao()
+        await atualizar_presence_manutencao(force=True)
+        print("Modo manutenção: ENCERRADO — tolerância expirou e contadores foram zerados.")
     except asyncio.CancelledError:
         return
     except Exception as erro:
@@ -8372,14 +8848,18 @@ def texto_presence_manutencao(guild):
 
 
 async def atualizar_presence_manutencao(force=False):
-    """Durante a call de desenvolvimento, espelha no status do bot a música do Spotify do dono."""
+    """Espelha Spotify durante reunião e mantém presença durante a tolerância."""
     global _manutencao_presence_ultima
 
     guild_manutencao = None
+    dono_presente = False
     for guild in bot.guilds:
         if dono_esta_na_call_manutencao(guild):
             guild_manutencao = guild
+            dono_presente = True
             break
+        if manutencao_ativa_ou_em_graca(guild):
+            guild_manutencao = guild
 
     if guild_manutencao is None:
         if _manutencao_presence_ultima is not None or force:
@@ -8387,7 +8867,11 @@ async def atualizar_presence_manutencao(force=False):
             _manutencao_presence_ultima = None
         return
 
-    texto = texto_presence_manutencao(guild_manutencao)
+    texto = (
+        texto_presence_manutencao(guild_manutencao)
+        if dono_presente
+        else "Reunião de desenvolvimento"
+    )
     if not force and texto == _manutencao_presence_ultima:
         return
 
@@ -8479,6 +8963,33 @@ async def aplicar_timeout_manutencao(membro, duracao, motivo):
         return False
 
 
+async def avisar_bloqueio_manutencao(message, texto, *, quantidade=None, bloqueada=True):
+    if message.channel is None:
+        return
+    cabecalho = (
+        "## 🚫 Mensagem bloqueada — ADM-G ocupado"
+        if bloqueada
+        else "## ⚠️ Menção interceptada — ADM-G ocupado"
+    )
+    contador = ""
+    if quantidade is not None:
+        contador = f"\n**Tentativas registradas nesta reunião:** {quantidade}/5"
+    try:
+        await message.channel.send(
+            f"{cabecalho}\n\n"
+            f"{message.author.mention}, o programador está em reunião/desenvolvimento. "
+            "A tentativa de marcação **continua contando**, mesmo quando a mensagem é removida."
+            f"{contador}\n\n{texto}",
+            allowed_mentions=discord.AllowedMentions(
+                users=True,
+                roles=False,
+                everyone=False,
+            ),
+        )
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+
+
 async def processar_protecao_manutencao(message: discord.Message):
     if message.guild is None or message.author.bot:
         return False
@@ -8486,12 +8997,11 @@ async def processar_protecao_manutencao(message: discord.Message):
     if message.author.id == DONO_ID:
         return False
 
-    # Mantém o estado correto mesmo se o bot tiver reconectado durante a sessão.
     global _manutencao_ativa
-    esta_na_call = dono_esta_na_call_manutencao(message.guild)
+    sessao_valida = manutencao_ativa_ou_em_graca(message.guild)
 
-    if not esta_na_call:
-        if _manutencao_ativa:
+    if not sessao_valida:
+        if _manutencao_ativa and not dono_esta_na_call_manutencao(message.guild):
             resetar_sessao_manutencao()
         return False
 
@@ -8501,13 +9011,20 @@ async def processar_protecao_manutencao(message: discord.Message):
     if not mensagem_menciona_dono_diretamente(message):
         return False
 
+    # Remove a mensagem o mais rápido possível, mas o evento já foi recebido e
+    # portanto continua entrando normalmente no contador de punição.
+    bloqueada = False
+    try:
+        await message.delete()
+        bloqueada = True
+    except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+        bloqueada = False
+
     usuario_id = message.author.id
     quantidade = _manutencao_contadores.get(usuario_id, 0) + 1
     _manutencao_contadores[usuario_id] = quantidade
     nivel_castigo = _manutencao_nivel_castigo.get(usuario_id, 0)
 
-    # Depois de cumprir o primeiro minuto, qualquer nova menção direta na mesma
-    # sessão de manutenção escala imediatamente para 1 hora.
     if nivel_castigo == 1:
         timeout_ok = await aplicar_timeout_manutencao(
             message.author,
@@ -8523,11 +9040,11 @@ async def processar_protecao_manutencao(message: discord.Message):
             resposta = escolher_resposta_manutencao(
                 usuario_id,
                 [
-                    "voltou do minuto e marcou de novo. fechou: agora é 1 HORA pra refletir kkkkk",
-                    "um minuto não resolveu e tu insistiu. parabéns pelo upgrade pra 1 hora",
-                    "tu pediu a versão estendida do castigo sem perceber. 1 hora, campeão",
-                    "acabou o timeout curto e tu repetiu o motivo dele. toma 1 hora então kkk",
-                    "eu tentei no modo educativo de 1 minuto. agora vai no intensivo de 1 hora",
+                    "voltou do minuto e marcou de novo. fechou: agora é **1 HORA** pra refletir kkkkk",
+                    "um minuto não resolveu e tu insistiu. parabéns pelo upgrade pra **1 hora**",
+                    "tu pediu a versão estendida do castigo sem perceber. **1 hora**, campeão",
+                    "acabou o timeout curto e tu repetiu o motivo dele. toma **1 hora** então kkk",
+                    "eu tentei no modo educativo de 1 minuto. agora vai no intensivo de **1 hora**",
                 ]
             )
             await enviar_zoeira_geral_manutencao(
@@ -8539,47 +9056,39 @@ async def processar_protecao_manutencao(message: discord.Message):
             resposta = escolher_resposta_manutencao(
                 usuario_id,
                 MANUTENCAO_POS_TIMEOUT_1M
-            ) + " (tentei te dar 1 hora, mas o Discord não deixou)"
+            ) + " (tentei aplicar 1 hora, mas o Discord não deixou)"
 
-        await message.reply(
+        await avisar_bloqueio_manutencao(
+            message,
             resposta,
-            mention_author=False,
-            allowed_mentions=discord.AllowedMentions.none(),
+            quantidade=quantidade,
+            bloqueada=bloqueada,
         )
         return True
 
-    # Se já chegou ao castigo de 1 hora, continua respondendo com variedade,
-    # mas não cria uma escalada infinita além do que foi pedido.
     if nivel_castigo >= 2:
-        await message.reply(
-            escolher_resposta_manutencao(
-                usuario_id,
-                MANUTENCAO_POS_TIMEOUT_1H
-            ),
-            mention_author=False,
-            allowed_mentions=discord.AllowedMentions.none(),
+        await avisar_bloqueio_manutencao(
+            message,
+            escolher_resposta_manutencao(usuario_id, MANUTENCAO_POS_TIMEOUT_1H),
+            quantidade=quantidade,
+            bloqueada=bloqueada,
         )
         return True
 
     if quantidade < 5:
         nivel = max(1, min(4, quantidade))
-        await message.reply(
-            escolher_resposta_manutencao(
-                usuario_id,
-                MANUTENCAO_RESPOSTAS[nivel]
-            ),
-            mention_author=False,
-            allowed_mentions=discord.AllowedMentions.none(),
+        await avisar_bloqueio_manutencao(
+            message,
+            escolher_resposta_manutencao(usuario_id, MANUTENCAO_RESPOSTAS[nivel]),
+            quantidade=quantidade,
+            bloqueada=bloqueada,
         )
         return True
 
     timeout_ok = await aplicar_timeout_manutencao(
         message.author,
         timedelta(minutes=1),
-        (
-            "5 menções diretas ao programador durante "
-            "sessão de manutenção do bot"
-        )
+        "5 menções diretas ao programador durante sessão de manutenção do bot",
     )
 
     if timeout_ok:
@@ -8587,11 +9096,11 @@ async def processar_protecao_manutencao(message: discord.Message):
         resposta = escolher_resposta_manutencao(
             usuario_id,
             [
-                "cinco. CINCO marcações. ganhou 1 minutinho pra refletir sobre a própria insistência kkkkk",
-                "fechou as 5 marcações. prêmio: 60 segundos no cantinho da reflexão",
-                "quinta marcação confirmada. o Discord acaba de te oferecer 1 minuto de férias",
-                "tu realmente chegou na quinta. toma 1 minuto e pensa se o sexto vale a pena kkk",
-                "parabéns, completou o combo de 5 @ e ganhou um timeout de 1 minuto",
+                "cinco marcações registradas. ganhou **1 minuto** pra refletir sobre a insistência kkkkk",
+                "fechou as 5 marcações. prêmio: **60 segundos** no cantinho da reflexão",
+                "quinta tentativa confirmada. o Discord acaba de te oferecer **1 minuto de férias**",
+                "tu realmente chegou na quinta. toma **1 minuto** e pensa se o sexto vale a pena kkk",
+                "parabéns, completou o combo de 5 @ e ganhou um timeout de **1 minuto**",
             ]
         )
         await enviar_zoeira_geral_manutencao(
@@ -8603,18 +9112,18 @@ async def processar_protecao_manutencao(message: discord.Message):
         resposta = escolher_resposta_manutencao(
             usuario_id,
             [
-                "cinco marcações. eu tentei te dar 1 minuto de castigo, mas o Discord protegeu tua carreira dessa vez kkk",
+                "cinco tentativas. eu tentei te dar 1 minuto de castigo, mas o Discord não deixou dessa vez kkk",
                 "tu bateu 5 @. o timeout era pra vir agora, mas minha permissão não colaborou",
                 "chegou na quinta marcação e escapou do minuto por burocracia do Discord. não abusa da sorte",
             ]
         )
 
-    await message.reply(
+    await avisar_bloqueio_manutencao(
+        message,
         resposta,
-        mention_author=False,
-        allowed_mentions=discord.AllowedMentions.none(),
+        quantidade=5,
+        bloqueada=bloqueada,
     )
-
     return True
 
 
@@ -8633,19 +9142,25 @@ async def on_voice_state_update(member, before, after):
     )
 
     if not antes_manutencao and depois_manutencao:
+        estava_em_graca = member.guild.id in _manutencao_voice_disconnect_tasks
         cancelar_saida_call_manutencao(member.guild.id)
-        iniciar_sessao_manutencao()
-        print("Modo manutenção: ATIVO — nova sessão iniciada.")
+
+        if not _manutencao_ativa:
+            iniciar_sessao_manutencao()
+            print("Modo manutenção: ATIVO — nova sessão iniciada.")
+        elif estava_em_graca:
+            print("Modo manutenção: ADM-G voltou dentro dos 5 minutos — mesma sessão preservada.")
+
         await garantir_bot_na_call_manutencao(member.guild)
         await atualizar_presence_manutencao(force=True)
 
     elif antes_manutencao and not depois_manutencao:
-        resetar_sessao_manutencao()
+        # Não encerra nem zera os contadores aqui. Dá tempo para reiniciar o
+        # Discord/cliente durante atualizações grandes.
         agendar_saida_call_manutencao(member.guild)
         await atualizar_presence_manutencao(force=True)
         print(
-            "Modo manutenção: ENCERRADO — contadores zerados; "
-            "saída da call agendada com proteção contra oscilação."
+            "Modo manutenção: ADM-G saiu — aguardando até 5 minutos antes de encerrar a sessão."
         )
 
 
@@ -8654,6 +9169,7 @@ async def on_message(
     message: discord.Message
 ):
     if message.author.bot:
+        await processar_log_loritta_conta_teste(message)
         return
 
     if isinstance(
@@ -8993,6 +9509,13 @@ FUNCOES_ATUAIS_CATEGORIAS = {
         "📩 Aviso quando a DM estiver fechada",
         "⏳ Remoção do nick após 48h fora do servidor",
     ],
+    "🎮 Roblox": [
+        "🔐 Vinculação oficial da conta Roblox por OAuth 2.0 no site",
+        "🆔 Identificação permanente pelo Roblox User ID",
+        "✅ Cargo Roblox Verificado criado/sincronizado automaticamente",
+        "👤 /perfil mostra Minecraft e Roblox no mesmo perfil de jogos",
+        "🔗 /roblox vincular, /roblox status e /roblox desvincular",
+    ],
     "🤖 IA": [
         "💬 IA da Resenha por menção/reply no canal configurado",
         "🧠 Memória curta e memória social usada somente como contexto",
@@ -9034,6 +9557,7 @@ FUNCOES_ATUAIS_CATEGORIAS = {
         "🤖 Configuração remota da IA",
         "📢 Central de atualizações",
         "🔗 Ponte segura Google Forms → Discord para recrutamento de Eventos",
+        "🎮 Ponte segura Discord ↔ Roblox para verificação oficial por OAuth",
         "🔐 Permissões administrativas e do Departamento de Eventos",
     ],
     "🛡️ Moderação": [
@@ -9280,6 +9804,16 @@ ban_grupo = app_commands.Group(
 minecraft_grupo = app_commands.Group(
     name="minecraft",
     description="Ferramentas e cadastros do servidor Minecraft"
+)
+
+roblox_grupo = app_commands.Group(
+    name="roblox",
+    description="Vincula e consulta sua conta Roblox verificada"
+)
+
+identidade_grupo = app_commands.Group(
+    name="identidade",
+    description="Verificação de contas e modo de testes da Identidade Gamer"
 )
 
 atualizacao_grupo = app_commands.Group(
@@ -10950,6 +11484,590 @@ async def antes_zoeira_call_automatica():
 
 
 
+
+# ==========================================================
+# IDENTIDADE GAMER — ROBLOX
+# ==========================================================
+
+async def roblox_api(
+    caminho,
+    metodo="GET",
+    payload=None,
+):
+    """Ponte BOT -> SITE para vínculos Roblox.
+
+    O segredo compartilhado nunca é enviado ao usuário. O site guarda apenas
+    a identidade pública já verificada e não persiste access/refresh tokens.
+    """
+    if not ROBLOX_VINCULO_SECRET:
+        return False, 503, {
+            "ok": False,
+            "erro": "ROBLOX_VINCULO_SECRET não configurado no BOT.",
+        }
+
+    url = ROBLOX_SITE_URL + caminho
+    corpo = None
+    headers = {
+        "Accept": "application/json",
+        "X-Roblox-Link-Secret": ROBLOX_VINCULO_SECRET,
+    }
+
+    if payload is not None:
+        corpo = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    def _executar():
+        requisicao = urllib.request.Request(
+            url,
+            data=corpo,
+            headers=headers,
+            method=metodo.upper(),
+        )
+        try:
+            with urllib.request.urlopen(
+                requisicao,
+                timeout=12,
+            ) as resposta:
+                status = int(
+                    getattr(resposta, "status", 200)
+                    or 200
+                )
+                bruto = resposta.read().decode(
+                    "utf-8",
+                    errors="replace",
+                )
+        except urllib.error.HTTPError as erro:
+            status = int(erro.code)
+            bruto = erro.read().decode(
+                "utf-8",
+                errors="replace",
+            )
+        except Exception as erro:
+            return False, 0, {
+                "ok": False,
+                "erro": (
+                    f"{type(erro).__name__}: {erro}"
+                ),
+            }
+
+        try:
+            dados = json.loads(bruto) if bruto else {}
+        except json.JSONDecodeError:
+            dados = {
+                "ok": False,
+                "erro": bruto[:500] or f"HTTP {status}",
+            }
+
+        return (
+            200 <= status < 300
+            and bool(dados.get("ok", True)),
+            status,
+            dados,
+        )
+
+    return await asyncio.to_thread(_executar)
+
+
+async def obter_vinculo_roblox(usuario_id):
+    ok, status, dados = await roblox_api(
+        f"/api/roblox/vinculo/{int(usuario_id)}"
+    )
+    if not ok:
+        return None, status, dados
+    return dados.get("vinculo"), status, dados
+
+
+async def obter_ou_criar_cargo_roblox(guild):
+    if not guild:
+        return None
+
+    if ROBLOX_VERIFICADO_CARGO_ID:
+        cargo = guild.get_role(
+            ROBLOX_VERIFICADO_CARGO_ID
+        )
+        if cargo:
+            return cargo
+
+    cargo = discord.utils.get(
+        guild.roles,
+        name=ROBLOX_VERIFICADO_CARGO_NOME,
+    )
+    if cargo:
+        return cargo
+
+    membro_bot = guild.me
+    if (
+        membro_bot is None
+        or not membro_bot.guild_permissions.manage_roles
+    ):
+        return None
+
+    try:
+        return await guild.create_role(
+            name=ROBLOX_VERIFICADO_CARGO_NOME,
+            reason=(
+                "Cargo automático do sistema "
+                "de verificação Roblox"
+            ),
+        )
+    except (
+        discord.Forbidden,
+        discord.HTTPException,
+    ):
+        return None
+
+
+async def sincronizar_cargo_roblox(
+    membro,
+    vinculado=True,
+):
+    if not isinstance(membro, discord.Member):
+        return False
+
+    cargo = await obter_ou_criar_cargo_roblox(
+        membro.guild
+    )
+    if cargo is None:
+        return False
+
+    try:
+        if vinculado and cargo not in membro.roles:
+            await membro.add_roles(
+                cargo,
+                reason="Conta Roblox verificada",
+            )
+        elif not vinculado and cargo in membro.roles:
+            await membro.remove_roles(
+                cargo,
+                reason="Conta Roblox desvinculada",
+            )
+        return True
+    except (
+        discord.Forbidden,
+        discord.HTTPException,
+    ):
+        return False
+
+
+def texto_vinculo_roblox(vinculo):
+    if not isinstance(vinculo, dict):
+        return "Não vinculado."
+
+    username = discord.utils.escape_markdown(
+        str(
+            vinculo.get("username")
+            or vinculo.get("roblox_id")
+            or "Desconhecido"
+        )
+    )
+    display = discord.utils.escape_markdown(
+        str(
+            vinculo.get("display_name")
+            or username
+        )
+    )
+    roblox_id = str(
+        vinculo.get("roblox_id")
+        or "?"
+    )
+    profile = str(
+        vinculo.get("profile")
+        or f"https://www.roblox.com/users/{roblox_id}/profile"
+    )
+
+    return (
+        f"**Username:** [{username}]({profile})\n"
+        f"**Display:** {display}\n"
+        f"**ID:** `{roblox_id}`\n"
+        "✅ **Verificado**"
+    )
+
+
+class RobloxVinculoView(discord.ui.View):
+    def __init__(self, usuario_id, url):
+        super().__init__(timeout=600)
+        self.usuario_id = int(usuario_id)
+        self.add_item(
+            discord.ui.Button(
+                label="Vincular minha conta",
+                emoji="🎮",
+                style=discord.ButtonStyle.link,
+                url=url,
+            )
+        )
+
+    @discord.ui.button(
+        label="Já vinculei",
+        emoji="✅",
+        style=discord.ButtonStyle.success,
+    )
+    async def confirmar(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        if interaction.user.id != self.usuario_id:
+            await interaction.response.send_message(
+                "❌ Esse botão pertence a outra pessoa.",
+                ephemeral=True,
+            )
+            return
+
+        if await negar_identidade_se_bloqueada(
+            interaction,
+            cargo_id=CARGO_ROBLOX_ID,
+            nome_jogo="Roblox",
+        ):
+            return
+
+        await interaction.response.defer(
+            ephemeral=True,
+            thinking=True,
+        )
+
+        vinculo, status, dados = await obter_vinculo_roblox(
+            interaction.user.id
+        )
+        if not vinculo:
+            detalhe = dados.get("erro") if isinstance(dados, dict) else ""
+            await interaction.followup.send(
+                (
+                    "⏳ Ainda não encontrei uma conta Roblox "
+                    "vinculada ao seu Discord.\n\n"
+                    "Conclua a autorização no site e clique "
+                    "em **Já vinculei** novamente."
+                    + (
+                        f"\n\nDetalhe: `{detalhe}`"
+                        if detalhe and status not in {200, 404}
+                        else ""
+                    )
+                ),
+                ephemeral=True,
+            )
+            return
+
+        membro = resolver_membro_identidade(interaction)
+        if membro is not None:
+            await sincronizar_cargo_roblox(
+                membro,
+                True,
+            )
+
+        await interaction.followup.send(
+            "## ✅ Roblox verificado\n\n"
+            f"{texto_vinculo_roblox(vinculo)}\n\n"
+            "Sua conta já aparece no comando `/perfil`.",
+            ephemeral=True,
+        )
+
+
+# ==========================================================
+# IDENTIDADE GAMER — MENU UNIFICADO / MODO TESTE
+# ==========================================================
+
+def resolver_membro_identidade(interaction):
+    if isinstance(interaction.user, discord.Member):
+        return interaction.user
+    for guild in bot.guilds:
+        membro = guild.get_member(interaction.user.id)
+        if membro is not None:
+            return membro
+    return None
+
+
+def tem_cargo_jogo(membro, cargo_id):
+    if not isinstance(membro, discord.Member):
+        return False
+    if membro.id == DONO_ID:
+        # O dono pode testar sem precisar ficar trocando os próprios cargos.
+        return True
+    return any(cargo.id == int(cargo_id) for cargo in membro.roles)
+
+
+async def negar_identidade_se_bloqueada(interaction, *, cargo_id=None, nome_jogo="recurso"):
+    if not pode_testar_identidade(interaction.user.id):
+        texto = (
+            "🧪 **Este recurso ainda está em modo de teste.**\n\n"
+            "Por enquanto apenas o ADM-G e a Conta de Testes podem usar."
+        )
+        if interaction.response.is_done():
+            await interaction.followup.send(texto, ephemeral=True)
+        else:
+            await interaction.response.send_message(texto, ephemeral=True)
+        return True
+
+    if cargo_id:
+        membro = resolver_membro_identidade(interaction)
+        if membro is None or not tem_cargo_jogo(membro, cargo_id):
+            texto = f"❌ Você precisa do cargo de **{nome_jogo}** para usar esta verificação."
+            if interaction.response.is_done():
+                await interaction.followup.send(texto, ephemeral=True)
+            else:
+                await interaction.response.send_message(texto, ephemeral=True)
+            return True
+    return False
+
+
+async def iniciar_vinculo_roblox_interaction(interaction):
+    if await negar_identidade_se_bloqueada(
+        interaction,
+        cargo_id=CARGO_ROBLOX_ID,
+        nome_jogo="Roblox",
+    ):
+        return
+
+    if not interaction.response.is_done():
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+    membro = resolver_membro_identidade(interaction)
+    vinculo_atual, _, _ = await obter_vinculo_roblox(interaction.user.id)
+    if vinculo_atual:
+        if membro is not None:
+            await sincronizar_cargo_roblox(membro, True)
+        await interaction.followup.send(
+            "## 🎮 Roblox já verificado\n\n"
+            f"{texto_vinculo_roblox(vinculo_atual)}",
+            ephemeral=True,
+        )
+        return
+
+    ok, status, dados = await roblox_api(
+        "/api/roblox/criar-vinculo",
+        metodo="POST",
+        payload={
+            "discord_id": str(interaction.user.id),
+            "discord_nome": str(interaction.user),
+            "guild_id": str(membro.guild.id if membro is not None else 0),
+        },
+    )
+    if not ok:
+        await interaction.followup.send(
+            "❌ Não consegui iniciar a vinculação do Roblox.\n\n"
+            f"Detalhe: `{dados.get('erro', f'HTTP {status}')}`",
+            ephemeral=True,
+        )
+        return
+
+    url = str(dados.get("url") or "").strip()
+    if not url:
+        await interaction.followup.send(
+            "❌ O site não devolveu o link de vinculação.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.followup.send(
+        "## 🎮 Verificar Roblox\n\n"
+        "Clique em **Vincular minha conta**, faça login no Roblox e autorize "
+        "a Resenha Máxima. Depois volte e clique em **Já vinculei**.",
+        view=RobloxVinculoView(interaction.user.id, url),
+        ephemeral=True,
+    )
+
+
+class MinecraftNickModal(discord.ui.Modal, title="Verificar Minecraft"):
+    nickname = discord.ui.TextInput(
+        label="Seu nickname do Minecraft",
+        placeholder="Digite o gamertag completo",
+        min_length=NICK_MIN_CARACTERES,
+        max_length=NICK_MAX_CARACTERES,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if await negar_identidade_se_bloqueada(
+            interaction,
+            cargo_id=CARGO_MINECRAFT_ID,
+            nome_jogo="Minecraft",
+        ):
+            return
+
+        membro = resolver_membro_identidade(interaction)
+        if membro is None:
+            await interaction.response.send_message(
+                "❌ Não encontrei sua conta dentro do servidor.",
+                ephemeral=True,
+            )
+            return
+
+        cadastro = buscar_cadastro_nick(membro.guild.id, membro.id)
+        if cadastro and cadastro["nickname"]:
+            await interaction.response.send_message(
+                "✅ Seu nickname Minecraft já está cadastrado como "
+                f"`{cadastro['nickname']}`.",
+                ephemeral=True,
+            )
+            return
+
+        nickname = " ".join(str(self.nickname.value).strip().split())
+        valido, motivo = validar_formato_nickname(nickname)
+        if not valido:
+            await interaction.response.send_message(
+                f"❌ {motivo}",
+                ephemeral=True,
+            )
+            return
+
+        iniciar_pendencia_nick(membro.guild.id, membro.id)
+        await concluir_nickname(
+            membro,
+            nickname,
+            origem="menu unificado de verificação",
+        )
+        await interaction.response.send_message(
+            "## ✅ Minecraft cadastrado\n\n"
+            f"**Gamertag:** `{nickname}`\n\n"
+            "Seu cadastro foi salvo e você não receberá novas cobranças de nickname.",
+            ephemeral=True,
+        )
+
+
+class VerificacaoContasView(discord.ui.View):
+    def __init__(self, *, mostrar_roblox=True, mostrar_minecraft=True):
+        super().__init__(timeout=None)
+        for item in list(self.children):
+            if item.custom_id == "identidade_verificar_roblox_v1" and not mostrar_roblox:
+                self.remove_item(item)
+            elif item.custom_id == "identidade_verificar_minecraft_v1" and not mostrar_minecraft:
+                self.remove_item(item)
+
+    @discord.ui.button(
+        label="Verificar Roblox",
+        emoji="🎮",
+        style=discord.ButtonStyle.primary,
+        custom_id="identidade_verificar_roblox_v1",
+    )
+    async def verificar_roblox(self, interaction, button):
+        await iniciar_vinculo_roblox_interaction(interaction)
+
+    @discord.ui.button(
+        label="Verificar Minecraft",
+        emoji="⛏️",
+        style=discord.ButtonStyle.success,
+        custom_id="identidade_verificar_minecraft_v1",
+    )
+    async def verificar_minecraft(self, interaction, button):
+        if await negar_identidade_se_bloqueada(
+            interaction,
+            cargo_id=CARGO_MINECRAFT_ID,
+            nome_jogo="Minecraft",
+        ):
+            return
+
+        membro = resolver_membro_identidade(interaction)
+        if membro is not None:
+            cadastro = buscar_cadastro_nick(membro.guild.id, membro.id)
+            if cadastro and cadastro["nickname"]:
+                await interaction.response.send_message(
+                    "✅ Você já cadastrou seu Minecraft: "
+                    f"`{cadastro['nickname']}`.",
+                    ephemeral=True,
+                )
+                return
+
+        await interaction.response.send_modal(MinecraftNickModal())
+
+
+async def enviar_menu_verificacao_contas(
+    membro,
+    *,
+    aviso_minecraft=None,
+    forcar_minecraft=False,
+):
+    if not isinstance(membro, discord.Member) or membro.bot:
+        return False
+    if not pode_testar_identidade(membro.id):
+        return False
+
+    tem_mc = tem_cargo_jogo(membro, CARGO_MINECRAFT_ID)
+    tem_rb = tem_cargo_jogo(membro, CARGO_ROBLOX_ID)
+
+    cadastro = buscar_cadastro_nick(membro.guild.id, membro.id)
+    mc_cadastrado = bool(cadastro and cadastro["nickname"])
+    mostrar_mc = bool(tem_mc and not mc_cadastrado)
+
+    vinculo_rb = None
+    rb_consulta_ok = False
+    if tem_rb:
+        vinculo_rb, status_rb, _ = await obter_vinculo_roblox(membro.id)
+        rb_consulta_ok = status_rb in {200, 404}
+    mostrar_rb = bool(tem_rb and not vinculo_rb)
+
+    # Chamadas originadas pelo sistema de nickname sempre mantêm a opção MC.
+    if forcar_minecraft and tem_mc and not mc_cadastrado:
+        mostrar_mc = True
+
+    if not mostrar_mc and not mostrar_rb:
+        return True
+
+    linhas = [
+        "## 🔐 Verificação de contas",
+        "",
+        "Escolha abaixo a conta que deseja verificar.",
+    ]
+    if aviso_minecraft is not None and mostrar_mc:
+        linhas += [
+            "",
+            f"⚠️ **Aviso {aviso_minecraft}/8 — Minecraft pendente**",
+            "Após o 8º aviso dentro de 3 dias, continua valendo a medida prevista para o cadastro não concluído.",
+        ]
+    if tem_mc and mc_cadastrado:
+        linhas += ["", f"⛏️ Minecraft: ✅ `{cadastro['nickname']}` já cadastrado."]
+    if tem_rb and vinculo_rb:
+        linhas += ["", f"🎮 Roblox: ✅ `{vinculo_rb.get('username') or vinculo_rb.get('roblox_id')}` verificado."]
+    elif tem_rb and not rb_consulta_ok:
+        linhas += ["", "🎮 Roblox: o botão continuará disponível para testar a configuração."]
+
+    try:
+        await membro.send(
+            "\n".join(linhas),
+            view=VerificacaoContasView(
+                mostrar_roblox=mostrar_rb,
+                mostrar_minecraft=mostrar_mc,
+            ),
+        )
+        return True
+    except (discord.Forbidden, discord.HTTPException):
+        await avisar_dm_fechada_no_chat(membro)
+        return False
+
+
+async def varrer_membros_roblox_verificacao():
+    total = 0
+    for guild in bot.guilds:
+        cargo = guild.get_role(CARGO_ROBLOX_ID)
+        if cargo is None:
+            continue
+        for membro in cargo.members:
+            if membro.bot or not pode_testar_identidade(membro.id):
+                continue
+
+            vinculo, status, _ = await obter_vinculo_roblox(membro.id)
+            if vinculo:
+                await sincronizar_cargo_roblox(membro, True)
+                continue
+            if status not in {200, 404, 503}:
+                continue
+
+            # Se Minecraft também está pendente, o scanner de Minecraft já envia
+            # o mesmo menu unificado; evita duas DMs na sequência.
+            cadastro = buscar_cadastro_nick(guild.id, membro.id)
+            if (
+                tem_cargo_jogo(membro, CARGO_MINECRAFT_ID)
+                and not (cadastro and cadastro["nickname"])
+            ):
+                continue
+
+            chave = f"roblox_menu_verificacao_{guild.id}_{membro.id}"
+            if obter_estado(chave) == "1":
+                continue
+            enviado = await enviar_menu_verificacao_contas(membro)
+            if enviado:
+                salvar_estado(chave, "1")
+                total += 1
+            await asyncio.sleep(0.2)
+    return total
+
+
 # ==========================================================
 # RECRUTAMENTO — DEPARTAMENTO DE EVENTOS / GOOGLE FORMS
 # ==========================================================
@@ -11146,6 +12264,7 @@ class EventosAdmissaoView(discord.ui.View):
             payload={
                 "discord_id": str(interaction.user.id),
                 "discord_nome": str(interaction.user),
+                "ignorar_cooldown": interaction.user.id == CONTA_TESTE_ID,
             },
         )
         if not ok:
@@ -11398,10 +12517,15 @@ async def reprovar_candidatura_eventos(
         return
 
     membro_id = int(candidatura.get("discord_id") or 0)
+    texto_nova_tentativa = (
+        "🧪 **Conta de Testes:** você pode iniciar outra prova imediatamente, sem esperar 24 horas."
+        if membro_id == CONTA_TESTE_ID
+        else "Uma nova tentativa poderá ser feita após **24 horas**."
+    )
     await interaction.channel.send(
         f"<@{membro_id}> ❌ **Você foi reprovado no recrutamento "
         "do Departamento de Eventos.**\n"
-        "Uma nova tentativa poderá ser feita após **24 horas**.",
+        + texto_nova_tentativa,
         allowed_mentions=discord.AllowedMentions(
             users=True,
             roles=False,
@@ -11418,10 +12542,116 @@ async def reprovar_candidatura_eventos(
         candidatura,
     )
     await interaction.followup.send(
-        "✅ Reprovação registrada e cooldown de 24 horas aplicado. "
-        "Os canais temporários serão apagados em 3 minutos.",
+        (
+            "✅ Reprovação de teste registrada. Essa conta pode tentar novamente imediatamente. "
+            if membro_id == CONTA_TESTE_ID
+            else "✅ Reprovação registrada e cooldown de 24 horas aplicado. "
+        )
+        + "Os canais temporários serão apagados em 3 minutos.",
         ephemeral=True,
     )
+
+
+class EventosHorarioModal(discord.ui.Modal, title="Horário para entrevista"):
+    horario = discord.ui.TextInput(
+        label="Qual horário você está livre?",
+        placeholder="Ex.: hoje após 20h / amanhã entre 14h e 18h",
+        min_length=2,
+        max_length=180,
+    )
+
+    def __init__(self, codigo, candidato_id):
+        super().__init__()
+        self.codigo = str(codigo or "")
+        self.candidato_id = int(candidato_id or 0)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if interaction.user.id != self.candidato_id:
+            await interaction.response.send_message(
+                "❌ Apenas o candidato pode informar esse horário.",
+                ephemeral=True,
+            )
+            return
+
+        horario = " ".join(str(self.horario.value).strip().split())
+        ok, _, resposta = await eventos_api(
+            "/api/recrutamento/eventos/horario",
+            metodo="POST",
+            payload={
+                "codigo": self.codigo,
+                "discord_id": str(interaction.user.id),
+                "horario": horario,
+            },
+        )
+        if not ok:
+            await interaction.response.send_message(
+                "❌ Não consegui salvar seu horário. "
+                f"Detalhe: `{resposta.get('erro', 'erro')}`",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.send_message(
+            "✅ Horário informado com sucesso.",
+            ephemeral=True,
+        )
+        if interaction.channel is not None:
+            try:
+                await interaction.channel.send(
+                    "🕐 **Disponibilidade para entrevista em call**\n"
+                    f"<@{interaction.user.id}> informou: **{escapar_mencoes_eventos(horario)}**",
+                    allowed_mentions=discord.AllowedMentions(
+                        users=True,
+                        roles=False,
+                        everyone=False,
+                    ),
+                )
+            except discord.HTTPException:
+                pass
+
+
+class EventosHorarioView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Informar horário",
+        emoji="🕐",
+        style=discord.ButtonStyle.primary,
+        custom_id="eventos_recrutamento_horario_v1",
+    )
+    async def informar_horario(self, interaction, button):
+        candidatura, erro = await candidatura_eventos_do_canal(
+            interaction.channel.id
+        )
+        if not candidatura:
+            await interaction.response.send_message(
+                f"❌ {erro}",
+                ephemeral=True,
+            )
+            return
+
+        candidato_id = int(candidatura.get("discord_id") or 0)
+        if interaction.user.id != candidato_id:
+            await interaction.response.send_message(
+                "❌ Apenas o candidato pode informar a própria disponibilidade.",
+                ephemeral=True,
+            )
+            return
+
+        if candidatura.get("status") in {"aprovado", "reprovado", "encerrado"}:
+            await interaction.response.send_message(
+                "ℹ️ Esta candidatura já foi finalizada.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.send_modal(
+            EventosHorarioModal(
+                candidatura.get("codigo"),
+                candidato_id,
+            )
+        )
 
 
 class EventosAvaliacaoView(discord.ui.View):
@@ -11561,9 +12791,19 @@ class EventosAvaliacaoView(discord.ui.View):
             },
         )
 
+        horario_entrevista = str(
+            candidatura.get("horario_entrevista") or ""
+        ).strip()
+        horario_linha = (
+            f"🕐 Horário informado pelo candidato: **{escapar_mencoes_eventos(horario_entrevista)}**\n\n"
+            if horario_entrevista
+            else ""
+        )
+
         await interaction.channel.send(
             "🔊 **QUESTIONÁRIO EM CALL**\n\n"
-            f"<@{membro.id}>, sua prova foi analisada e você foi "
+            + horario_linha
+            + f"<@{membro.id}>, sua prova foi analisada e você foi "
             "chamado para a próxima etapa.\n\n"
             f"➡️ Entre aqui: {destino}\n"
             "⏱️ O convite expira em 15 minutos e possui 1 uso.\n"
@@ -11944,6 +13184,22 @@ async def publicar_prova_eventos(candidatura):
             reason=f"Prova recebida — {codigo}",
         )
 
+        # Vincula o canal à candidatura antes de exibir botões ao candidato.
+        # Assim o botão de horário funciona mesmo se ele clicar imediatamente.
+        ok_entrega, _, resposta_entrega = await eventos_api(
+            "/api/recrutamento/eventos/entregue",
+            metodo="POST",
+            payload={
+                "codigo": codigo,
+                "discord_channel_id": str(canal.id),
+            },
+        )
+        if not ok_entrega:
+            raise RuntimeError(
+                "Canal criado, mas o site não confirmou antes dos botões: "
+                f"{resposta_entrega.get('erro')}"
+            )
+
         await canal.send(
             "📝 **NOVA PROVA — DEPARTAMENTO DE EVENTOS**\n\n"
             f"👤 Candidato: {membro.mention}\n"
@@ -11986,6 +13242,24 @@ async def publicar_prova_eventos(candidatura):
             await canal.send(
                 parte,
                 allowed_mentions=discord.AllowedMentions.none(),
+            )
+
+        horario_salvo = str(candidatura.get("horario_entrevista") or "").strip()
+        if horario_salvo:
+            await canal.send(
+                "🕐 **Disponibilidade para entrevista em call**\n"
+                f"Horário informado: **{escapar_mencoes_eventos(horario_salvo)}**",
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        else:
+            await canal.send(
+                "## 🕐 Entrevista em call\n\n"
+                f"{membro.mention}, **Qual é um horário que está livre para uma entrevista em call?**\n\n"
+                "Clique no botão abaixo e informe um horário aproximado.",
+                view=EventosHorarioView(),
+                allowed_mentions=discord.AllowedMentions(
+                    users=True, roles=False, everyone=False
+                ),
             )
 
         await canal.send(
@@ -12041,8 +13315,10 @@ async def on_ready():
     if not getattr(bot, "_views_recrutamento_eventos_registradas", False):
         bot._views_recrutamento_eventos_registradas = True
         bot.add_view(EventosAdmissaoView())
+        bot.add_view(EventosHorarioView())
         bot.add_view(EventosAvaliacaoView())
         bot.add_view(EventosResultadoView())
+        bot.add_view(VerificacaoContasView())
 
     if not processar_provas_eventos.is_running():
         processar_provas_eventos.start()
@@ -12060,6 +13336,9 @@ async def on_ready():
 
     if not sincronizar_spotify_manutencao.is_running():
         sincronizar_spotify_manutencao.start()
+
+    if not limpar_cargos_temporarios_conta_teste.is_running():
+        limpar_cargos_temporarios_conta_teste.start()
 
     # Se o bot reiniciar enquanto o programador já estiver na call de manutenção,
     # inicia a sessão, entra junto sem emitir aviso público e atualiza a presença.
@@ -12133,6 +13412,26 @@ async def on_ready():
         bot._nicks_pre_cadastrados_importados = True
         await importar_nicks_pre_cadastrados()
 
+    # Prepara a Identidade Gamer. Durante o modo de teste só o dono e a
+    # Conta de Testes têm os contadores reiniciados; os demais ficam congelados.
+    if not getattr(bot, "_identidade_gamer_inicializada", False):
+        bot._identidade_gamer_inicializada = True
+        for guild in bot.guilds:
+            try:
+                if identidade_gamer_modo_teste():
+                    await preparar_nova_identidade_gamer(guild, liberacao=False)
+                else:
+                    await preparar_nova_identidade_gamer(guild, liberacao=True)
+
+                conta_teste = guild.get_member(CONTA_TESTE_ID)
+                if conta_teste is not None:
+                    await sincronizar_cargos_temporarios_existentes(conta_teste)
+            except Exception as erro:
+                print(
+                    "Identidade Gamer | erro na preparação inicial | "
+                    f"guild={guild.id} | {type(erro).__name__}: {erro}"
+                )
+
     # Garante uma única tabela de nicknames no canal.
     for guild in bot.guilds:
         try:
@@ -12152,6 +13451,14 @@ async def on_ready():
         bot._scan_nicks_feito = True
         asyncio.create_task(varrer_membros_minecraft())
 
+    if not getattr(bot, '_scan_roblox_verificacao_feito', False):
+        bot._scan_roblox_verificacao_feito = True
+        asyncio.create_task(varrer_membros_roblox_verificacao())
+
+    print(
+        "Identidade Gamer | modo teste: "
+        + ("ATIVO" if identidade_gamer_modo_teste() else "DESATIVADO")
+    )
     print("--------------------------------")
     print(f"Bot conectado como: {bot.user}")
     print("Monitor Minecraft: ATIVO")
@@ -12443,6 +13750,362 @@ async def solicitarban(
     )
 
 
+
+# ==========================================================
+# /IDENTIDADE — MENU / MODO TESTE
+# ==========================================================
+
+@identidade_grupo.command(
+    name="verificar",
+    description="Abre o menu de verificação das suas contas de jogos"
+)
+async def identidade_verificar(interaction: discord.Interaction):
+    if interaction.guild is None or not isinstance(interaction.user, discord.Member):
+        await interaction.response.send_message(
+            "❌ Use este comando dentro do servidor.",
+            ephemeral=True,
+        )
+        return
+
+    if not pode_testar_identidade(interaction.user.id):
+        await interaction.response.send_message(
+            "🧪 **A Identidade Gamer ainda está em modo de teste.**\n\n"
+            "Por enquanto apenas o ADM-G e a Conta de Testes podem usar.",
+            ephemeral=True,
+        )
+        return
+
+    tem_mc = tem_cargo_jogo(interaction.user, CARGO_MINECRAFT_ID)
+    tem_rb = tem_cargo_jogo(interaction.user, CARGO_ROBLOX_ID)
+    cadastro = buscar_cadastro_nick(interaction.guild.id, interaction.user.id)
+    mc_cadastrado = bool(cadastro and cadastro["nickname"])
+    vinculo_rb = None
+    if tem_rb:
+        vinculo_rb, _, _ = await obter_vinculo_roblox(interaction.user.id)
+
+    mostrar_mc = tem_mc and not mc_cadastrado
+    mostrar_rb = tem_rb and not vinculo_rb
+    if not mostrar_mc and not mostrar_rb:
+        detalhes = []
+        if tem_mc and mc_cadastrado:
+            detalhes.append(f"⛏️ Minecraft: ✅ `{cadastro['nickname']}`")
+        if tem_rb and vinculo_rb:
+            detalhes.append(f"🎮 Roblox: ✅ `{vinculo_rb.get('username') or vinculo_rb.get('roblox_id')}`")
+        if detalhes:
+            texto = "## ✅ Verificações concluídas\n\n" + "\n".join(detalhes)
+        else:
+            texto = (
+                "ℹ️ Você não possui cargo de Minecraft ou Roblox para iniciar uma verificação."
+            )
+        await interaction.response.send_message(texto, ephemeral=True)
+        return
+
+    await interaction.response.send_message(
+        "## 🔐 Verificação de contas\n\nEscolha a conta que deseja verificar.",
+        view=VerificacaoContasView(
+            mostrar_roblox=mostrar_rb,
+            mostrar_minecraft=mostrar_mc,
+        ),
+        ephemeral=True,
+    )
+
+
+@identidade_grupo.command(
+    name="modoteste",
+    description="Ativa ou libera a Identidade Gamer para todo o servidor"
+)
+@app_commands.describe(
+    ativo="True mantém somente ADM-G/Conta de Testes; False libera para todos"
+)
+async def identidade_modoteste(
+    interaction: discord.Interaction,
+    ativo: bool,
+):
+    if interaction.user.id != DONO_ID:
+        await interaction.response.send_message(
+            "❌ Apenas o dono do bot pode alterar o modo de teste.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    salvar_estado(CHAVE_MODO_TESTE_IDENTIDADE, "1" if ativo else "0")
+
+    if ativo:
+        await interaction.followup.send(
+            "🧪 **Modo de teste ATIVADO.**\n\n"
+            "Roblox e o novo menu de Minecraft ficam restritos ao ADM-G e à Conta de Testes.",
+            ephemeral=True,
+        )
+        return
+
+    resetados = await preparar_nova_identidade_gamer(
+        interaction.guild,
+        liberacao=True,
+    )
+    minecraft_pendentes = await varrer_membros_minecraft()
+    roblox_pendentes = await varrer_membros_roblox_verificacao()
+    await interaction.followup.send(
+        "## ✅ Identidade Gamer liberada\n\n"
+        "O modo de teste foi desativado e o sistema foi liberado para o servidor.\n\n"
+        f"⛏️ Contadores Minecraft zerados: **{resetados}**\n"
+        f"📩 Cadastros Minecraft processados: **{minecraft_pendentes}**\n"
+        f"🎮 Menus Roblox enviados: **{roblox_pendentes}**",
+        ephemeral=True,
+    )
+
+
+# ==========================================================
+# /ROBLOX VINCULAR
+# ==========================================================
+
+@roblox_grupo.command(
+    name="vincular",
+    description="Vincula sua conta Roblox ao seu Discord"
+)
+async def roblox_vincular(
+    interaction: discord.Interaction
+):
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "❌ Use este comando dentro do servidor.",
+            ephemeral=True,
+        )
+        return
+
+    await iniciar_vinculo_roblox_interaction(interaction)
+
+
+# ==========================================================
+# /ROBLOX STATUS
+# ==========================================================
+
+@roblox_grupo.command(
+    name="status",
+    description="Mostra a conta Roblox vinculada"
+)
+@app_commands.describe(
+    usuario="Membro que você deseja consultar"
+)
+async def roblox_status(
+    interaction: discord.Interaction,
+    usuario: discord.Member | None = None,
+):
+    alvo = usuario or interaction.user
+
+    if await negar_identidade_se_bloqueada(
+        interaction,
+        cargo_id=CARGO_ROBLOX_ID,
+        nome_jogo="Roblox",
+    ):
+        return
+
+    await interaction.response.defer(
+        ephemeral=True,
+        thinking=True,
+    )
+
+    vinculo, status, dados = await obter_vinculo_roblox(
+        alvo.id
+    )
+    if not vinculo:
+        if status not in {200, 404}:
+            await interaction.followup.send(
+                "❌ Não consegui consultar o Roblox agora.\n"
+                f"Detalhe: `{dados.get('erro', f'HTTP {status}')}`",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.followup.send(
+            f"ℹ️ {alvo.mention} ainda não possui "
+            "uma conta Roblox vinculada.",
+            ephemeral=True,
+        )
+        return
+
+    if isinstance(alvo, discord.Member):
+        await sincronizar_cargo_roblox(
+            alvo,
+            True,
+        )
+
+    await interaction.followup.send(
+        "## 🎮 Roblox verificado\n\n"
+        f"**Discord:** {alvo.mention}\n\n"
+        f"{texto_vinculo_roblox(vinculo)}",
+        ephemeral=True,
+    )
+
+
+# ==========================================================
+# /ROBLOX DESVINCULAR
+# ==========================================================
+
+@roblox_grupo.command(
+    name="desvincular",
+    description="Remove a conta Roblox vinculada ao seu Discord"
+)
+async def roblox_desvincular(
+    interaction: discord.Interaction
+):
+    if await negar_identidade_se_bloqueada(
+        interaction,
+        cargo_id=CARGO_ROBLOX_ID,
+        nome_jogo="Roblox",
+    ):
+        return
+
+    await interaction.response.defer(
+        ephemeral=True,
+        thinking=True,
+    )
+
+    ok, status, dados = await roblox_api(
+        "/api/roblox/desvincular",
+        metodo="POST",
+        payload={
+            "discord_id": str(interaction.user.id),
+        },
+    )
+    if not ok:
+        if status == 404:
+            await interaction.followup.send(
+                "ℹ️ Você não possui uma conta Roblox vinculada.",
+                ephemeral=True,
+            )
+            return
+        await interaction.followup.send(
+            "❌ Não consegui remover o vínculo.\n"
+            f"Detalhe: `{dados.get('erro', f'HTTP {status}')}`",
+            ephemeral=True,
+        )
+        return
+
+    if isinstance(interaction.user, discord.Member):
+        await sincronizar_cargo_roblox(
+            interaction.user,
+            False,
+        )
+
+    await interaction.followup.send(
+        "✅ Sua conta Roblox foi desvinculada.",
+        ephemeral=True,
+    )
+
+
+# ==========================================================
+# /PERFIL
+# ==========================================================
+
+@bot.tree.command(
+    name="perfil",
+    description="Mostra as identidades de jogo verificadas de um membro"
+)
+@app_commands.describe(
+    usuario="Membro cujo perfil de jogos será exibido"
+)
+async def perfil_jogos(
+    interaction: discord.Interaction,
+    usuario: discord.Member | None = None,
+):
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "❌ Use este comando dentro do servidor.",
+            ephemeral=True,
+        )
+        return
+
+    if not pode_testar_identidade(interaction.user.id):
+        await interaction.response.send_message(
+            "🧪 **Perfil de Jogos ainda está em modo de teste.**\n\n"
+            "Por enquanto apenas o ADM-G e a Conta de Testes podem usar.",
+            ephemeral=True,
+        )
+        return
+
+    alvo = usuario or interaction.user
+    await interaction.response.defer(
+        thinking=True,
+    )
+
+    cadastro_minecraft = buscar_cadastro_nick(
+        interaction.guild.id,
+        alvo.id,
+    )
+
+    vinculo_roblox, status_roblox, _ = await obter_vinculo_roblox(
+        alvo.id
+    )
+
+    embed = discord.Embed(
+        title="👤 Perfil de Jogos",
+        description=f"**Discord:** {alvo.mention}",
+        color=discord.Color.blurple(),
+    )
+    embed.set_author(
+        name=str(alvo),
+        icon_url=alvo.display_avatar.url,
+    )
+
+    if (
+        cadastro_minecraft is not None
+        and cadastro_minecraft["nickname"]
+        and cadastro_minecraft["status"] == "ativo"
+    ):
+        minecraft_texto = (
+            f"**Gamertag:** "
+            f"`{cadastro_minecraft['nickname']}`\n"
+            "✅ **Cadastrado**"
+        )
+    elif cadastro_minecraft is not None:
+        minecraft_texto = (
+            "⏳ **Cadastro pendente**"
+        )
+    else:
+        minecraft_texto = (
+            "Não cadastrado."
+        )
+
+    embed.add_field(
+        name="⛏️ Minecraft",
+        value=minecraft_texto,
+        inline=False,
+    )
+
+    if vinculo_roblox:
+        roblox_texto = texto_vinculo_roblox(
+            vinculo_roblox
+        )
+        if isinstance(alvo, discord.Member):
+            await sincronizar_cargo_roblox(
+                alvo,
+                True,
+            )
+    elif status_roblox in {200, 404}:
+        roblox_texto = (
+            "Não vinculado.\n"
+            "Use `/roblox vincular`."
+        )
+    else:
+        roblox_texto = (
+            "⚠️ Verificação temporariamente indisponível."
+        )
+
+    embed.add_field(
+        name="🎮 Roblox",
+        value=roblox_texto,
+        inline=False,
+    )
+    embed.set_footer(
+        text="Resenha Máxima • Identidade Gamer"
+    )
+
+    await interaction.followup.send(
+        embed=embed,
+    )
+
+
 # ==========================================================
 # /MINECRAFT SINCRONIZARNICKS
 # ==========================================================
@@ -12712,6 +14375,14 @@ bot.tree.add_command(
 
 bot.tree.add_command(
     minecraft_grupo
+)
+
+bot.tree.add_command(
+    roblox_grupo
+)
+
+bot.tree.add_command(
+    identidade_grupo
 )
 
 bot.tree.add_command(

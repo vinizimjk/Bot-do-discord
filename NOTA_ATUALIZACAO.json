@@ -1,25 +1,29 @@
 {
-  "id": "2026-08-23-10",
-  "versao": "2026.08.23-pacote-geral-recrutamento-manutencao-nicks",
+  "id": "2026-08-23-11",
+  "versao": "2026.08.23-identidade-gamer-modo-teste-e-recrutamento",
   "data": "2026-08-23",
-  "titulo": "Atualização geral da Resenha Máxima",
+  "titulo": "Notas de atualização",
   "novidades": [
-    "O recrutamento do Departamento de Eventos agora possui fluxo completo com código individual, prova vinculada, canal privado de avaliação, entrevista em call e decisão pela equipe responsável.",
-    "Foi adicionado o comando /resetarprovaeventos para permitir que a administração reinicie candidaturas usadas em testes sem interferir nos candidatos reais.",
-    "Enquanto o programador estiver na call de desenvolvimento, o bot mantém o áudio do servidor visualmente ativo e acompanha no próprio status a música do Spotify que estiver visível na atividade do Discord.",
-    "O sistema de nickname do Minecraft passa a dar até 8 avisos distribuídos durante 3 dias antes da aplicação da medida prevista para quem não concluir o cadastro."
+    "Foi adicionada a Identidade Gamer em modo de teste, liberada inicialmente apenas para o ADM-G e para a Conta de Testes.",
+    "O Roblox agora pode ser vinculado oficialmente ao Discord pelo site usando OAuth 2.0, com os comandos /roblox e exibição no /perfil.",
+    "Minecraft e Roblox passam a usar um menu unificado de verificação, mostrando apenas as opções correspondentes aos cargos que o membro possui.",
+    "O recrutamento do Departamento de Eventos agora pergunta ao candidato qual horário ele está livre para uma entrevista em call e exibe a resposta no canal privado da candidatura.",
+    "A Conta de Testes recebe automaticamente o cargo de teste ao retornar ao servidor e cargos extras usados em testes passam a expirar automaticamente após 1 hora."
   ],
   "correcoes": [
-    "Corrigida a rota do site utilizada pelo reset de candidaturas de teste, eliminando o erro HTTP 404.",
-    "Campos automáticos do Google Forms, como endereço de e-mail, pontuação e data/hora, deixam de aparecer no relatório da prova enviado ao Discord.",
-    "Corrigida a limpeza das Futuras Atualizações quando uma nota real é publicada; a busca agora cobre uma janela maior e remove também blocos divididos em várias mensagens e a figurinha associada.",
-    "A publicação das Futuras Atualizações agora recebe um título fixo, permitindo que o bot identifique a prévia com mais segurança na hora de removê-la."
+    "A Conta de Testes não precisa mais esperar o cooldown de 24 horas após uma reprovação no recrutamento de Eventos, permitindo repetir o fluxo imediatamente durante os testes.",
+    "Durante a call de desenvolvimento, tentativas de marcar diretamente o programador passam a ser removidas do chat sem deixar de contar para a progressão de castigos.",
+    "O bot continua avisando no canal que o programador está ocupado mesmo quando a mensagem de marcação é removida, deixando claro o motivo da contagem e da punição.",
+    "Os registros de entrada e saída da Conta de Testes enviados pela Loritta passam a ser removidos automaticamente quando o bot consegue identificá-los e possui permissão de Gerenciar Mensagens."
   ],
   "alteracoes": [
-    "Após um candidato ser aprovado ou reprovado, o canal privado e a call temporária do recrutamento permanecem por 3 minutos e depois são apagados automaticamente.",
-    "As frases da call de desenvolvimento e das Futuras Atualizações receberam mais variações de resenha, com referências como ADM-G, Baiano do Vini e outras piadas aleatórias, evitando repetição imediata.",
-    "As notas publicadas pelo sistema passam a usar somente o título '## Notas de atualização', deixando o canal mais organizado e evitando títulos diferentes a cada versão.",
-    "O status de reunião é restaurado automaticamente quando nenhuma atividade do Spotify estiver visível e é removido quando o programador sai da call de desenvolvimento."
+    "O modo de teste da Identidade Gamer pode ser liberado para todo o servidor pelo comando /identidade modoteste; ao liberar, membros com Minecraft pendente recebem uma nova chance com o contador reiniciado.",
+    "Enquanto a Identidade Gamer estiver em teste, os contadores antigos de Minecraft dos demais membros ficam congelados para ninguém ser prejudicado enquanto ainda não pode usar o fluxo novo.",
+    "Quem já possui nickname Minecraft cadastrado não recebe uma nova solicitação de Minecraft; membros com os dois cargos podem receber as duas opções no mesmo menu.",
+    "O sistema de Minecraft mantém o limite de 8 avisos ao longo de 3 dias para cadastros ainda pendentes.",
+    "A tolerância da call de desenvolvimento foi ampliada para 5 minutos após a saída do ADM-G. Se ele voltar nesse período, a mesma sessão e os contadores são preservados; caso contrário, o bot encerra a reunião e sai da call.",
+    "Durante os 5 minutos de tolerância o bot continua aparentando estar em reunião na call de desenvolvimento e mantém a presença de reunião ativa.",
+    "A Conta de Testes continua sujeita normalmente a banimentos, mutes, timeouts e demais punições de moderação; as exceções são apenas para facilitar testes de funcionalidades específicas."
   ],
   "problemas_conhecidos": []
 }
