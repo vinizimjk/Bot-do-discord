@@ -6718,9 +6718,7 @@ async def _apagar_rajada_mencoes(eventos, mensagem_atual=None):
 
         if atual_id and mensagem_id == int(atual_id):
             try:
-                await mensagem_atual.delete(
-                    reason="Anti-spam de menções da Resenha Máxima"
-                )
+                await mensagem_atual.delete()
             except discord.Forbidden as erro:
                 print(
                     "ANTI-SPAM DELETE NEGADO | falta Gerenciar Mensagens? "
@@ -6743,7 +6741,7 @@ async def _apagar_rajada_mencoes(eventos, mensagem_atual=None):
 
         try:
             antiga = await canal.fetch_message(mensagem_id)
-            await antiga.delete(reason="Anti-spam de menções da Resenha Máxima")
+            await antiga.delete()
         except discord.Forbidden as erro:
             print(
                 "ANTI-SPAM DELETE NEGADO | falta Gerenciar Mensagens? "
