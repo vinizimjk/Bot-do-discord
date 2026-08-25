@@ -225,21 +225,31 @@ IA_RECUSAS_GENERICAS = (
 )
 
 ATUALIZACAO_NOVIDADES = [
-    "👑 Adicionado o evento único Rei da Madrugada",
-    "⚙️ Bot passa a consultar a configuração da IA publicada pelo painel",
+    "📞 Call de desenvolvimento automática quando o ADM-G entra na call de dev.",
+    "🔇 O bot pode entrar silenciosamente em qualquer call quando solicitado.",
+    "🎵 Playlist opcional para a call de desenvolvimento; sem músicas válidas, o bot permanece em silêncio.",
+    "💬 Comandos naturais para chamar o bot para uma call, além dos comandos /.",
+    "🌐 Comando /site para acesso rápido ao painel da Resenha Máxima.",
+    "🏢 Configuração do servidor do Departamento de Eventos com candidatura e sincronização de cargos.",
+    "🔨 Banimento no servidor principal passa a ser sincronizado com o servidor de Eventos.",
 ]
 
 ATUALIZACAO_CORRECOES = [
-    "⏱️ Geração da IA agora possui limite de tempo para não ficar presa em digitando",
+    "📝 Notas de atualização voltam a usar o arquivo NOTA_ATUALIZACAO.json como fonte única.",
+    "🧹 Futuras atualizações são removidas por varredura do próprio canal, evitando duplicações.",
+    "🛡️ Painel e sistema de solicitações de Ban/Hackban permanecem vinculados ao canal de aprovação.",
 ]
 
 ATUALIZACAO_ALTERACOES = [
-    "🎮 Bot preparado para o servidor Minecraft alternativo atual",
-    "📣 Preparado aviso de retorno após manutenção manual sinalizada pelo painel",
+    "🔊 Zoarcall passa a usar no máximo 2 áudios por execução e evita repetir o mesmo áudio em sequência.",
+    "🧠 Quando houver 3 pessoas reais em call, o bot pode processar somente informações leves e relevantes para contexto social.",
+    "🧪 Conta secundária e bot de música não entram na contagem das 3 pessoas.",
+    "👤 No servidor de Eventos, Intruso fica limitado à candidatura até tentar entrar como Aprendiz.",
+    "📊 O canal de hierarquia pode ser preenchido automaticamente com os cargos criados pelo bot.",
 ]
 
 ATUALIZACAO_PROBLEMAS_CONHECIDOS = [
-    "🔧 O aviso de retorno depende do site marcar a manutenção manual antes de desligar o bot",
+    "🔧 A restauração de movimento, server mute e server deaf depende das permissões concedidas ao bot pelo Discord.",
 ]
 
 IA_MEMORIA_MENSAGENS = 10
@@ -425,6 +435,8 @@ else:
 
 ARQUIVO_ENV = PASTA_BOT / ".env"
 ARQUIVO_CONFIG = PASTA_DADOS / "config.json"
+ARQUIVO_ESTADO_NOTAS = PASTA_DADOS / "notas_atualizacao_publicadas.json"
+NOME_ARQUIVO_NOTA = "NOTA_ATUALIZACAO.json"
 
 BANCO_NOVO = PASTA_DADOS / "bot.db"
 BANCO_ANTIGO = PASTA_DADOS / "enquetes.db"
@@ -5431,23 +5443,133 @@ def texto_lista_atualizacao(itens, vazio="Nenhum item."):
     return "\n".join(f"• {item}" for item in itens)
 
 
-def criar_texto_atualizacao_bot():
-    """Cria patch notes como mensagem normal do Discord, sem embed."""
-    data_local = datetime.now(FUSO_SERVIDOR).strftime("%d/%m/%Y")
-    secoes = [
-        ("🆕 NOVIDADES", ATUALIZACAO_NOVIDADES),
-        ("🔧 CORRIGIDO", ATUALIZACAO_CORRECOES),
-        ("♻️ ALTERAÇÕES", ATUALIZACAO_ALTERACOES),
-        ("🐛 PROBLEMAS CONHECIDOS", ATUALIZACAO_PROBLEMAS_CONHECIDOS),
-    ]
+def caminho_nota_atualizacao():
+    """Localiza a nota tanto ao lado do bot.py quanto na raiz do pacote."""
+    candidatos = (
+        PASTA_BOT / NOME_ARQUIVO_NOTA,
+        PASTA_BOT.parent / NOME_ARQUIVO_NOTA,
+    )
+
+    for caminho in candidatos:
+        if caminho.exists() and caminho.is_file():
+            return caminho
+
+    return None
+
+
+def carregar_nota_atualizacao():
+    caminho = caminho_nota_atualizacao()
+    if caminho is None:
+        return None
+
+    try:
+        with caminho.open("r", encoding="utf-8") as arquivo:
+            nota = json.load(arquivo)
+    except (OSError, json.JSONDecodeError) as erro:
+        print(f"NOTA_ATUALIZACAO.json inválida: {erro}")
+        return None
+
+    if not isinstance(nota, dict):
+        print("NOTA_ATUALIZACAO.json ignorada: o conteúdo precisa ser um objeto JSON.")
+        return None
+
+    nota_id = str(nota.get("id") or "").strip()
+    titulo = str(nota.get("titulo") or "").strip()
+    if not nota_id or not titulo:
+        print("NOTA_ATUALIZACAO.json ignorada: campos 'id' e 'titulo' são obrigatórios.")
+        return None
+
+    normalizada = dict(nota)
+    normalizada["id"] = nota_id[:160]
+    normalizada["titulo"] = titulo[:256]
+    normalizada["versao"] = str(nota.get("versao") or "").strip()[:80]
+    normalizada["data"] = str(nota.get("data") or "").strip()[:40]
+
+    for campo in ("novidades", "correcoes", "alteracoes", "problemas_conhecidos"):
+        itens = nota.get(campo) or []
+        if not isinstance(itens, list):
+            itens = [str(itens)]
+        normalizada[campo] = [
+            str(item).strip()[:1000]
+            for item in itens
+            if str(item).strip()
+        ]
+
+    return normalizada
+
+
+def estado_notas_padrao():
+    return {
+        "ultimo_id_publicado": "",
+        "status": "",
+        "publicado_em": "",
+        "canal_id": "",
+        "historico": [],
+    }
+
+
+def carregar_estado_notas():
+    dados = estado_notas_padrao()
+
+    if not ARQUIVO_ESTADO_NOTAS.exists():
+        # Migra o último ID antigo, se houver, sem depender dele no futuro.
+        antigo = obter_estado(CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA)
+        if antigo:
+            dados["ultimo_id_publicado"] = str(antigo)
+        return dados
+
+    try:
+        with ARQUIVO_ESTADO_NOTAS.open("r", encoding="utf-8") as arquivo:
+            salvo = json.load(arquivo)
+        if isinstance(salvo, dict):
+            dados.update(salvo)
+    except (OSError, json.JSONDecodeError) as erro:
+        print(f"Estado persistente das notas inválido: {erro}")
+
+    if not isinstance(dados.get("historico"), list):
+        dados["historico"] = []
+
+    return dados
+
+
+def salvar_estado_notas(dados):
+    ARQUIVO_ESTADO_NOTAS.parent.mkdir(parents=True, exist_ok=True)
+    temporario = ARQUIVO_ESTADO_NOTAS.with_suffix(".tmp")
+
+    with temporario.open("w", encoding="utf-8") as arquivo:
+        json.dump(dados, arquivo, ensure_ascii=False, indent=2)
+
+    temporario.replace(ARQUIVO_ESTADO_NOTAS)
+
+
+def criar_texto_atualizacao_bot(nota=None):
+    """Cria as patch notes a partir do NOTA_ATUALIZACAO.json."""
+    nota = nota or carregar_nota_atualizacao()
+    if nota is None:
+        return ""
+
+    data_exibicao = nota.get("data") or datetime.now(FUSO_SERVIDOR).strftime("%d/%m/%Y")
+    versao = nota.get("versao") or nota["id"]
+
+    secoes = (
+        ("🆕 NOVIDADES", nota.get("novidades") or []),
+        ("🔧 CORREÇÕES", nota.get("correcoes") or []),
+        ("♻️ ALTERAÇÕES", nota.get("alteracoes") or []),
+        ("🐛 PROBLEMAS CONHECIDOS", nota.get("problemas_conhecidos") or []),
+    )
 
     partes = [
-        f"# 📝 NOTAS DA ATUALIZAÇÃO — {data_local}",
-        f"Versão `{ATUALIZACAO_BOT_ID}`",
+        "# Notas de atualização",
+        f"**Versão:** `{versao}`\n**Data:** {data_exibicao}",
     ]
+
     for titulo, itens in secoes:
         if itens:
-            partes.append(f"## {titulo}\n" + "\n".join(f"• {item}" for item in itens))
+            partes.append(
+                f"## {titulo}\n"
+                + "\n".join(f"• {item}" for item in itens)
+            )
+
     return "\n\n".join(partes)
 
 
@@ -5474,19 +5596,8 @@ def dividir_mensagem_discord(texto, limite=1900):
 
 
 async def remover_atualizacoes_antigas(canal):
-    """Remove mensagens anteriores do próprio bot no canal de atualizações."""
-    removidas = 0
-    try:
-        async for mensagem in canal.history(limit=100):
-            if bot.user and mensagem.author.id == bot.user.id:
-                try:
-                    await mensagem.delete()
-                    removidas += 1
-                except (discord.Forbidden, discord.HTTPException):
-                    pass
-    except (discord.Forbidden, discord.HTTPException):
-        pass
-    return removidas
+    """Mantido por compatibilidade; notas antigas não são removidas automaticamente."""
+    return 0
 
 
 def mensagem_e_atualizacao_pendente(mensagem: discord.Message):
@@ -5495,69 +5606,205 @@ def mensagem_e_atualizacao_pendente(mensagem: discord.Message):
     if mensagem.author.id != bot.user.id:
         return False
 
-    conteudo = str(mensagem.content or "").casefold()
+    linhas = [
+        linha.strip()
+        for linha in str(mensagem.content or "").splitlines()
+        if linha.strip()
+    ]
+    if not linhas:
+        return False
+
     marcadores = (
         "futuras atualizações",
         "futuras atualizacoes",
         "próximas atualizações",
         "proximas atualizacoes",
     )
-    return any(marcador in conteudo for marcador in marcadores)
+
+    # Só considera prévia quando o marcador aparece como título/início do
+    # bloco. Assim uma nota real pode citar "Futuras Atualizações" no corpo
+    # sem ser confundida com a própria prévia.
+    for linha in linhas[:3]:
+        normalizada = linha.casefold()
+        if linha.startswith("#") and any(
+            marcador in normalizada
+            for marcador in marcadores
+        ):
+            return True
+
+    primeira = linhas[0].casefold().lstrip("# ").strip()
+    return any(
+        primeira.startswith(marcador)
+        for marcador in marcadores
+    )
 
 
 async def remover_atualizacoes_pendentes(canal):
+    """Remove blocos antigos de Futuras Atualizações e o sticker ligado a eles.
+
+    A busca não depende do arquivo do painel web, porque BOT e SITE podem
+    usar volumes separados na Railway. O marcador textual no Discord é a
+    fonte de verdade para esta limpeza.
+    """
     removidas = 0
+
     try:
-        async for mensagem in canal.history(limit=100):
-            if not mensagem_e_atualizacao_pendente(mensagem):
+        # Usa uma janela maior para não deixar a prévia escapar em canais
+        # movimentados. history() retorna do mais novo para o mais antigo.
+        mensagens = [
+            mensagem
+            async for mensagem in canal.history(limit=500)
+        ]
+    except (discord.Forbidden, discord.HTTPException):
+        return 0
+
+    if bot.user is None:
+        return 0
+
+    ids_apagados = set()
+
+    for indice, mensagem in enumerate(mensagens):
+        if mensagem.id in ids_apagados:
+            continue
+        if not mensagem_e_atualizacao_pendente(mensagem):
+            continue
+
+        alvo_ids = {mensagem.id}
+        instante_base = mensagem.created_at
+
+        # As partes seguintes da mesma prévia aparecem ANTES deste índice
+        # porque a lista está em ordem reversa. O sticker encerra o bloco.
+        passos = 0
+        pos = indice - 1
+        while pos >= 0 and passos < 12:
+            candidata = mensagens[pos]
+            passos += 1
+
+            if candidata.author.id != bot.user.id:
+                break
+
+            conteudo = str(candidata.content or "").strip()
+
+            # Nunca toca na nota real recém-publicada.
+            primeira_normalizada = conteudo.casefold().lstrip("# ").strip()
+            if primeira_normalizada.startswith("notas de atualização") or primeira_normalizada.startswith("notas de atualizacao"):
+                break
+
+            diferenca = abs((candidata.created_at - instante_base).total_seconds())
+            if diferenca > 45:
+                break
+
+            alvo_ids.add(candidata.id)
+
+            if candidata.stickers and not conteudo:
+                break
+
+            pos -= 1
+
+        # Apaga do mais novo para o mais antigo.
+        for candidata in mensagens:
+            if candidata.id not in alvo_ids or candidata.id in ids_apagados:
                 continue
             try:
-                await mensagem.delete()
+                await candidata.delete()
+                ids_apagados.add(candidata.id)
                 removidas += 1
             except (discord.Forbidden, discord.HTTPException):
                 pass
-    except (discord.Forbidden, discord.HTTPException):
-        pass
+
     return removidas
 
 
 async def publicar_atualizacao_bot(*, forcar=False):
+    """
+    Publica uma nota por ID. O parâmetro forcar é mantido por compatibilidade,
+    mas NUNCA permite republicar o mesmo ID.
+    """
+    nota = carregar_nota_atualizacao()
+    if nota is None:
+        return False, "NOTA_ATUALIZACAO.json não encontrada ou inválida."
+
+    nota_id = nota["id"]
+    estado = carregar_estado_notas()
+
+    if str(estado.get("ultimo_id_publicado") or "") == nota_id:
+        return False, f"A nota `{nota_id}` já foi registrada/publicada e não será enviada novamente."
+
     canal = await obter_canal_atualizacoes()
     if canal is None:
         return False, "Canal de atualizações não configurado."
-    ultima = obter_estado(CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA)
-    if not forcar and ultima == ATUALIZACAO_BOT_ID:
-        return False, "Esta atualização já foi publicada."
 
-    # Mantém o histórico: notas de versões anteriores NÃO são apagadas.
-    # A prévia de "Futuras atualizações" é gerenciada separadamente pelo site.
+    texto = criar_texto_atualizacao_bot(nota)
+    if not texto:
+        return False, "A nota atual está vazia."
+
+    # Reserva o ID em /data ANTES do envio. Assim, até um crash entre o envio
+    # e a confirmação final não causa publicação duplicada no próximo deploy.
+    estado_anterior = dict(estado)
+    estado["ultimo_id_publicado"] = nota_id
+    estado["status"] = "publicando"
+    estado["publicado_em"] = datetime.now(timezone.utc).isoformat()
+    estado["canal_id"] = str(canal.id)
+    salvar_estado_notas(estado)
+
+    mensagens_ids = []
     try:
-        for parte in dividir_mensagem_discord(
-            criar_texto_atualizacao_bot()
-        ):
-            await canal.send(parte)
+        for parte in dividir_mensagem_discord(texto):
+            mensagem = await canal.send(
+                parte,
+                allowed_mentions=discord.AllowedMentions(
+                    users=True,
+                    roles=False,
+                    everyone=False,
+                    replied_user=False,
+                ),
+            )
+            mensagens_ids.append(str(mensagem.id))
     except (discord.Forbidden, discord.HTTPException) as erro:
-        return False, f"Não foi possível publicar: {erro}"
+        # Em falha conhecida, libera nova tentativa somente se nada chegou a ser enviado.
+        if not mensagens_ids:
+            salvar_estado_notas(estado_anterior)
+        else:
+            estado["status"] = "parcial"
+            estado["mensagens_ids"] = mensagens_ids
+            salvar_estado_notas(estado)
+        return False, f"Não foi possível publicar a nota completa: {erro}"
 
     pendentes_removidas = await remover_atualizacoes_pendentes(canal)
 
-    salvar_estado(
-        CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA,
-        ATUALIZACAO_BOT_ID
-    )
+    registro = {
+        "id": nota_id,
+        "versao": nota.get("versao") or "",
+        "titulo": nota.get("titulo") or "",
+        "publicado_em": datetime.now(timezone.utc).isoformat(),
+        "canal_id": str(canal.id),
+        "mensagens_ids": mensagens_ids,
+    }
+
+    historico = [
+        item for item in (estado.get("historico") or [])
+        if str(item.get("id") or "") != nota_id
+    ]
+    historico.append(registro)
+
+    estado["status"] = "publicado"
+    estado["publicado_em"] = registro["publicado_em"]
+    estado["mensagens_ids"] = mensagens_ids
+    estado["historico"] = historico[-100:]
+    salvar_estado_notas(estado)
+
+    # Mantém a chave antiga apenas para compatibilidade com telas/comandos antigos.
+    salvar_estado(CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA, nota_id)
 
     return (
         True,
-        "Atualização publicada. "
-        f"{pendentes_removidas} mensagem(ns) de futuras atualizações removida(s). "
-        "As notas antigas foram mantidas."
+        "Nota publicada uma única vez. "
+        f"{pendentes_removidas} mensagem(ns) de futuras atualizações removida(s)."
     )
 
 
 async def publicar_atualizacao_automatica():
-    # Desativado: evita repetir a mesma nota quando o banco local é recriado
-    # ou quando ocorre novo deploy. As notas agora são controladas pelo painel.
-    return
+    return await publicar_atualizacao_bot(forcar=False)
 
 
 def resposta_recusa_personagem():
@@ -9865,8 +10112,14 @@ async def on_ready():
                     f"{guild.name}: {erro}"
                 )
 
-    # Patch notes não são mais publicadas automaticamente a cada deploy.
-    # O canal é atualizado apenas pelo fluxo consolidado/manual do painel.
+    # Publica a nota atual automaticamente uma única vez. O estado persistente
+    # impede duplicação da mesma versão mesmo após reinícios/deploys.
+    try:
+        publicado, mensagem_nota = await publicar_atualizacao_automatica()
+        if publicado:
+            print(f"Notas de atualização: {mensagem_nota}")
+    except Exception as erro:
+        print(f"Erro ao publicar notas de atualização: {erro}")
     if not ia_caos_automatico.is_running():
         ia_caos_automatico.start()
 

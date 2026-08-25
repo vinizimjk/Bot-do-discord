@@ -1,19 +1,31 @@
 {
-  "data": "24/08/2026",
+  "id": "2026-08-25-call-eventos",
+  "versao": "2026.08.25-call-eventos",
+  "data": "25/08/2026",
   "titulo": "Notas de atualização",
-  "resumo": "Correção do anti-spam de menções e consolidação das próximas melhorias do RESENHA MÁXIMA.",
-  "alteracoes": [
-    "Anti-spam de menções agora bloqueia imediatamente novas mensagens durante a janela de bloqueio.",
-    "Memória de ping pendente e memória social contextual continuam ativas.",
-    "Proteção da call de desenvolvimento continua ativa, incluindo restauração de movimento/server mute/server deaf quando possível."
+  "novidades": [
+    "📞 Call de desenvolvimento automática quando o ADM-G entra na call de dev.",
+    "🔇 O bot pode entrar silenciosamente em qualquer call quando solicitado.",
+    "🎵 Playlist opcional para a call de desenvolvimento; sem músicas válidas, o bot permanece em silêncio.",
+    "💬 Comandos naturais para chamar o bot para uma call, além dos comandos /.",
+    "🌐 Comando /site para acesso rápido ao painel da Resenha Máxima.",
+    "🏢 Configuração do servidor do Departamento de Eventos com candidatura e sincronização de cargos.",
+    "🔨 Banimento no servidor principal passa a ser sincronizado com o servidor de Eventos."
   ],
-  "pendencias": [
-    "Centralizar seleção de cargos, canais e categorias no SITE.",
-    "Criar servidor automático do Departamento de Eventos pelo SITE.",
-    "Configurar hierarquia e canais do Departamento de Eventos automaticamente.",
-    "Levar IA, anti-spam e demais funções para o servidor de Eventos.",
-    "Adicionar /siteRESENHAMAXIMA com verificação de conta e aviso por DM.",
-    "Finalizar migração da configuração da IA para o SITE.",
-    "Aprimorar Futuras Atualizações com uma única mensagem, título sem duplicação e figurinhas contextuais."
-  ]
+  "correcoes": [
+    "📝 Notas de atualização voltam a usar o arquivo NOTA_ATUALIZACAO.json como fonte única.",
+    "🧹 Futuras atualizações são removidas por varredura do próprio canal, evitando duplicações.",
+    "🛡️ Painel e sistema de solicitações de Ban/Hackban permanecem vinculados ao canal de aprovação."
+  ],
+  "alteracoes": [
+    "🔊 Zoarcall passa a usar no máximo 2 áudios por execução e evita repetir o mesmo áudio em sequência.",
+    "🧠 Quando houver 3 pessoas reais em call, o bot pode processar somente informações leves e relevantes para contexto social.",
+    "🧪 Conta secundária e bot de música não entram na contagem das 3 pessoas.",
+    "👤 No servidor de Eventos, Intruso fica limitado à candidatura até tentar entrar como Aprendiz.",
+    "📊 O canal de hierarquia pode ser preenchido automaticamente com os cargos criados pelo bot."
+  ],
+  "problemas_conhecidos": [
+    "🔧 A restauração de movimento, server mute e server deaf depende das permissões concedidas ao bot pelo Discord."
+  ],
+  "resumo": "Esta atualização consolida as mudanças recentes de call, servidor de Eventos, SITE, notas de atualização, moderação e contexto social do bot."
 }
