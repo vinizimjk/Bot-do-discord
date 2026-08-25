@@ -6801,6 +6801,29 @@ async def processar_antispam_mencoes(message: discord.Message):
 
     bloqueado_agora = agora < float(estado.get("bloqueado_ate", 0) or 0)
 
+    # Se o autor já está bloqueado, a mensagem atual é tratada imediatamente.
+    # Não esperamos a exclusão das mensagens anteriores nem o envio do aviso.
+    # Isso fecha a janela em que novas menções conseguiam escapar enquanto o
+    # bot ainda estava apagando a rajada antiga.
+    if bloqueado_agora:
+        try:
+            await message.delete()
+        except discord.Forbidden as erro:
+            print(
+                "ANTI-SPAM BLOQUEIO DELETE NEGADO | "
+                f"canal={message.channel.id} mensagem={message.id} erro={erro}",
+                flush=True,
+            )
+        except discord.NotFound:
+            pass
+        except discord.HTTPException as erro:
+            print(
+                "ANTI-SPAM BLOQUEIO DELETE HTTP | "
+                f"canal={message.channel.id} mensagem={message.id} erro={erro}",
+                flush=True,
+            )
+        return True
+
     repeticoes_por_alvo = {}
     for evento in eventos:
         for alvo in evento.get("alvos", set()):
