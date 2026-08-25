@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from mcstatus import JavaServer, BedrockServer
 from groq import AsyncGroq
 import imageio_ffmpeg
+import aiohttp
 
 
 # ==========================================================
@@ -26,7 +27,11 @@ import imageio_ffmpeg
 
 DONO_ID = 1455937306400653344
 CANAL_APROVACAO_ID = 1536073451633254420
-PAINEL_MENU_URL = "https://resenha-maxima.up.railway.app"
+PAINEL_MENU_URL = os.getenv("SITE_PUBLIC_URL", "https://resenha-maxima.up.railway.app").rstrip("/")
+SITE_PUBLIC_URL = PAINEL_MENU_URL
+DEV_CALL_ID = 1540578640020897862
+CONTA_SECUNDARIA_ID = int(os.getenv("CONTA_SECUNDARIA_ID", "0") or 0)
+GOOGLE_FORMS_URL = os.getenv("GOOGLE_FORMS_URL", "https://forms.gle/ZVhPQhdVZ6B3S25E9")
 
 CARGO_MINECRAFT_ID = 1534006899371147304
 CANAL_STATUS_MINECRAFT_ID = 1538109074779144253
@@ -5320,6 +5325,7 @@ async def aplicar_hierarquia_eventos_ao_entrar(member: discord.Member):
 
 @bot.event
 async def on_member_join(member: discord.Member):
+    await configurar_intruso_eventos(member)
     await aplicar_hierarquia_eventos_ao_entrar(member)
     if not member.bot:
         try:
@@ -5347,6 +5353,28 @@ async def on_member_join(member: discord.Member):
 
 
 @bot.event
+def localizar_guild_eventos():
+    principal = int(GUILD_ID) if str(GUILD_ID or "").isdigit() else None
+    for guild in bot.guilds:
+        if principal and guild.id == principal:
+            continue
+        if discord.utils.get(guild.roles, name="Chef de Departamento") is not None:
+            return guild
+    return None
+
+@bot.event
+async def on_member_ban(guild, user):
+    """Sincroniza banimentos do servidor principal com o Departamento de Eventos."""
+    if str(guild.id) != str(GUILD_ID):
+        return
+    event_guild=localizar_guild_eventos()
+    if event_guild is None: return
+    try:
+        await event_guild.ban(user, reason="Ban sincronizado do servidor principal RESENHA MÁXIMA")
+        print(f"Ban sincronizado para Eventos: {user.id}")
+    except (discord.Forbidden, discord.HTTPException) as erro:
+        print(f"Falha ao sincronizar ban {user.id}: {erro}")
+
 async def on_member_remove(member: discord.Member):
     cadastro = buscar_cadastro_nick(member.guild.id, member.id)
     if cadastro:
@@ -7582,6 +7610,16 @@ async def on_message(
         message
     )
 
+    # Comandos naturais de call para o dono: não dependem do slash command.
+    if message.guild and message.author.id == DONO_ID:
+        texto_cf = message.content.casefold().strip()
+        if re.search(r"\bentra na call e fica (?:de boa|quieto|em silêncio|em silencio)\b", texto_cf) or re.search(r"\bentra na call\b.*\bfica (?:de boa|quieto|em silêncio|em silencio)\b", texto_cf):
+            canal = autor_em_call(message)
+            if canal:
+                ok, erro = await entrar_call_silencioso(message.guild, canal, tocar_playlist=(canal.id == DEV_CALL_ID))
+                await message.reply("🔇 entrei e tô de boa.", mention_author=False) if ok else await message.reply(f"❌ não consegui entrar: {erro}", mention_author=False)
+                return
+
     caiu_na_pegadinha = await processar_resposta_caos(
         message
     )
@@ -9146,15 +9184,147 @@ async def tocar_audio_na_call(
 
 
 # ==========================================================
+# CONTROLE GERAL DE CALLS / CALL DE DESENVOLVIMENTO
+# ==========================================================
+
+def playlist_dev():
+    try:
+        if not CALL_DEV_PLAYLIST_FILE.exists():
+            return []
+        data=json.loads(CALL_DEV_PLAYLIST_FILE.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            return []
+        resultado=[]
+        for item in data:
+            if isinstance(item, str):
+                arquivo=localizar_audio_call(item)
+                if arquivo: resultado.append(arquivo)
+        return resultado
+    except Exception as erro:
+        print(f"Erro na playlist da call de dev: {erro}")
+        return []
+
+async def entrar_call_silencioso(guild, canal, *, tocar_playlist=False):
+    eu=guild.me
+    if eu is None: return False, "bot não encontrado"
+    perms=canal.permissions_for(eu)
+    if not perms.connect: return False, "sem permissão para entrar"
+    try:
+        voice=guild.voice_client
+        if voice is None or not voice.is_connected():
+            voice=await canal.connect(self_deaf=True, self_mute=True)
+        elif voice.channel != canal:
+            await voice.move_to(canal)
+        try:
+            await voice.guild.change_voice_state(channel=canal, self_mute=True, self_deaf=True)
+        except Exception:
+            pass
+        if tocar_playlist:
+            arquivos=playlist_dev()
+            if arquivos and not voice.is_playing():
+                for arquivo in arquivos:
+                    fonte=await discord.FFmpegOpusAudio.from_probe(str(arquivo), executable=FFMPEG_BIN, method="fallback", options="-vn")
+                    voice.play(fonte)
+                    while voice.is_playing(): await asyncio.sleep(0.25)
+                    await asyncio.sleep(0.25)
+        return True, None
+    except Exception as erro:
+        return False, f"{type(erro).__name__}: {erro}"
+
+async def chamar_bot_para_call(interaction, canal, *, dev=False):
+    if interaction.user.id != DONO_ID:
+        await interaction.response.send_message("❌ Só o responsável pode chamar o bot para uma call.", ephemeral=True); return
+    ok, erro=await entrar_call_silencioso(interaction.guild, canal, tocar_playlist=dev)
+    if ok:
+        await interaction.response.send_message(f"🔇 Entrei em {canal.mention} e vou ficar em silêncio.", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"❌ Não consegui entrar: {erro}", ephemeral=True)
+
+@bot.tree.command(name="chamarcall", description="Chama o bot para uma call e deixa ele em silêncio")
+@app_commands.describe(canal="Call onde o bot deve entrar")
+async def chamarcall(interaction, canal: discord.VoiceChannel):
+    await chamar_bot_para_call(interaction, canal, dev=(canal.id == DEV_CALL_ID))
+
+async def monitorar_call_dev_member(member, antes, depois):
+    if member.id != DONO_ID: return
+    guild=member.guild
+    antes_id=getattr(antes.channel, "id", None)
+    depois_id=getattr(depois.channel, "id", None)
+    if depois_id == DEV_CALL_ID and antes_id != DEV_CALL_ID:
+        _dev_call_guilds[guild.id]=datetime.now(timezone.utc).timestamp()
+        canal=depois.channel
+        ok, erro=await entrar_call_silencioso(guild, canal, tocar_playlist=True)
+        if not ok: print(f"Falha ao entrar na call de dev: {erro}")
+    elif antes_id == DEV_CALL_ID and depois_id != DEV_CALL_ID:
+        _dev_call_guilds[guild.id]=datetime.now(timezone.utc).timestamp()
+
+@bot.event
+async def on_voice_state_update(member, antes, depois):
+    try:
+        await monitorar_call_dev_member(member, antes, depois)
+        # Enquanto o dono estiver na call de dev, impedir mudanças administrativas no estado dele.
+        if member.id == DONO_ID and depois.channel and depois.channel.id == DEV_CALL_ID:
+            guild=member.guild; me=guild.me
+            if me and me.guild_permissions.move_members:
+                if depois.self_mute is False and depois.self_deaf is False:
+                    # Não força mute/deaf do usuário; somente evita ações do bot contra ele.
+                    pass
+        # Conta pessoas reais na call: bots de música e conta secundária não entram na contagem.
+        canal=depois.channel or antes.channel
+        if isinstance(canal, discord.VoiceChannel):
+            pessoas=[m for m in canal.members if not m.bot and m.id not in {DONO_ID, CONTA_SECUNDARIA_ID}]
+            if len(pessoas) >= 3:
+                await processar_informacoes_importantes_call(guild=member.guild, membros=pessoas)
+    except Exception as erro:
+        print(f"Erro no monitor de voz: {type(erro).__name__}: {erro}")
+
+async def processar_informacoes_importantes_call(guild, membros):
+    """Guarda apenas fatos explícitos e não sensíveis que a própria pessoa escreveu."""
+    padroes=(
+        r"\bme chama(?:m)? de\s+([\wÀ-ÿ0-9_-]{2,32})",
+        r"\bsou conhecido(?:\s+como)?\s+([\wÀ-ÿ0-9_-]{2,32})",
+        r"\bmeu apelido é\s+([\wÀ-ÿ0-9_-]{2,32})",
+    )
+    try:
+        mensagens=[]
+        for canal in guild.text_channels:
+            if not canal.permissions_for(guild.me).read_message_history: continue
+            async for msg in canal.history(limit=30):
+                if msg.author.id in {m.id for m in membros} and not msg.author.bot:
+                    mensagens.append(msg)
+                if len(mensagens)>=80: break
+            if len(mensagens)>=80: break
+        for msg in mensagens:
+            texto=msg.content.strip()
+            for padrao in padroes:
+                match=re.search(padrao, texto, re.I)
+                if match:
+                    apelido=match.group(1)
+                    ficha=MEMORIA_SOCIAL_RESENHA.setdefault(msg.author.id, {"apelidos":[],"fatos":[],"piadas":[]})
+                    if apelido.casefold() not in {str(x).casefold() for x in ficha.get("apelidos",[])}:
+                        ficha.setdefault("apelidos",[]).append(apelido)
+                        ficha.setdefault("fatos",[]).append("O próprio membro informou este apelido no chat.")
+                    break
+    except Exception as erro:
+        print(f"Erro ao processar informações da call: {erro}")
+
+# ==========================================================
 # IA NA CALL — CUMPRE A AMEAÇA
 # ==========================================================
+
 
 IA_CALL_COOLDOWN_MINUTOS = int(
     os.getenv("IA_CALL_COOLDOWN_MINUTOS", "10")
 )
 IA_CALL_QUANTIDADE_AUDIOS = int(
-    os.getenv("IA_CALL_QUANTIDADE_AUDIOS", "3")
+    os.getenv("IA_CALL_QUANTIDADE_AUDIOS", "2")
 )
+CALL_AUDIO_COOLDOWN_MINUTOS = int(os.getenv("CALL_AUDIO_COOLDOWN_MINUTOS", "90"))
+CALL_DEV_TOLERANCIA_SEGUNDOS = int(os.getenv("CALL_DEV_TOLERANCIA_SEGUNDOS", "300"))
+CALL_DEV_PLAYLIST_FILE = AUDIO_CALL_DIR / "PLAYLIST.json"
+_call_audio_ultimo_uso = {}
+_dev_call_guilds = {}
+
 
 _ia_call_ultimo_uso = {}
 
@@ -9331,10 +9501,13 @@ async def executar_ia_na_call(
         len(audios)
     )
 
-    escolhidos = random.sample(
-        audios,
-        quantidade
-    )
+    agora_ts = datetime.now(timezone.utc).timestamp()
+    disponiveis = [a for a in audios if agora_ts - _call_audio_ultimo_uso.get((message.guild.id, a.name), 0) >= CALL_AUDIO_COOLDOWN_MINUTOS * 60]
+    if not disponiveis:
+        disponiveis = audios
+    escolhidos = random.sample(disponiveis, min(quantidade, len(disponiveis)))
+    for arquivo in escolhidos:
+        _call_audio_ultimo_uso[(message.guild.id, arquivo.name)] = agora_ts
 
     texto_antes = str(texto_antes or "").strip()
     if texto_antes:
@@ -10379,6 +10552,32 @@ async def erro_slash(
     except discord.HTTPException:
         pass
 
+
+# ==========================================================
+# /SITE — ACESSO AO PAINEL
+# ==========================================================
+
+@bot.tree.command(name="site", description="Abre o painel da Resenha Máxima")
+async def site(interaction: discord.Interaction):
+    # A conta precisa existir no painel; a consulta é feita no endpoint público do SITE.
+    url = f"{SITE_PUBLIC_URL}/api/site-account/{interaction.user.id}"
+    existe = False
+    try:
+        async with aiohttp.ClientSession() as sess:
+            async with sess.get(url, timeout=aiohttp.ClientTimeout(total=6)) as resp:
+                if resp.status == 200:
+                    dados = await resp.json(content_type=None)
+                    existe = bool(dados.get("exists"))
+    except Exception as erro:
+        print(f"Falha ao verificar conta do SITE: {erro}")
+    if existe:
+        await interaction.response.send_message(f"🌐 **Seu acesso ao SITE foi encontrado.**\n{SITE_PUBLIC_URL}", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ Você ainda não possui uma conta criada no SITE. O responsável foi avisado.", ephemeral=True)
+        try:
+            await enviar_log_dono(f"🌐 <@{interaction.user.id}> — {interaction.user} tentou usar /site sem ter uma conta no SITE.")
+        except Exception:
+            pass
 
 # ==========================================================
 # TOKEN
