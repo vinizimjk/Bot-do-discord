@@ -1,8 +1,8 @@
 {
   "id": "2026-08-25-call-eventos",
-  "versao": "2026.08.25-call-eventos",
-  "data": "25/08/2026",
-  "titulo": "Notas de atualização",
+  "versao": "2026.08.26-hotfix-form-eventos",
+  "data": "26/08/2026",
+  "titulo": "## Notas de atualização",
   "novidades": [
     "📞 Call de desenvolvimento automática quando o ADM-G entra na call de dev.",
     "🔇 O bot pode entrar silenciosamente em qualquer call quando solicitado.",
@@ -10,7 +10,12 @@
     "💬 Comandos naturais para chamar o bot para uma call, além dos comandos /.",
     "🌐 Comando /site para acesso rápido ao painel da Resenha Máxima.",
     "🏢 Configuração do servidor do Departamento de Eventos com candidatura e sincronização de cargos.",
-    "🔨 Banimento no servidor principal passa a ser sincronizado com o servidor de Eventos."
+    "🔨 Banimento no servidor principal passa a ser sincronizado com o servidor de Eventos.",
+    "🔗 Link oficial da prova atualizado para https://forms.gle/gpvZhRAWc41CUurJ8.",
+    "📜 Canal de candidatura do Departamento usa o nome estilizado 📜・𝑪𝒂𝒏𝒅𝒊𝒅𝒂𝒕𝒖𝒓𝒂.",
+    "👤 Novos membros do servidor de Eventos entram como Intruso até a aprovação.",
+    "🎙️ Bot entra em call com microfone e fone visualmente ligados.",
+    "🔮 Painel voltou a permitir adicionar e remover futuras atualizações."
   ],
   "correcoes": [
     "📝 Notas de atualização voltam a usar o arquivo NOTA_ATUALIZACAO.json como fonte única.",
@@ -27,5 +32,5 @@
   "problemas_conhecidos": [
     "🔧 A restauração de movimento, server mute e server deaf depende das permissões concedidas ao bot pelo Discord."
   ],
-  "resumo": "Esta atualização consolida as mudanças recentes de call, servidor de Eventos, SITE, notas de atualização, moderação e contexto social do bot."
+  "resumo": "Correções do fluxo de candidatura, call e futuras atualizações."
 }

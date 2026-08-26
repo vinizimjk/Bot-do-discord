@@ -31,12 +31,13 @@ PAINEL_MENU_URL = os.getenv("SITE_PUBLIC_URL", "https://resenha-maxima.up.railwa
 SITE_PUBLIC_URL = PAINEL_MENU_URL
 DEV_CALL_ID = 1540578640020897862
 CONTA_SECUNDARIA_ID = int(os.getenv("CONTA_SECUNDARIA_ID", "0") or 0)
-GOOGLE_FORMS_URL = os.getenv("GOOGLE_FORMS_URL", "https://forms.gle/ZVhPQhdVZ6B3S25E9")
+GOOGLE_FORMS_URL = os.getenv("GOOGLE_FORMS_URL", "https://forms.gle/gpvZhRAWc41CUurJ8")
 
 CARGO_MINECRAFT_ID = 1534006899371147304
 CANAL_STATUS_MINECRAFT_ID = 1538109074779144253
 CANAL_NICKNAMES_MINECRAFT_ID = 1534423515183448155
 CARGO_DESENVOLVIMENTO_ID = 1533625836874498181
+CARGO_BANIMENTOS_ID = 1536734408277491863
 MINECRAFT_HOST = "Rmax-j8Un.aternos.me"
 MINECRAFT_PORTA = 16184
 MINECRAFT_EDICAO = "bedrock"  # servidor atual é Bedrock
@@ -2195,7 +2196,7 @@ def pode_usar_comando_admin(membro):
         return True
 
     return any(
-        cargo.id == CARGO_DESENVOLVIMENTO_ID
+        cargo.id in {CARGO_DESENVOLVIMENTO_ID, CARGO_BANIMENTOS_ID}
         for cargo in membro.roles
     )
 
@@ -5295,8 +5296,9 @@ async def on_invite_delete(
 
 
 async def aplicar_hierarquia_eventos_ao_entrar(member: discord.Member):
-    """Em servidores do Departamento de Eventos, novos membros começam como Aprendiz.
-    A conta de teste recebe somente o cargo de teste, sem permissões."""
+    """No servidor do Departamento, novos membros começam como Intruso.
+    Somente a aprovação da candidatura promove para Aprendiz. A conta de teste recebe
+    apenas o cargo de teste, sem permissões especiais."""
     if member.bot:
         return
     nomes = {
@@ -5325,11 +5327,11 @@ async def aplicar_hierarquia_eventos_ao_entrar(member: discord.Member):
         if any(r.name in nomes for r in member.roles):
             return
 
-        aprendiz = discord.utils.get(member.guild.roles, name="Aprendiz de Eventos")
-        if aprendiz is not None:
+        intruso = discord.utils.get(member.guild.roles, name="Intruso")
+        if intruso is not None:
             await member.add_roles(
-                aprendiz,
-                reason="Novos membros do Departamento de Eventos começam como Aprendiz"
+                intruso,
+                reason="Novo membro do Departamento de Eventos inicia como Intruso até a aprovação"
             )
     except (discord.Forbidden, discord.HTTPException) as erro:
         print(f"Não consegui aplicar hierarquia de eventos a {member}: {erro}")
@@ -5386,7 +5388,6 @@ async def on_member_ban(guild, user):
     except (discord.Forbidden, discord.HTTPException) as erro:
         print(f"Falha ao sincronizar ban {user.id}: {erro}")
 
-@bot.event
 async def on_member_remove(member: discord.Member):
     cadastro = buscar_cadastro_nick(member.guild.id, member.id)
     if cadastro:
