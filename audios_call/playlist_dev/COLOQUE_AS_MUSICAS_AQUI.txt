@@ -1,0 +1,3 @@
+Coloque aqui os audios/musicas da call de desenvolvimento (.mp3, .wav ou .ogg).
+Esses audios sao usados somente como ambiente da call de DEV.
+Se a pasta estiver vazia, o bot entra na call e fica em silencio.
