@@ -9459,11 +9459,11 @@ async def entrar_call_silencioso(guild, canal, *, tocar_playlist=False):
     try:
         voice=guild.voice_client
         if voice is None or not voice.is_connected():
-            voice=await canal.connect(self_deaf=True, self_mute=True)
+            voice=await canal.connect(self_deaf=False, self_mute=False)
         elif voice.channel != canal:
             await voice.move_to(canal)
         try:
-            await voice.guild.change_voice_state(channel=canal, self_mute=True, self_deaf=True)
+            await voice.guild.change_voice_state(channel=canal, self_mute=False, self_deaf=False)
         except Exception:
             pass
         if tocar_playlist:
