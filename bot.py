@@ -5364,7 +5364,6 @@ async def on_member_join(member: discord.Member):
             print(f'Não consegui reaplicar castigo para {member.id}: {erro}')
 
 
-@bot.event
 def localizar_guild_eventos():
     principal = int(GUILD_ID) if str(GUILD_ID or "").isdigit() else None
     for guild in bot.guilds:
@@ -5387,6 +5386,7 @@ async def on_member_ban(guild, user):
     except (discord.Forbidden, discord.HTTPException) as erro:
         print(f"Falha ao sincronizar ban {user.id}: {erro}")
 
+@bot.event
 async def on_member_remove(member: discord.Member):
     cadastro = buscar_cadastro_nick(member.guild.id, member.id)
     if cadastro:
