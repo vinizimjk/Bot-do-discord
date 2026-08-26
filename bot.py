@@ -451,6 +451,11 @@ else:
 
 load_dotenv(dotenv_path=ARQUIVO_ENV)
 
+# IDs dos servidores. Mantidos configuráveis por ambiente, com o servidor de Eventos
+# oficial como fallback para evitar confundir o principal com o Departamento.
+GUILD_ID = os.getenv("GUILD_ID", "").strip()
+EVENTOS_GUILD_ID = int(os.getenv("EVENTOS_GUILD_ID", "1541541588122079283") or 1541541588122079283)
+
 
 
 
@@ -5339,7 +5344,6 @@ async def aplicar_hierarquia_eventos_ao_entrar(member: discord.Member):
 
 @bot.event
 async def on_member_join(member: discord.Member):
-    await configurar_intruso_eventos(member)
     await aplicar_hierarquia_eventos_ao_entrar(member)
     if not member.bot:
         try:
@@ -5368,6 +5372,9 @@ async def on_member_join(member: discord.Member):
 
 def localizar_guild_eventos():
     principal = int(GUILD_ID) if str(GUILD_ID or "").isdigit() else None
+    guild_configurada = bot.get_guild(EVENTOS_GUILD_ID) if EVENTOS_GUILD_ID else None
+    if guild_configurada is not None and (principal is None or guild_configurada.id != principal):
+        return guild_configurada
     for guild in bot.guilds:
         if principal and guild.id == principal:
             continue
@@ -5388,6 +5395,7 @@ async def on_member_ban(guild, user):
     except (discord.Forbidden, discord.HTTPException) as erro:
         print(f"Falha ao sincronizar ban {user.id}: {erro}")
 
+@bot.event
 async def on_member_remove(member: discord.Member):
     cadastro = buscar_cadastro_nick(member.guild.id, member.id)
     if cadastro:
