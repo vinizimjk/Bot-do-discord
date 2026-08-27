@@ -451,6 +451,11 @@ else:
 
 load_dotenv(dotenv_path=ARQUIVO_ENV)
 
+# IDs dos servidores. Mantidos configuráveis por ambiente, com o servidor de Eventos
+# oficial como fallback para evitar confundir o principal com o Departamento.
+GUILD_ID = os.getenv("GUILD_ID", "").strip()
+EVENTOS_GUILD_ID = int(os.getenv("EVENTOS_GUILD_ID", "1541541588122079283") or 1541541588122079283)
+
 
 
 
@@ -5339,7 +5344,6 @@ async def aplicar_hierarquia_eventos_ao_entrar(member: discord.Member):
 
 @bot.event
 async def on_member_join(member: discord.Member):
-    await configurar_intruso_eventos(member)
     await aplicar_hierarquia_eventos_ao_entrar(member)
     if not member.bot:
         try:
@@ -5368,6 +5372,9 @@ async def on_member_join(member: discord.Member):
 
 def localizar_guild_eventos():
     principal = int(GUILD_ID) if str(GUILD_ID or "").isdigit() else None
+    guild_configurada = bot.get_guild(EVENTOS_GUILD_ID) if EVENTOS_GUILD_ID else None
+    if guild_configurada is not None and (principal is None or guild_configurada.id != principal):
+        return guild_configurada
     for guild in bot.guilds:
         if principal and guild.id == principal:
             continue
@@ -5388,6 +5395,7 @@ async def on_member_ban(guild, user):
     except (discord.Forbidden, discord.HTTPException) as erro:
         print(f"Falha ao sincronizar ban {user.id}: {erro}")
 
+@bot.event
 async def on_member_remove(member: discord.Member):
     cadastro = buscar_cadastro_nick(member.guild.id, member.id)
     if cadastro:
@@ -7850,6 +7858,16 @@ async def on_message(
                     )
                     return
 
+    bloqueou_spam_mencoes = await processar_antispam_mencoes(message)
+    if bloqueou_spam_mencoes:
+        await bot.process_commands(message)
+        return
+
+    tratado_manutencao = await processar_protecao_manutencao(message)
+    if tratado_manutencao:
+        await bot.process_commands(message)
+        return
+
     await processar_aviso_limpeza_por_mensagem(
         message
     )
@@ -9431,6 +9449,153 @@ async def tocar_audio_na_call(
 
 
 
+
+# ==========================================================
+# PROTEÇÃO DE MENÇÕES — CALL DEV
+# ==========================================================
+_dev_mencao_contadores = {}
+_dev_mencao_punidos = set()
+
+
+def dono_esta_na_call_manutencao(guild):
+    if guild is None:
+        return False
+    dono = guild.get_member(DONO_ID)
+    return bool(dono and dono.voice and dono.voice.channel and dono.voice.channel.id == DEV_CALL_ID)
+
+
+def mensagem_menciona_dono_diretamente(message):
+    return bool(re.search(rf"<@!?{DONO_ID}>", str(message.content or "")))
+
+
+async def processar_protecao_manutencao(message: discord.Message):
+    if message.guild is None or message.author.bot or message.author.id == DONO_ID:
+        return False
+    if not dono_esta_na_call_manutencao(message.guild):
+        _dev_mencao_contadores.clear(); _dev_mencao_punidos.clear()
+        return False
+    if not mensagem_menciona_dono_diretamente(message):
+        return False
+
+    uid = message.author.id
+    qtd = _dev_mencao_contadores.get(uid, 0) + 1
+    _dev_mencao_contadores[uid] = qtd
+    if uid in _dev_mencao_punidos:
+        await message.reply("deixa o Vini trabalhar na call DEV kkk", mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+        return True
+    if qtd < 5:
+        await message.reply(f"o Vini tá na call DEV trabalhando. marcação {qtd}/5 — deixa o homem trabalhar kkk", mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+        return True
+    _dev_mencao_punidos.add(uid)
+    if isinstance(message.author, discord.Member):
+        try:
+            await message.author.timeout(timedelta(minutes=1), reason="5 menções ao programador durante call DEV")
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+    await message.reply("cinco marcações. ganhou 1 minuto pra refletir kkkkk", mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+    return True
+
+
+
+# ==========================================================
+# ANTISPAM DE MENÇÕES — RAJADAS
+# ==========================================================
+_MENCAO_SPAM_JANELA = 8.0
+_MENCAO_SPAM_BLOQUEIO = 45.0
+_MENCAO_SPAM_MSG_LIMITE = 5
+_MENCAO_SPAM_TOTAL_LIMITE = 8
+_MENCAO_SPAM_ALVO_LIMITE = 4
+_mencao_spam_estado = {}
+_mencao_spam_bloqueados = {}
+_mencao_spam_lock = {}
+
+
+def _ids_mencionados_diretamente(message):
+    texto = str(message.content or "")
+    return [int(x) for x in re.findall(r"<@!?(\\d+)>", texto)]
+
+
+async def processar_antispam_mencoes(message: discord.Message):
+    if message.guild is None or message.author.bot:
+        return False
+    if message.author.id == DONO_ID:
+        return False
+
+    ids = _ids_mencionados_diretamente(message)
+    if not ids:
+        return False
+
+    # A proteção especial da call DEV tem sua própria contagem/aviso.
+    if DONO_ID in ids and dono_esta_na_call_manutencao(message.guild):
+        return False
+
+    agora = time.monotonic()
+    uid = message.author.id
+
+    bloqueado_ate = _mencao_spam_bloqueados.get(uid, 0.0)
+    if agora < bloqueado_ate:
+        try:
+            await message.delete()
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+            pass
+        return True
+
+    estado = _mencao_spam_estado.setdefault(uid, deque())
+    estado.append((agora, message, ids))
+    while estado and agora - estado[0][0] > _MENCAO_SPAM_JANELA:
+        estado.popleft()
+
+    qtd_msgs = len(estado)
+    total_mencoes = sum(len(item[2]) for item in estado)
+    por_alvo = {}
+    for _, _, alvos in estado:
+        for alvo in alvos:
+            por_alvo[alvo] = por_alvo.get(alvo, 0) + 1
+    repeticao_max = max(por_alvo.values(), default=0)
+
+    disparou = (
+        qtd_msgs >= _MENCAO_SPAM_MSG_LIMITE
+        or total_mencoes >= _MENCAO_SPAM_TOTAL_LIMITE
+        or repeticao_max >= _MENCAO_SPAM_ALVO_LIMITE
+    )
+    if not disparou:
+        return False
+
+    # Bloqueia primeiro para impedir novas mensagens enquanto apaga a rajada.
+    _mencao_spam_bloqueados[uid] = agora + _MENCAO_SPAM_BLOQUEIO
+    lock = _mencao_spam_lock.setdefault(uid, asyncio.Lock())
+    if lock.locked():
+        return True
+
+    async with lock:
+        membro = message.author if isinstance(message.author, discord.Member) else None
+        if membro is not None:
+            try:
+                await membro.timeout(
+                    timedelta(minutes=1),
+                    reason="Rajada de menções detectada pelo antispam"
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+
+        mensagens = []
+        vistos = set()
+        for _, msg, _ in list(estado):
+            if msg.id not in vistos:
+                vistos.add(msg.id)
+                mensagens.append(msg)
+        # PartialMessage.delete não aceita reason; não passar reason aqui.
+        for msg in reversed(mensagens):
+            try:
+                await msg.delete()
+            except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                pass
+
+        estado.clear()
+
+    return True
+
+
 # ==========================================================
 # CONTROLE GERAL DE CALLS / CALL DE DESENVOLVIMENTO
 # ==========================================================
@@ -9505,6 +9670,8 @@ async def monitorar_call_dev_member(member, antes, depois):
         if not ok: print(f"Falha ao entrar na call de dev: {erro}")
     elif antes_id == DEV_CALL_ID and depois_id != DEV_CALL_ID:
         _dev_call_guilds[guild.id]=datetime.now(timezone.utc).timestamp()
+        _dev_mencao_contadores.clear()
+        _dev_mencao_punidos.clear()
 
 @bot.event
 async def on_voice_state_update(member, antes, depois):
@@ -10087,6 +10254,14 @@ async def avisar_retorno_manutencao_manual():
 
 @bot.event
 async def on_ready():
+    # Se reiniciou/deployou com o dono já na DEV-ROOM, reconecta automaticamente.
+    for guild in bot.guilds:
+        dono = guild.get_member(DONO_ID)
+        if dono and dono.voice and dono.voice.channel and dono.voice.channel.id == DEV_CALL_ID:
+            ok, erro = await entrar_call_silencioso(guild, dono.voice.channel, tocar_playlist=True)
+            if not ok:
+                print(f"Falha ao restaurar call DEV: {erro}")
+            break
     if not gerenciar_rei_madrugada.is_running():
         gerenciar_rei_madrugada.start()
 
