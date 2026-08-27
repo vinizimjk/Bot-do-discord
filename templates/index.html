@@ -1,0 +1,931 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Resenha Máxima • Central de Configuração</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-lockup">
+      <img class="brand-mark brand-image"
+src="{{ url_for('static', filename='logo_resenha_maxima.png') }}"
+alt="Logo Resenha Máxima">
+      <div>
+        <strong>RESENHA MÁXIMA</strong>
+        <span>Central de Configuração</span>
+      </div>
+    </div>
+
+    <div class="topbar-user">
+      <span>{{ usuario_logado }}</span>
+      {% if discord_nome %}
+        <small>{{ discord_nome }}</small>
+      {% endif %}
+      <a class="logout" href="{{ url_for('sair') }}">Sair</a>
+    </div>
+  </header>
+
+  <main class="container wide-container">
+    <section class="hero-panel">
+      <div>
+        <span class="eyebrow gold">CENTRAL OFICIAL</span>
+        <h1>Resenha Máxima</h1>
+        <p>
+          Menus do Discord, modelos de mensagens e central administrativa.
+        </p>
+      </div>
+      <img class="hero-badge brand-image"
+src="{{ url_for('static', filename='logo_resenha_maxima.png') }}"
+alt="Logo Resenha Máxima">
+    </section>
+
+    <nav class="panel-tabs">
+      <a
+        class="panel-tab {% if aba == 'menus' %}active{% endif %}"
+        href="{{ url_for('painel', aba='menus', canal=canal_id) }}"
+      >
+        🎛️ Menus
+      </a>
+
+      {% if acesso_total %}
+      <a
+        class="panel-tab {% if aba == 'modelos' %}active{% endif %}"
+        href="{{ url_for('painel', aba='modelos') }}"
+      >
+        💬 Mensagens do Bot
+      </a>
+
+      <a
+        class="panel-tab {% if aba == 'central' %}active{% endif %}"
+        href="{{ url_for('painel', aba='central') }}"
+      >
+        🛡️ Central Administrativa
+      </a>
+
+      <a
+        class="panel-tab {% if aba == 'servidores' %}active{% endif %}"
+        href="{{ url_for('painel', aba='servidores') }}"
+      >
+        🏢 Servidores
+      </a>
+
+      <a
+        class="panel-tab {% if aba == 'atualizacoes' %}active{% endif %}"
+        href="{{ url_for('painel', aba='atualizacoes') }}"
+      >
+        📢 Atualizações
+      </a>
+      {% endif %}
+    </nav>
+
+    {% if nivel == 'eventos' %}
+      <div class="permission-banner">
+        🎟️ Acesso Departamento de Eventos:
+        você pode editar somente o menu do canal de eventos.
+      </div>
+    {% endif %}
+
+    {% with messages = get_flashed_messages() %}
+      {% for message in messages %}
+        <div class="success">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    {% if aba == 'menus' %}
+      <section class="channel-toolbar card">
+        <div class="channel-copy">
+          <span class="eyebrow">CANAL DO DISCORD</span>
+          <h2>Qual menu você quer editar?</h2>
+          <p>Cada canal pode ter título, descrição, cor e botões próprios.</p>
+        </div>
+
+        <form method="get" class="channel-picker">
+          <input type="hidden" name="aba" value="menus">
+          <select
+            name="canal"
+            onchange="this.form.submit()"
+            {% if not canais %}disabled{% endif %}
+          >
+            {% if not canais %}
+              <option>Nenhum canal permitido encontrado</option>
+            {% else %}
+              {% for canal in canais %}
+                <option
+                  value="{{ canal.id }}"
+                  {% if canal.id == canal_id %}selected{% endif %}
+                >
+                  # {{ canal.nome }} — {{ canal.categoria }}
+                </option>
+              {% endfor %}
+            {% endif %}
+          </select>
+        </form>
+      </section>
+
+      {% if menus_configurados %}
+      <section class="configured-card card">
+        <div class="section-heading">
+          <div>
+            <h2>Menus já configurados</h2>
+            <p>Clique em um canal para abrir a configuração salva.</p>
+          </div>
+          <span class="count-badge">{{ menus_configurados|length }}</span>
+        </div>
+
+        <div class="configured-list">
+          {% for menu in menus_configurados %}
+            <a
+              class="configured-item {% if menu.ativo %}active{% endif %}"
+              href="{{ url_for('painel', aba='menus', canal=menu.canal_id) }}"
+            >
+              <span class="channel-hash">#</span>
+              <span>
+                <strong>{{ menu.canal_nome }}</strong>
+                <small>{{ menu.titulo }}</small>
+              </span>
+            </a>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      {% if canal_id %}
+      <form method="post" id="menu-form">
+        <input type="hidden" name="canal_id" value="{{ canal_id }}">
+        <input
+          type="hidden"
+          name="quantidade_botoes"
+          id="quantidade_botoes"
+          value="{{ config.botoes|length }}"
+        >
+
+        <div class="editor-grid">
+          <div class="editor-column">
+            <section class="card">
+              <span class="eyebrow">MENU DO CANAL</span>
+              <h2>
+                {% if canal_atual %}
+                  # {{ canal_atual.nome }}
+                {% else %}
+                  Canal {{ canal_id }}
+                {% endif %}
+              </h2>
+
+              <label for="titulo">Título</label>
+              <input
+                id="titulo"
+                name="titulo"
+                value="{{ config.titulo }}"
+                maxlength="256"
+              >
+
+              <label for="descricao">Descrição</label>
+              <textarea
+                id="descricao"
+                name="descricao"
+                maxlength="4000"
+              >{{ config.descricao }}</textarea>
+
+              <label for="cor">Cor do embed</label>
+              <div class="color-row">
+                <span>#</span>
+                <input
+                  id="cor"
+                  name="cor"
+                  value="{{ config.cor }}"
+                  maxlength="6"
+                >
+                <span id="color-swatch" class="color-swatch"></span>
+              </div>
+            </section>
+
+            <div class="options-heading">
+              <div>
+                <span class="eyebrow gold">OPÇÕES DO MENU</span>
+                <h2>Botões / Seletores</h2>
+                <p>Limite: {{ max_botoes }} opções.</p>
+              </div>
+
+              <button
+                type="button"
+                class="add-option"
+                id="add-option"
+              >
+                ➕ Adicionar opção
+              </button>
+            </div>
+
+            <div id="options-container">
+              {% for botao in config.botoes %}
+              <section class="card option-card">
+                <div class="option-card-head">
+                  <h2>
+                    Opção
+                    <span class="option-number">{{ loop.index }}</span>
+                  </h2>
+                  <button type="button" class="remove-option">
+                    🗑️ Remover
+                  </button>
+                </div>
+
+                <div class="two">
+                  <div>
+                    <label>Emoji</label>
+                    <input
+                      class="emoji-input"
+                      name="emoji_{{ loop.index0 }}"
+                      value="{{ botao.emoji }}"
+                    >
+                  </div>
+
+                  <div>
+                    <label>Nome</label>
+                    <input
+                      class="name-input"
+                      name="nome_{{ loop.index0 }}"
+                      value="{{ botao.nome }}"
+                      maxlength="80"
+                    >
+                  </div>
+                </div>
+
+                <label>Resposta ao clicar</label>
+                <textarea
+                  class="response-input"
+                  name="resposta_{{ loop.index0 }}"
+                  maxlength="4000"
+                >{{ botao.resposta }}</textarea>
+              </section>
+              {% endfor %}
+            </div>
+          </div>
+
+          <aside class="preview-column">
+            <section class="card preview-card">
+              <div class="preview-header">
+                <div>
+                  <span class="eyebrow">PRÉ-VISUALIZAÇÃO</span>
+                  <h2>Como vai aparecer no Discord</h2>
+                </div>
+                <span class="live-dot"><i></i> Ao vivo</span>
+              </div>
+
+              <div class="discord-stage">
+                <div class="discord-message">
+                  <img class="bot-avatar brand-image"
+src="{{ url_for('static', filename='logo_resenha_maxima.png') }}"
+alt="Avatar Resenha Máxima">
+
+                  <div class="discord-content">
+                    <div class="discord-author-row">
+                      <strong>RESENHA MAXIMA</strong>
+                      <span class="app-badge">APP</span>
+                      <span class="timestamp">agora</span>
+                    </div>
+
+                    <div class="discord-embed" id="preview-embed">
+                      <div class="discord-embed-body">
+                        <div
+                          class="discord-embed-title"
+                          id="preview-title"
+                        >{{ config.titulo }}</div>
+
+                        <div
+                          class="discord-embed-description"
+                          id="preview-description"
+                        >{{ config.descricao }}</div>
+                      </div>
+                    </div>
+
+                    <div
+                      class="discord-buttons"
+                      id="preview-buttons"
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </aside>
+        </div>
+
+        <div class="savebar">
+          <div class="savebar-copy">
+            <strong id="save-destination-label">
+              Destino atual:
+              {% if canal_atual %}
+                #{{ canal_atual.nome }}
+              {% else %}
+                canal selecionado
+              {% endif %}
+            </strong>
+
+            <label for="salvar_destino_id">
+              Salvar este menu em:
+            </label>
+
+            <select
+              id="salvar_destino_id"
+              name="salvar_destino_id"
+            >
+              {% for canal in canais %}
+                <option
+                  value="{{ canal.id }}"
+                  {% if canal.id == canal_id %}selected{% endif %}
+                >
+                  # {{ canal.nome }} — {{ canal.categoria }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="save-actions">
+            <button
+              class="danger-button"
+              type="submit"
+              name="acao"
+              value="excluir"
+              onclick="return confirm('Remover a configuração de menu deste canal?')"
+            >
+              🗑️ Excluir menu
+            </button>
+
+            <button
+              class="secondary-button"
+              type="submit"
+              name="acao"
+              value="testar"
+            >
+              🧪 Enviar teste
+            </button>
+
+            <button
+              type="submit"
+              name="acao"
+              value="salvar"
+              id="save-button"
+            >
+              💾 Salvar no canal escolhido
+            </button>
+          </div>
+        </div>
+      </form>
+      {% endif %}
+
+    {% elif aba == 'modelos' and acesso_total %}
+      <section class="card">
+        <span class="eyebrow gold">SOMENTE LEITURA</span>
+        <h2>💬 Modelos de mensagens do bot</h2>
+        <p class="muted">
+          Aqui ficam os principais modelos usados pelo bot, incluindo os modelos de candidatura e eventos.
+        </p>
+
+        <div class="message-model-grid">
+          {% for modelo in modelos_mensagens %}
+            <article class="message-model-card">
+              <div class="model-head">
+                <span class="model-category">{{ modelo.categoria }}</span>
+                <span class="model-destination">{{ modelo.destino }}</span>
+              </div>
+              <h3>{{ modelo.titulo }}</h3>
+              <div class="message-preview-text">{{ modelo.conteudo }}</div>
+              <span class="readonly-pill">🔒 Somente leitura</span>
+            </article>
+          {% endfor %}
+        </div>
+      </section>
+
+
+    {% elif aba == 'servidores' and acesso_total %}
+      <section class="card">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow gold">CONFIGURAÇÃO DO DISCORD</span>
+            <h2>🏢 Servidores da Resenha Máxima</h2>
+            <p>
+              Configure o servidor principal e crie/configure o servidor do Departamento de Eventos sem copiar IDs manualmente.
+            </p>
+          </div>
+          <a class="secondary-link" href="{{ url_for('painel', aba='servidores') }}">🔄 Atualizar</a>
+        </div>
+
+        <div class="admin-grid">
+          <article class="card">
+            <span class="eyebrow">SERVIDOR PRINCIPAL</span>
+            <h3>🏠 RESENHA MÁXIMA</h3>
+            <p class="muted">
+              {{ servidor_eventos_config.principal_id or 'ID do servidor principal configurado pela variável GUILD_ID.' }}
+            </p>
+            <div class="permission-explain">
+              <strong>Configuração atual</strong>
+              <p>O painel continua usando este servidor para a configuração principal.</p>
+            </div>
+          </article>
+
+          <article class="card">
+            <span class="eyebrow gold">DEPARTAMENTO DE EVENTOS</span>
+            <h3>➕ Criar servidor</h3>
+
+            {% if servidor_eventos_config.eventos_guild_id %}
+              <div class="success">
+                ✅ Servidor configurado:
+                <strong>{{ servidor_eventos_config.eventos_guild_nome }}</strong>
+                <br>
+                ID: {{ servidor_eventos_config.eventos_guild_id }}
+              </div>
+              <p class="muted">
+                O botão de criação fica oculto para evitar duplicação.
+              </p>
+            {% else %}
+              <p class="muted">
+                Escolha um servidor onde o bot já está presente. O servidor principal não aparece na lista.
+              </p>
+
+              {% if servidores_eventos %}
+                <form method="post" action="{{ url_for('configurar_servidor_pelo_site') }}" class="user-create-form">
+                  <label for="guild_id">Servidor</label>
+                  <select id="guild_id" name="guild_id" required>
+                    {% for servidor in servidores_eventos %}
+                      <option value="{{ servidor.id }}">
+                        {{ servidor.nome }} — {{ servidor.membros }} membro(s)
+                      </option>
+                    {% endfor %}
+                  </select>
+
+                  <button type="submit" onclick="return confirm('Configurar automaticamente este servidor para o Departamento de Eventos?')">
+                    🏗️ Criar servidor
+                  </button>
+                </form>
+              {% else %}
+                <div class="empty-state">
+                  ❌ Nenhum servidor disponível. Adicione o bot a um servidor primeiro.
+                </div>
+              {% endif %}
+            {% endif %}
+          </article>
+        </div>
+      </section>
+
+      {% if servidor_eventos_config.eventos_guild_id %}
+      <section class="card">
+        <span class="eyebrow gold">HIERARQUIA CRIADA AUTOMATICAMENTE</span>
+        <h2>👑 Cargos do Departamento</h2>
+        <div class="panel-users-list">
+          {% for chave, nome in servidor_eventos_config.role_names.items() %}
+            <div class="panel-user-item">
+              <div>
+                <strong>{{ nome }}</strong>
+                <small>ID: {{ servidor_eventos_config.roles.get(chave, '—') }}</small>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+        <div class="permission-explain">
+          <strong>Permissões</strong>
+          <p>👑 Chef de Departamento → Administração.</p>
+          <p>🎖️ Diretor → quase tudo, sem permissão de banimento.</p>
+          <p>📈 Gerente → moderação e gestão operacional.</p>
+          <p>📋 Coordenador/Supervisor → permissões progressivas.</p>
+          <p>🌱 Aprendiz → acesso básico ao departamento.</p>
+          <p>🚫 Intruso → sem acesso aos canais do departamento.</p>
+          <p>🧪 Conta de teste → cargo próprio, sem permissões especiais.</p>
+        </div>
+      </section>
+
+      <section class="card">
+        <span class="eyebrow">ESTRUTURA AUTOMÁTICA</span>
+        <h2>📁 Canais</h2>
+        <p class="muted">
+          Chat, anúncios, sugestões, mídias, comandos, regras, advertências, hierarquia, gerentes, diretoria e call.
+          Os canais com acesso possuem <strong>Ver canal + Ler histórico de mensagens</strong> configurados.
+        </p>
+      </section>
+      {% endif %}
+
+    {% elif aba == 'atualizacoes' and acesso_total %}
+      <section class="card">
+        <span class="eyebrow gold">CHANGELOG</span>
+        <h2>📢 Notas de atualização</h2>
+        {% if nota_atualizacao %}
+          <div class="admin-log-list">
+            <article class="admin-log-item">
+              <h3>{{ nota_atualizacao.get('titulo', 'Notas de atualização') }}</h3>
+              <p><strong>Versão:</strong> {{ nota_atualizacao.get('versao', '—') }} · <strong>Data:</strong> {{ nota_atualizacao.get('data', '—') }}</p>
+              {% for secao, chave in [('🆕 Novidades','novidades'),('🔧 Correções','correcoes'),('♻️ Alterações','alteracoes'),('🐛 Problemas conhecidos','problemas_conhecidos')] %}
+                {% if nota_atualizacao.get(chave) %}
+                  <h4>{{ secao }}</h4>
+                  <ul>
+                    {% for item in nota_atualizacao.get(chave) %}<li>{{ item }}</li>{% endfor %}
+                  </ul>
+                {% endif %}
+              {% endfor %}
+              {% if nota_atualizacao.get('resumo') %}<p><strong>Resumo:</strong> {{ nota_atualizacao.get('resumo') }}</p>{% endif %}
+            </article>
+          </div>
+        {% else %}
+          <div class="empty-state">Nenhuma nota de atualização encontrada.</div>
+        {% endif %}
+      </section>
+
+      <section class="card">
+        <span class="eyebrow">PLANEJADO</span>
+        <h2>🔮 Futuras atualizações</h2>
+        <form method="post" action="{{ url_for('adicionar_futura_atualizacao') }}" class="user-create-form">
+          <label for="futura_atualizacao">Adicionar futura atualização</label>
+          <textarea id="futura_atualizacao" name="texto" maxlength="1000" required placeholder="Ex.: Adicionar verificação do Roblox no servidor de Eventos."></textarea>
+          <button type="submit">➕ Adicionar</button>
+        </form>
+        {% if futuras_atualizacoes %}
+          <ul>
+            {% for item in futuras_atualizacoes %}
+              <li style="margin-bottom:8px;">
+                {{ item }}
+                <form method="post" action="{{ url_for('remover_futura_atualizacao') }}" style="display:inline; margin-left:8px;">
+                  <input type="hidden" name="texto" value="{{ item }}">
+                  <button type="submit">🗑️</button>
+                </form>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <div class="empty-state">Nenhuma futura atualização cadastrada.</div>
+        {% endif %}
+      </section>
+
+    {% elif aba == 'central' and acesso_total %}
+      <div class="admin-grid">
+        <section class="card">
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow gold">MODERAÇÃO</span>
+              <h2>🛡️ Painel de Ban / Hackban</h2>
+              <p>Solicitações lidas diretamente do canal de aprovação do Discord.</p>
+            </div>
+            <a class="secondary-link" href="{{ url_for('painel', aba='central') }}">🔄 Atualizar</a>
+          </div>
+          {% if solicitacoes_ban %}
+            <div class="admin-log-list">
+              {% for solicitacao in solicitacoes_ban %}
+                <article class="admin-log-item">
+                  <div class="admin-log-meta"><time>{{ solicitacao.data }}</time><span>{{ solicitacao.titulo }}</span></div>
+                  {% if solicitacao.descricao %}<div class="admin-log-text">{{ solicitacao.descricao }}</div>{% endif %}
+                  {% for campo in solicitacao.campos %}<div class="admin-log-text"><strong>{{ campo.nome }}</strong><br>{{ campo.valor }}</div>{% endfor %}
+                  <p><a class="secondary-link" href="{{ solicitacao.url }}" target="_blank" rel="noopener">🔗 Abrir solicitação no Discord</a></p>
+                </article>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-state">Nenhuma solicitação de Ban/Hackban encontrada no canal de aprovação.</div>
+          {% endif %}
+        </section>
+
+        <section class="card">
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow gold">REGISTROS DO BOT</span>
+              <h2>🛡️ Central Administrativa</h2>
+              <p>
+                Registros administrativos do bot aparecem aqui, sem enviar cópias para sua DM.
+              </p>
+            </div>
+
+            <a
+              class="secondary-link"
+              href="{{ url_for('painel', aba='central') }}"
+            >
+              🔄 Atualizar
+            </a>
+          </div>
+
+          <div class="admin-log-list">
+            {% if logs_admin %}
+              {% for log in logs_admin %}
+                <article class="admin-log-item">
+                  <div class="admin-log-meta">
+                    <time>{{ log.data }}</time>
+                    <span>{{ log.tipo }}</span>
+                  </div>
+                  <div class="admin-log-text">{{ log.texto }}</div>
+                </article>
+              {% endfor %}
+            {% else %}
+              <div class="empty-state">
+                Nenhum registro administrativo ainda.
+                Esta área não consulta mais sua DM.
+              </div>
+            {% endif %}
+          </div>
+        </section>
+
+        <section class="card">
+          <span class="eyebrow gold">CONTAS DO PAINEL</span>
+          <h2>👥 Criar usuário</h2>
+          <p class="muted">
+            Crie a conta aqui. O ID do Discord é verificado antes de liberar o acesso.
+          </p>
+
+          <form
+            method="post"
+            action="{{ url_for('criar_usuario_painel') }}"
+            class="user-create-form"
+          >
+            <label>Nome de usuário</label>
+            <input
+              name="novo_usuario"
+              required
+              minlength="3"
+              autocomplete="off"
+            >
+
+            <label>Senha inicial</label>
+            <input
+              name="nova_senha"
+              type="password"
+              required
+              minlength="6"
+              autocomplete="new-password"
+            >
+
+            <label>ID do Discord</label>
+            <input
+              name="discord_id"
+              inputmode="numeric"
+              required
+            >
+
+            <button type="submit">
+              ➕ Verificar no Discord e criar
+            </button>
+          </form>
+
+          <div class="permission-explain">
+            <strong>Permissões automáticas</strong>
+            <p>
+              🛠️ Equipe de Desenvolvimento → acesso total.
+            </p>
+            <p>
+              🎟️ Departamento de Eventos → somente menu do canal de eventos.
+            </p>
+          </div>
+
+          <h3 class="subheading">Usuários criados</h3>
+
+          <div class="panel-users-list">
+            {% if usuarios_painel %}
+              {% for usuario in usuarios_painel %}
+                <div class="panel-user-item">
+                  <div>
+                    <strong>{{ usuario.usuario }}</strong>
+                    <small>
+                      Discord ID: {{ usuario.discord_id }}
+                    </small>
+                  </div>
+
+                  <form
+                    method="post"
+                    action="{{ url_for('excluir_usuario_painel', usuario=usuario.usuario) }}"
+                    onsubmit="return confirm('Remover este usuário do painel?')"
+                  >
+                    <button
+                      class="danger-button compact-button"
+                      type="submit"
+                    >
+                      Remover
+                    </button>
+                  </form>
+                </div>
+              {% endfor %}
+            {% else %}
+              <p class="muted">
+                Nenhum usuário adicional criado.
+              </p>
+            {% endif %}
+          </div>
+
+          {% if not cargo_eventos_configurado or not canal_eventos_configurado %}
+            <div class="setup-note">
+              <strong>Configuração recomendada na Railway</strong>
+              <code>CARGO_EVENTOS_ID</code> e
+              <code>CANAL_EVENTOS_ID</code>.
+              Sem eles, o site tenta localizar cargo/canal pelo nome.
+            </div>
+          {% endif %}
+        </section>
+      </div>
+    {% endif %}
+  </main>
+
+  <template id="option-template">
+    <section class="card option-card">
+      <div class="option-card-head">
+        <h2>
+          Opção <span class="option-number">1</span>
+        </h2>
+        <button type="button" class="remove-option">
+          🗑️ Remover
+        </button>
+      </div>
+
+      <div class="two">
+        <div>
+          <label>Emoji</label>
+          <input class="emoji-input">
+        </div>
+        <div>
+          <label>Nome</label>
+          <input
+            class="name-input"
+            value="Nova opção"
+            maxlength="80"
+          >
+        </div>
+      </div>
+
+      <label>Resposta ao clicar</label>
+      <textarea
+        class="response-input"
+        maxlength="4000"
+      >Configure a resposta desta opção.</textarea>
+    </section>
+  </template>
+
+  {% if aba == 'menus' and canal_id %}
+  <script>
+    (() => {
+      const form = document.getElementById("menu-form");
+      if (!form) return;
+
+      const MAX = {{ max_botoes }};
+      const container = document.getElementById("options-container");
+      const count = document.getElementById("quantidade_botoes");
+      const add = document.getElementById("add-option");
+      const tpl = document.getElementById("option-template");
+
+      const title = document.getElementById("titulo");
+      const desc = document.getElementById("descricao");
+      const color = document.getElementById("cor");
+
+      const pTitle = document.getElementById("preview-title");
+      const pDesc = document.getElementById("preview-description");
+      const pEmbed = document.getElementById("preview-embed");
+      const swatch = document.getElementById("color-swatch");
+      const pButtons = document.getElementById("preview-buttons");
+
+      const destination = document.getElementById("salvar_destino_id");
+      const destinationLabel = document.getElementById("save-destination-label");
+      const saveButton = document.getElementById("save-button");
+
+      const cards = () => [
+        ...container.querySelectorAll(".option-card")
+      ];
+
+      const normalizeColor = (v) => {
+        const clean = (v || "")
+          .replace("#", "")
+          .trim();
+
+        return /^[0-9A-Fa-f]{6}$/.test(clean)
+          ? "#" + clean
+          : "#D4AF37";
+      };
+
+      function reindex() {
+        cards().forEach((card, i) => {
+          card.querySelector(".option-number").textContent = i + 1;
+          card.querySelector(".emoji-input").name = `emoji_${i}`;
+          card.querySelector(".name-input").name = `nome_${i}`;
+          card.querySelector(".response-input").name = `resposta_${i}`;
+        });
+
+        count.value = cards().length;
+        add.disabled = cards().length >= MAX;
+      }
+
+      function preview() {
+        pTitle.textContent = title.value.trim() || "Menu";
+        pDesc.textContent = desc.value.trim() || "Escolha uma opção.";
+
+        const c = normalizeColor(color.value);
+        pEmbed.style.setProperty("--embed-color", c);
+        swatch.style.background = c;
+
+        pButtons.innerHTML = "";
+
+        cards().forEach((card) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "discord-button";
+          b.tabIndex = -1;
+
+          const emoji = card
+            .querySelector(".emoji-input")
+            .value
+            .trim();
+
+          const nome = card
+            .querySelector(".name-input")
+            .value
+            .trim() || "Opção";
+
+          b.textContent = (
+            emoji
+              ? `${emoji} ${nome}`
+              : nome
+          );
+
+          pButtons.appendChild(b);
+        });
+      }
+
+      function updateDestination() {
+        if (!destination) return;
+
+        const option = destination.options[
+          destination.selectedIndex
+        ];
+
+        const texto = option
+          ? option.text
+          : "canal selecionado";
+
+        destinationLabel.textContent =
+          "Destino atual: " + texto;
+
+        saveButton.textContent =
+          "💾 Salvar em " + texto.split(" — ")[0];
+      }
+
+      function bind(card) {
+        card
+          .querySelectorAll("input, textarea")
+          .forEach((x) => {
+            x.addEventListener(
+              "input",
+              preview
+            );
+          });
+
+        card
+          .querySelector(".remove-option")
+          .addEventListener(
+            "click",
+            () => {
+              if (cards().length <= 1) {
+                alert(
+                  "O menu precisa ter pelo menos uma opção."
+                );
+                return;
+              }
+
+              card.remove();
+              reindex();
+              preview();
+            }
+          );
+      }
+
+      cards().forEach(bind);
+
+      add.addEventListener(
+        "click",
+        () => {
+          if (cards().length >= MAX) return;
+
+          const clone = tpl
+            .content
+            .firstElementChild
+            .cloneNode(true);
+
+          container.appendChild(clone);
+
+          bind(clone);
+          reindex();
+          preview();
+        }
+      );
+
+      [
+        title,
+        desc,
+        color
+      ].forEach((x) => {
+        x.addEventListener(
+          "input",
+          preview
+        );
+      });
+
+      destination.addEventListener(
+        "change",
+        updateDestination
+      );
+
+      reindex();
+      preview();
+      updateDestination();
+    })();
+  </script>
+  {% endif %}
+</body>
+</html>

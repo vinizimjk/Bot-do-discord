@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Configuração da IA • Resenha Máxima</title>
+  <style>
+    *{box-sizing:border-box}
+    :root{--bg:#080808;--card:#111;--line:#30291b;--gold:#d4af37;--gold2:#f0cf63;--text:#f6f1e7;--muted:#b7ae9e}
+    body{margin:0;background:radial-gradient(circle at 10% 0,rgba(212,175,55,.10),transparent 30%),var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif}
+    header{position:sticky;top:0;z-index:2;padding:16px max(4vw,20px);display:flex;justify-content:space-between;align-items:center;background:rgba(8,8,8,.96);border-bottom:1px solid rgba(212,175,55,.25)}
+    header strong{color:#f8e7a0;font-size:18px}.back{color:#f2dc8b;text-decoration:none;border:1px solid rgba(212,175,55,.3);padding:9px 12px;border-radius:9px}
+    main{width:min(1000px,92%);margin:28px auto 70px}.hero,.card{background:linear-gradient(180deg,rgba(255,255,255,.02),transparent),var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;margin-bottom:16px}
+    .hero{border-color:rgba(212,175,55,.35)}h1{margin:5px 0 8px;color:#f7e3a1}.eyebrow{font-size:11px;font-weight:900;letter-spacing:.12em;color:var(--gold2)}p{color:var(--muted);line-height:1.5}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.field{padding:14px;border:1px solid #2b2820;border-radius:12px;background:#171717}
+    label{display:block;font-weight:800;margin-bottom:7px;color:#eadba9}.hint{font-size:12px;color:var(--muted);margin-top:7px}
+    input[type=number],input[type=text]{width:100%;padding:11px 12px;border-radius:9px;border:1px solid #373126;background:#0f0f0f;color:var(--text);font:inherit}
+    .toggle{display:flex;align-items:center;gap:10px}.toggle input{width:20px;height:20px;accent-color:var(--gold)}
+    button{width:100%;padding:14px;border-radius:10px;border:1px solid #e0bb43;background:linear-gradient(#e4c14c,#c69b25);font-weight:950;font-size:15px;cursor:pointer}
+    .flash{padding:12px 14px;margin-bottom:15px;border:1px solid rgba(43,138,87,.5);background:rgba(43,138,87,.16);border-radius:10px;color:#d7f3df}
+    .warning{padding:12px 14px;background:rgba(212,175,55,.08);border:1px solid rgba(212,175,55,.25);border-radius:10px;color:#e9ddb8}
+    @media(max-width:720px){.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<header>
+  <strong>🤖 Resenha Máxima • IA</strong>
+  <a class="back" href="{{ url_for('painel') }}">← Voltar ao painel</a>
+</header>
+
+<main>
+  {% with mensagens = get_flashed_messages() %}
+    {% if mensagens %}
+      {% for mensagem in mensagens %}<div class="flash">{{ mensagem }}</div>{% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <section class="hero">
+    <span class="eyebrow">CONFIGURAÇÃO AO VIVO</span>
+    <h1>Comportamento da IA</h1>
+    <p>As opções abaixo não armazenam a chave da Groq. O bot consulta esta configuração pelo site e aplica as mudanças sem você precisar editar o código para ajustes simples.</p>
+  </section>
+
+  <form method="post" action="{{ url_for('salvar_configuracao_ia') }}">
+    <section class="card grid">
+      <div class="field">
+        <label class="toggle"><input type="checkbox" name="ativa" {% if config_ia.ativa %}checked{% endif %}> IA ativa</label>
+        <div class="hint">Desliga ou liga respostas da IA sem remover o bot.</div>
+      </div>
+
+      <div class="field">
+        <label>Chance de abreviações (%)</label>
+        <input type="number" min="0" max="100" name="chance_abreviacao" value="{{ config_ia.chance_abreviacao }}">
+        <div class="hint">Ex.: vc, pq, tbm, q, n.</div>
+      </div>
+
+      <div class="field">
+        <label class="toggle"><input type="checkbox" name="espelhar_palavrao" {% if config_ia.espelhar_palavrao %}checked{% endif %}> Espelhar palavrão</label>
+        <div class="hint">Se a pessoa xingar, o bot pode acompanhar. Sem palavrão, não força.</div>
+      </div>
+
+      <div class="field">
+        <label class="toggle"><input type="checkbox" name="consciencia_horario" {% if config_ia.consciencia_horario %}checked{% endif %}> Consciência de horário</label>
+        <div class="hint">Envia hora e período atual para a IA antes da resposta.</div>
+      </div>
+
+      <div class="field">
+        <label class="toggle"><input type="checkbox" name="zoar_saudacao_errada" {% if config_ia.zoar_saudacao_errada %}checked{% endif %}> Zoar saudação fora do horário</label>
+        <div class="hint">Ex.: “bom dia” às 15h pode virar motivo de zoeira.</div>
+      </div>
+
+      <div class="field">
+        <label>Temperatura</label>
+        <input type="number" min="0" max="2" step="0.01" name="temperatura" value="{{ config_ia.temperatura }}">
+        <div class="hint">Maior = mais imprevisível. Padrão atual: 1.02.</div>
+      </div>
+
+      <div class="field">
+        <label>Máximo de tokens</label>
+        <input type="number" min="100" max="1500" name="max_tokens" value="{{ config_ia.max_tokens }}">
+        <div class="hint">Limite de tamanho da resposta gerada.</div>
+      </div>
+
+      <div class="field">
+        <label>Tentativas após erro</label>
+        <input type="number" min="1" max="6" name="tentativas" value="{{ config_ia.tentativas }}">
+        <div class="hint">Mais tentativas aumentam resistência a falhas temporárias da Groq.</div>
+      </div>
+
+      <div class="field">
+        <label>Emoji de falha interna</label>
+        <input type="text" maxlength="32" name="emoji_falha" value="{{ config_ia.emoji_falha }}">
+        <div class="hint">Reage à mensagem quando houve erro real. Isso é diagnóstico interno.</div>
+      </div>
+
+      <div class="field">
+        <label>Atualizar configuração a cada (segundos)</label>
+        <input type="number" min="10" max="300" name="cache_segundos" value="{{ config_ia.cache_segundos }}">
+        <div class="hint">Quanto tempo o bot pode levar para perceber uma mudança no site.</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="warning">🔐 A chave da Groq continua somente nas variáveis da Railway. Ela não aparece nem é editável nesta página.</div>
+      <br>
+      <button type="submit">💾 Salvar configuração da IA</button>
+    </section>
+  </form>
+</main>
+</body>
+</html>
