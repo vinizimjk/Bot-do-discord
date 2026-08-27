@@ -7858,14 +7858,13 @@ async def on_message(
                     )
                     return
 
-    bloqueou_spam_mencoes = await processar_antispam_mencoes(message)
-    if bloqueou_spam_mencoes:
-        await bot.process_commands(message)
-        return
-
+    # A proteção da DEV tem prioridade absoluta sobre IA, comandos e antispam.
     tratado_manutencao = await processar_protecao_manutencao(message)
     if tratado_manutencao:
-        await bot.process_commands(message)
+        return
+
+    bloqueou_spam_mencoes = await processar_antispam_mencoes(message)
+    if bloqueou_spam_mencoes:
         return
 
     await processar_aviso_limpeza_por_mensagem(
@@ -9472,27 +9471,65 @@ async def processar_protecao_manutencao(message: discord.Message):
     if message.guild is None or message.author.bot or message.author.id == DONO_ID:
         return False
     if not dono_esta_na_call_manutencao(message.guild):
-        _dev_mencao_contadores.clear(); _dev_mencao_punidos.clear()
+        _dev_mencao_contadores.clear()
+        _dev_mencao_punidos.clear()
         return False
     if not mensagem_menciona_dono_diretamente(message):
         return False
 
-    uid = message.author.id
+    # Prioridade máxima: remove a marcação antes de qualquer resposta/IA/comando.
+    # O Discord só dispara on_message após a mensagem existir, portanto o bot não
+    # consegue impedir o envio na origem; a ação mais rápida possível é deletá-la
+    # imediatamente ao receber o evento.
+    canal = message.channel
+    autor = message.author
+    try:
+        await message.delete()
+    except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+        # Mesmo sem permissão para apagar, continua a proteção/contagem.
+        pass
+
+    uid = autor.id
     qtd = _dev_mencao_contadores.get(uid, 0) + 1
     _dev_mencao_contadores[uid] = qtd
+
     if uid in _dev_mencao_punidos:
-        await message.reply("deixa o Vini trabalhar na call DEV kkk", mention_author=False, allowed_mentions=discord.AllowedMentions.none())
-        return True
-    if qtd < 5:
-        await message.reply(f"o Vini tá na call DEV trabalhando. marcação {qtd}/5 — deixa o homem trabalhar kkk", mention_author=False, allowed_mentions=discord.AllowedMentions.none())
-        return True
-    _dev_mencao_punidos.add(uid)
-    if isinstance(message.author, discord.Member):
         try:
-            await message.author.timeout(timedelta(minutes=1), reason="5 menções ao programador durante call DEV")
+            await canal.send(
+                "deixa o Vini trabalhar na call DEV kkk",
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except discord.HTTPException:
+            pass
+        return True
+
+    if qtd < 5:
+        try:
+            await canal.send(
+                f"o Vini tá na call DEV trabalhando. marcação {qtd}/5 — deixa o homem trabalhar kkk",
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except discord.HTTPException:
+            pass
+        return True
+
+    _dev_mencao_punidos.add(uid)
+    if isinstance(autor, discord.Member):
+        try:
+            await autor.timeout(
+                timedelta(minutes=1),
+                reason="5 menções ao programador durante call DEV",
+            )
         except (discord.Forbidden, discord.HTTPException):
             pass
-    await message.reply("cinco marcações. ganhou 1 minuto pra refletir kkkkk", mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+
+    try:
+        await canal.send(
+            "cinco marcações. ganhou 1 minuto pra refletir kkkkk",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+    except discord.HTTPException:
+        pass
     return True
 
 
