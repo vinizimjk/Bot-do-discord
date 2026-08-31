@@ -29,11 +29,13 @@ DONO_ID = 1455937306400653344
 CANAL_APROVACAO_ID = 1536073451633254420
 PAINEL_MENU_URL = os.getenv("SITE_PUBLIC_URL", "https://resenha-maxima.up.railway.app").rstrip("/")
 SITE_PUBLIC_URL = PAINEL_MENU_URL
+ROBLOX_VINCULO_SECRET = os.getenv("ROBLOX_VINCULO_SECRET", "").strip()
 DEV_CALL_ID = 1540578640020897862
 CONTA_SECUNDARIA_ID = int(os.getenv("CONTA_SECUNDARIA_ID", "0") or 0)
 GOOGLE_FORMS_URL = os.getenv("GOOGLE_FORMS_URL", "https://forms.gle/gpvZhRAWc41CUurJ8")
 
 CARGO_MINECRAFT_ID = 1534006899371147304
+CARGO_ROBLOX_ID = 1540858217301549176
 CANAL_STATUS_MINECRAFT_ID = 1538109074779144253
 CANAL_NICKNAMES_MINECRAFT_ID = 1534423515183448155
 CARGO_DESENVOLVIMENTO_ID = 1533625836874498181
@@ -5410,12 +5412,157 @@ async def on_member_remove(member: discord.Member):
         )
 
 
+
+# ==========================================================
+# ROBLOX - VINCULACAO AUTOMATICA POR CARGO
+# ==========================================================
+
+async def _roblox_site_json(caminho, metodo="GET", payload=None):
+    """Conversa com o site da Resenha Máxima usando o segredo interno."""
+    if not ROBLOX_VINCULO_SECRET:
+        return {
+            "ok": False,
+            "erro": "ROBLOX_VINCULO_SECRET não configurado no bot.",
+        }
+
+    url = PAINEL_MENU_URL.rstrip("/") + caminho
+    headers = {
+        "Accept": "application/json",
+        "X-Roblox-Link-Secret": ROBLOX_VINCULO_SECRET,
+    }
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=15)
+        async with aiohttp.ClientSession(timeout=timeout) as sessao:
+            async with sessao.request(
+                metodo,
+                url,
+                json=payload,
+                headers=headers,
+            ) as resposta:
+                try:
+                    dados = await resposta.json(content_type=None)
+                except Exception:
+                    texto = await resposta.text()
+                    dados = {
+                        "ok": False,
+                        "erro": texto[:400] or f"HTTP {resposta.status}",
+                    }
+
+                if not isinstance(dados, dict):
+                    dados = {"ok": False, "erro": "Resposta inválida do site."}
+
+                if resposta.status < 200 or resposta.status >= 300:
+                    dados["ok"] = False
+                    dados.setdefault("erro", f"Site respondeu HTTP {resposta.status}.")
+
+                return dados
+    except Exception as erro:
+        return {
+            "ok": False,
+            "erro": f"Não consegui falar com o site: {type(erro).__name__}: {erro}",
+        }
+
+
+async def buscar_vinculo_roblox(discord_id):
+    return await _roblox_site_json(
+        f"/api/roblox/vinculo/{int(discord_id)}"
+    )
+
+
+async def criar_link_vinculo_roblox(membro):
+    return await _roblox_site_json(
+        "/api/roblox/criar-vinculo",
+        metodo="POST",
+        payload={
+            "discord_id": str(membro.id),
+            "guild_id": str(membro.guild.id),
+            "discord_nome": str(membro),
+        },
+    )
+
+
+async def iniciar_cadastro_roblox(membro):
+    """Manda a DM de cadastro quando a pessoa recebe o cargo Roblox."""
+    if not isinstance(membro, discord.Member) or membro.bot:
+        return False
+
+    if not ROBLOX_VINCULO_SECRET:
+        print("⚠️ Roblox: ROBLOX_VINCULO_SECRET não está configurado no bot.")
+        return False
+
+    atual = await buscar_vinculo_roblox(membro.id)
+    if atual.get("ok") and atual.get("vinculado"):
+        vinculo = atual.get("vinculo") or {}
+        usuario = (
+            vinculo.get("username")
+            or vinculo.get("display_name")
+            or "conta vinculada"
+        )
+        print(f"✅ Roblox já vinculado para {membro} ({membro.id}): {usuario}")
+        return True
+
+    resposta = await criar_link_vinculo_roblox(membro)
+    if not resposta.get("ok"):
+        print(
+            "❌ Não consegui criar o link Roblox para "
+            f"{membro} ({membro.id}): {resposta.get('erro', 'erro desconhecido')}"
+        )
+        return False
+
+    url = str(resposta.get("url") or "").strip()
+    if not url:
+        print(f"❌ O site não devolveu um link Roblox para {membro} ({membro.id}).")
+        return False
+
+    embed = discord.Embed(
+        title="🎮 Cadastro do Roblox — Resenha Máxima",
+        description=(
+            "Você recebeu o cargo de **Roblox**. Para cadastrar sua conta, "
+            "clique no botão abaixo e entre pelo login oficial do Roblox.\n\n"
+            "O link é temporário e serve apenas para confirmar qual conta Roblox é sua."
+        ),
+        color=discord.Color.blurple(),
+    )
+    embed.set_footer(text="Resenha Máxima • Vinculação Roblox")
+
+    view = discord.ui.View(timeout=None)
+    view.add_item(
+        discord.ui.Button(
+            label="Entrar com Roblox",
+            style=discord.ButtonStyle.link,
+            emoji="🎮",
+            url=url,
+        )
+    )
+
+    try:
+        await membro.send(embed=embed, view=view)
+        print(f"📩 Cadastro Roblox enviado por DM para {membro} ({membro.id}).")
+        return True
+    except discord.Forbidden:
+        print(f"⚠️ Não consegui enviar DM Roblox para {membro} ({membro.id}). DMs fechadas.")
+    except discord.HTTPException as erro:
+        print(f"❌ Erro ao enviar DM Roblox para {membro} ({membro.id}): {erro}")
+
+    return False
+
+
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
-    tinha = any(cargo.id == CARGO_MINECRAFT_ID for cargo in before.roles)
-    tem = any(cargo.id == CARGO_MINECRAFT_ID for cargo in after.roles)
-    if not tinha and tem and not after.bot:
+    if after.bot:
+        return
+
+    tinha_minecraft = any(cargo.id == CARGO_MINECRAFT_ID for cargo in before.roles)
+    tem_minecraft = any(cargo.id == CARGO_MINECRAFT_ID for cargo in after.roles)
+    tinha_roblox = any(cargo.id == CARGO_ROBLOX_ID for cargo in before.roles)
+    tem_roblox = any(cargo.id == CARGO_ROBLOX_ID for cargo in after.roles)
+
+    if not tinha_minecraft and tem_minecraft:
         await iniciar_cadastro_nick(after)
+
+    if not tinha_roblox and tem_roblox:
+        await iniciar_cadastro_roblox(after)
 
 
 

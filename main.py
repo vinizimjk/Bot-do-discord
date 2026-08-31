@@ -3,13 +3,19 @@ import os
 import json
 import threading
 import secrets
+import unicodedata
+import urllib.parse
+import urllib.request
+import urllib.error
 from copy import deepcopy
 from pathlib import Path
 from functools import wraps
+from datetime import datetime, timezone, timedelta
+from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
 
 import discord
 from discord.ext import commands
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # =========================================================
@@ -50,11 +56,16 @@ MAX_BOTOES = 25
 SERVIDORES_CONFIG_FILE = DATA_DIR / "servidores_config.json"
 CONTA_TESTE_EVENTOS_ID = 1532838576256057557
 CARGO_TESTE_EVENTOS_ID = 1536081355711062166
-GOOGLE_FORMS_URL = "https://forms.gle/h4kt2Cp7fduGG4Pc8"
-EVENTOS_GUILD_ID = 1541541588122079283
-CANAL_CANDIDATURA_PRINCIPAL_ID = 1541035337709649990
+GOOGLE_FORMS_URL = os.getenv("GOOGLE_FORMS_URL", "https://forms.gle/h4kt2Cp7fduGG4Pc8")
 CARGO_ROBLOX_ID = 1540858217301549176
 CARGO_MINECRAFT_ID = 1534006899371147304
+CANAL_CANDIDATURA_PRINCIPAL_ID = int(os.getenv("CANAL_CANDIDATURA_PRINCIPAL_ID", "1541035337709649990") or "1541035337709649990")
+FORM_WEBHOOK_SECRET = (os.getenv("FORM_WEBHOOK_SECRET") or os.getenv("EVENTOS_SECRET") or "").strip()
+EVENTOS_PREFILL_SCRIPT_URL = os.getenv("EVENTOS_PREFILL_SCRIPT_URL", "https://script.google.com/macros/s/AKfycbxkCj_GHByDB1fGiWIB5afuKSseh3akjYb2cwrFNubeaBpeL5mf2LnltEpx8zroIvn7MQ/exec").strip()
+EVENTOS_PREFILL_CONFIG_FILE = DATA_DIR / "eventos_prefill.json"
+EVENTOS_GUILD_ID = int(os.getenv("EVENTOS_GUILD_ID", "1541541588122079283") or "1541541588122079283")
+CANDIDATURA_CODES_FILE = DATA_DIR / "candidatura_codes.json"
+_CANDIDATURA_CODES_LOCK = threading.Lock()
 
 CARGOS_EVENTOS = [
     ("Chef de Departamento", "chef"),
@@ -222,136 +233,284 @@ async def _obter_canal_voz(categoria, nome):
         reason="Configuração automática do Departamento de Eventos"
     )
 
-class CandidaturaEventosSelect(discord.ui.Select):
+def _carregar_codigos_candidatura():
+    if not CANDIDATURA_CODES_FILE.exists():
+        return {}
+    try:
+        dados = json.loads(CANDIDATURA_CODES_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return dados if isinstance(dados, dict) else {}
+
+
+def _salvar_codigos_candidatura(dados):
+    tmp = CANDIDATURA_CODES_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(CANDIDATURA_CODES_FILE)
+
+
+def _gerar_codigo_candidatura(user_id):
+    # Compatível com o Apps Script antigo: RM-EVT + 6 caracteres hexadecimais.
+    # O vínculo com o Discord fica salvo no JSON de códigos.
+    with _CANDIDATURA_CODES_LOCK:
+        dados = _carregar_codigos_candidatura()
+        for _ in range(30):
+            codigo = f"RM-EVT-{secrets.token_hex(3).upper()}"
+            if codigo not in dados:
+                dados[codigo] = {"discord_id": str(int(user_id))}
+                _salvar_codigos_candidatura(dados)
+                return codigo
+    raise RuntimeError("Não foi possível gerar um código de candidatura único.")
+
+
+def _discord_id_por_codigo(codigo):
+    if not codigo:
+        return None
+    codigo = str(codigo).strip().upper()
+    with _CANDIDATURA_CODES_LOCK:
+        item = _carregar_codigos_candidatura().get(codigo)
+    if isinstance(item, dict) and str(item.get("discord_id", "")).isdigit():
+        return int(item["discord_id"])
+    return None
+
+
+def _carregar_prefill_script_url():
+    if EVENTOS_PREFILL_SCRIPT_URL:
+        return EVENTOS_PREFILL_SCRIPT_URL
+    if EVENTOS_PREFILL_CONFIG_FILE.exists():
+        try:
+            dados = json.loads(EVENTOS_PREFILL_CONFIG_FILE.read_text(encoding="utf-8"))
+            url = str(dados.get("prefill_script_url") or "").strip()
+            if url:
+                return url
+        except (OSError, json.JSONDecodeError, AttributeError):
+            pass
+    return ""
+
+
+def _salvar_prefill_script_url(url):
+    url = str(url or "").strip()
+    tmp = EVENTOS_PREFILL_CONFIG_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"prefill_script_url": url}, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(EVENTOS_PREFILL_CONFIG_FILE)
+
+
+def _url_formulario_com_codigo(codigo):
+    # O Apps Script existente encontra o campo "Código da candidatura" no Forms
+    # e redireciona para uma URL pré-preenchida. Não precisamos de entry.xxxxx.
+    script_url = _carregar_prefill_script_url()
+    if script_url:
+        separador = "&" if "?" in script_url else "?"
+        return f"{script_url}{separador}{urlencode({'codigo': codigo})}"
+    return GOOGLE_FORMS_URL
+
+
+class CandidaturaEventosView(discord.ui.View):
+    """Menu simples e persistente usado nos dois servidores."""
+
     def __init__(self):
-        super().__init__(
-            placeholder="Selecione a prova que deseja fazer...",
-            min_values=1,
-            max_values=1,
-            custom_id="eventos_candidatura_prova_select",
-            options=[
-                discord.SelectOption(
-                    label="Verificar Roblox",
-                    value="roblox",
-                    emoji="🎮",
-                    description="Para quem possui o cargo de Roblox."
-                ),
-                discord.SelectOption(
-                    label="Verificar Minecraft",
-                    value="minecraft",
-                    emoji="⛏️",
-                    description="Para quem possui o cargo de Minecraft."
-                ),
-                discord.SelectOption(
-                    label="Verificar os dois",
-                    value="ambos",
-                    emoji="🎮",
-                    description="Para quem possui os cargos de Roblox e Minecraft."
-                ),
-            ],
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Informações",
+        style=discord.ButtonStyle.secondary,
+        emoji="ℹ️",
+        custom_id="eventos_candidatura_informacoes",
+    )
+    async def informacoes(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="ℹ️ Como funciona a candidatura",
+            description=(
+                "A candidatura é o processo para entrar no **Departamento de Eventos** como "
+                "**Aprendiz de Eventos**.\n\n"
+                "**1.** Clique em **Fazer candidatura** e responda o formulário.\n"
+                "**2.** Depois do envio, o bot cria um **ticket temporário no servidor principal**.\n"
+                "**3.** Somente você e a **Diretoria de Eventos** terão acesso ao ticket.\n"
+                "**4.** Suas respostas serão exibidas no ticket para avaliação.\n"
+                "**5.** Se a prova for aprovada, o bot cria uma **call privada de entrevista** com as mesmas permissões.\n"
+                "**6.** Se você também for aprovado na call, recebe o cargo do **Departamento de Eventos** "
+                "e entra oficialmente como **Aprendiz de Eventos**.\n\n"
+                "Se você estiver fazendo a prova pelo servidor **Departamento de Eventos**, "
+                "a avaliação continua no **servidor principal**."
+            ),
+            color=discord.Color.blurple(),
         )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    async def callback(self, interaction: discord.Interaction):
-        membro = interaction.guild.get_member(interaction.user.id) if interaction.guild else None
-        if membro is None:
-            try:
-                membro = await interaction.guild.fetch_member(interaction.user.id)
-            except Exception:
-                membro = None
+    @discord.ui.button(
+        label="Fazer candidatura",
+        style=discord.ButtonStyle.success,
+        emoji="📝",
+        custom_id="eventos_candidatura_fazer",
+    )
+    async def fazer_candidatura(self, interaction: discord.Interaction, button: discord.ui.Button):
+        origem_eventos = False
+        cfg = carregar_servidores_config()
+        if interaction.guild:
+            origem_eventos = str(interaction.guild.id) == str(cfg.get("eventos_guild_id") or "")
 
-        if membro is None:
-            await interaction.response.send_message("❌ Não consegui identificar seu usuário.", ephemeral=True)
-            return
-
-        valor = self.values[0]
-        tem_roblox = any(r.id == CARGO_ROBLOX_ID for r in membro.roles)
-        tem_minecraft = any(r.id == CARGO_MINECRAFT_ID for r in membro.roles)
-
-        if valor == "roblox" and not tem_roblox:
-            await interaction.response.send_message(
-                "❌ Você precisa ter o cargo de Roblox para fazer a verificação de Roblox.",
-                ephemeral=True,
-            )
-            return
-        if valor == "minecraft" and not tem_minecraft:
-            await interaction.response.send_message(
-                "❌ Você precisa ter o cargo de Minecraft para fazer a verificação de Minecraft.",
-                ephemeral=True,
-            )
-            return
-        if valor == "ambos" and not (tem_roblox and tem_minecraft):
-            await interaction.response.send_message(
-                "❌ Para escolher os dois, você precisa ter os cargos de Roblox e Minecraft.",
-                ephemeral=True,
-            )
-            return
-
-        if valor == "roblox":
-            descricao = "Você selecionou **Verificar Roblox**."
-        elif valor == "minecraft":
-            descricao = "Você selecionou **Verificar Minecraft**."
-        else:
-            descricao = "Você selecionou **Verificar os dois**."
-
+        codigo = _gerar_codigo_candidatura(interaction.user.id)
+        link = _url_formulario_com_codigo(codigo)
+        complemento = (
+            "\n\n📌 Quando terminar, a análise e o ticket serão feitos no **servidor principal da RESENHA MÁXIMA**."
+            if origem_eventos else ""
+        )
+        prefill_ativo = bool(_carregar_prefill_script_url())
+        aviso_codigo = (
+            "\n\n✅ O campo **Código da candidatura** será preenchido automaticamente."
+            if prefill_ativo
+            else f"\n\n🔑 **Código da candidatura:** `{codigo}`\n"
+                 "⚠️ O Web App de pré-preenchimento ainda não foi registrado no site."
+        )
         await interaction.response.send_message(
-            f"{descricao}\n\n🎓 **Faça sua prova aqui:** {GOOGLE_FORMS_URL}\n\n"
-            "Depois de enviar o formulário, siga as instruções que o bot informar para concluir sua candidatura.",
+            f"📝 **Formulário de candidatura para Aprendiz de Eventos**\n\n{link}{aviso_codigo}{complemento}",
             ephemeral=True,
         )
 
 
-class CandidaturaEventosView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.add_item(CandidaturaEventosSelect())
-
-
-async def _sincronizar_cargo_departamento_e_hierarquia(guild_eventos, roles, canais_por_chave):
-    """Cria o cargo agregador do Departamento e sincroniza membros já reconhecidos no principal.
-
-    A sincronização é conservadora: usa CARGO_EVENTOS_ID quando configurado e não remove
-    cargos de hierarquia já existentes no servidor de Eventos.
-    """
-    cargo_departamento = await _buscar_ou_criar_role(
-        guild_eventos,
-        "Departamento de Eventos",
-        permissions=discord.Permissions.none(),
-        hoist=True,
+def _embed_menu_candidatura():
+    embed = discord.Embed(
+        title="📝 Candidatura — Departamento de Eventos",
+        description=(
+            "Quer se tornar **Aprendiz de Eventos**?\n\n"
+            "Use **Informações** para entender todas as etapas ou "
+            "**Fazer candidatura** para abrir o formulário."
+        ),
+        color=discord.Color.blurple(),
     )
+    embed.set_footer(text="RESENHA MÁXIMA • Departamento de Eventos")
+    return embed
 
-    principal = bot.get_guild(int(GUILD_ID)) if str(GUILD_ID or "").isdigit() else None
-    cargo_origem = None
-    if principal is not None and CARGO_EVENTOS_ID:
-        cargo_origem = principal.get_role(CARGO_EVENTOS_ID)
 
-    if cargo_origem is not None:
-        ids_departamento = {m.id for m in cargo_origem.members if not m.bot}
-        for membro_id in ids_departamento:
-            membro_eventos = guild_eventos.get_member(membro_id)
-            if membro_eventos is None:
-                try:
-                    membro_eventos = await guild_eventos.fetch_member(membro_id)
-                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                    continue
-            adicionar = []
-            if cargo_departamento not in membro_eventos.roles:
-                adicionar.append(cargo_departamento)
-            # Quem já pertence ao Departamento e ainda não tem nível definido começa como Aprendiz.
-            if not any(role in membro_eventos.roles for role in roles.values()):
-                adicionar.append(roles["aprendiz"])
-            if adicionar:
-                try:
-                    await membro_eventos.add_roles(
-                        *adicionar,
-                        reason="Sincronização com o servidor principal RESENHA MÁXIMA",
-                    )
-                except (discord.Forbidden, discord.HTTPException):
-                    pass
+def _normalizar_nome_discord(valor):
+    # NFKD transforma letras matemáticas/estilizadas em letras comuns.
+    texto = unicodedata.normalize("NFKD", str(valor or ""))
+    texto = "".join(ch for ch in texto if not unicodedata.combining(ch))
+    return "".join(ch for ch in texto.casefold() if ch.isalnum())
 
-    return cargo_departamento
+
+def _eh_canal_candidatura_eventos(canal):
+    nome = _normalizar_nome_discord(getattr(canal, "name", ""))
+    return "candidatura" in nome
+
+
+def _localizar_canal_candidatura_eventos(guild):
+    # 1) Usa o ID salvo quando ele ainda existe.
+    try:
+        cfg = carregar_servidores_config()
+        canal_id = int(cfg.get("candidatura_channel_id") or 0)
+    except (TypeError, ValueError):
+        canal_id = 0
+    if canal_id:
+        canal = guild.get_channel(canal_id)
+        if isinstance(canal, discord.TextChannel):
+            return canal
+
+    # 2) Aceita nomes normais ou com fontes Unicode, como
+    #    📜・Candidatura e 📜・𝑪𝒂𝒏𝒅𝒊𝒅𝒂𝒕𝒖𝒓𝒂.
+    candidatos = [c for c in guild.text_channels if _eh_canal_candidatura_eventos(c)]
+    if not candidatos:
+        return None
+
+    # Prefere o canal fora de categorias/mais antigo quando houver duplicatas,
+    # pois é o formato do canal já existente mostrado no servidor de Eventos.
+    candidatos.sort(key=lambda c: (c.category is not None, c.position, c.id))
+    return candidatos[0]
+
+
+def _mensagem_parece_menu_candidatura(msg):
+    if msg.author.id != bot.user.id:
+        return False
+
+    ids = set()
+    for row in msg.components or []:
+        for comp in getattr(row, "children", []):
+            cid = getattr(comp, "custom_id", None)
+            if cid:
+                ids.add(cid)
+    if {"eventos_candidatura_informacoes", "eventos_candidatura_fazer"} & ids:
+        return True
+
+    texto = " ".join(
+        f"{getattr(embed, 'title', '')} {getattr(embed, 'description', '')}"
+        for embed in msg.embeds
+    ).casefold()
+    if "candidatura" in texto:
+        return True
+    if "verificar roblox" in texto or "verificar minecraft" in texto:
+        return True
+    return False
+
+
+async def _publicar_ou_atualizar_menu(canal):
+    # Procura tanto o menu novo quanto o menu antigo Roblox/Minecraft e mantém
+    # somente um painel de candidatura no canal.
+    encontradas = []
+    try:
+        async for msg in canal.history(limit=100):
+            if _mensagem_parece_menu_candidatura(msg):
+                encontradas.append(msg)
+    except (discord.Forbidden, discord.HTTPException):
+        encontradas = []
+
+    view = CandidaturaEventosView()
+    embed = _embed_menu_candidatura()
+
+    if encontradas:
+        # history() retorna da mais recente para a mais antiga. Editamos a mais
+        # recente e removemos menus antigos duplicados do próprio bot.
+        principal = encontradas[0]
+        await principal.edit(content=None, embed=embed, view=view)
+        for antiga in encontradas[1:]:
+            try:
+                await antiga.delete()
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                pass
+        return principal
+
+    return await canal.send(embed=embed, view=view)
+
+
+async def publicar_menu_candidatura_principal():
+    canal = bot.get_channel(CANAL_CANDIDATURA_PRINCIPAL_ID)
+    if canal is None:
+        try:
+            canal = await bot.fetch_channel(CANAL_CANDIDATURA_PRINCIPAL_ID)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return False
+    if not isinstance(canal, discord.TextChannel):
+        return False
+    await _publicar_ou_atualizar_menu(canal)
+    return True
+
+
+async def atualizar_menu_candidatura_eventos_existente(guild_id):
+    """Atualiza o painel no canal existente sem criar canal/categoria/cargo."""
+    guild = bot.get_guild(int(guild_id))
+    if guild is None:
+        return False
+    canal = _localizar_canal_candidatura_eventos(guild)
+    if canal is None:
+        return False
+    await _publicar_ou_atualizar_menu(canal)
+
+    # Salva o ID encontrado para as próximas inicializações.
+    try:
+        dados = carregar_servidores_config()
+        dados["eventos_guild_id"] = str(guild.id)
+        dados["eventos_guild_nome"] = guild.name
+        dados["candidatura_channel_id"] = str(canal.id)
+        salvar_servidores_config(dados)
+    except OSError:
+        pass
+    return True
 
 
 async def configurar_servidor_eventos(guild_id):
+    """
+    Configura SOMENTE o canal de candidatura no servidor de Eventos.
+    Não cria categorias, outros canais, calls ou a hierarquia inteira.
+    """
     guild = bot.get_guild(int(guild_id))
     if guild is None:
         raise RuntimeError("O bot não está mais conectado a esse servidor.")
@@ -360,250 +519,340 @@ async def configurar_servidor_eventos(guild_id):
     if str(guild.id) == principal:
         raise RuntimeError("O servidor principal não pode ser usado como Departamento de Eventos.")
 
-    # Cargos em ordem do menor para o maior. O Chef fica acima de todos.
-    roles = {}
-    for nome, chave in reversed(CARGOS_EVENTOS):
-        roles[chave] = await _buscar_ou_criar_role(
-            guild,
-            nome,
-            permissions=_permissoes_eventos(chave),
-            hoist=chave not in {"intruso"},
+    intruso = discord.utils.get(guild.roles, name="Intruso")
+    if intruso is None:
+        intruso = await guild.create_role(
+            name="Intruso",
+            permissions=discord.Permissions.none(),
+            reason="Acesso inicial à candidatura do Departamento de Eventos",
         )
 
-    # Conta de teste: cargo próprio e nenhum cargo de hierarquia.
+    candidatura = _localizar_canal_candidatura_eventos(guild)
+    if candidatura is None:
+        # Só cria o canal quando a configuração for solicitada explicitamente e
+        # nenhum canal de candidatura (normal ou estilizado) já existir.
+        candidatura = await guild.create_text_channel(
+            "📜・Candidatura",
+            reason="Canal de candidatura do Departamento de Eventos",
+        )
+
+    overwrites = {
+        guild.default_role: _overwrite(deny=("view_channel",)),
+        intruso: _overwrite(
+            allow=("view_channel", "read_message_history"),
+            deny=("send_messages", "create_public_threads", "create_private_threads"),
+        ),
+    }
+    if guild.me:
+        overwrites[guild.me] = _overwrite(
+            allow=("view_channel", "read_message_history", "send_messages", "manage_messages")
+        )
     try:
-        membro_teste = guild.get_member(CONTA_TESTE_EVENTOS_ID)
-        if membro_teste is None:
-            membro_teste = await guild.fetch_member(CONTA_TESTE_EVENTOS_ID)
-        if membro_teste is not None:
-            cargo_teste = guild.get_role(CARGO_TESTE_EVENTOS_ID)
-            if cargo_teste is None:
-                cargo_teste = await guild.create_role(
-                    name="Conta de Teste",
-                    permissions=discord.Permissions.none(),
-                    reason="Conta de teste da Resenha Máxima",
-                )
-            remover = [
-                r for r in membro_teste.roles
-                if r.id != guild.default_role.id and r.id != cargo_teste.id
-                and r.id in {role.id for role in roles.values()}
-            ]
-            if remover:
-                await membro_teste.remove_roles(*remover, reason="Modo teste do Departamento de Eventos")
-            if cargo_teste not in membro_teste.roles:
-                await membro_teste.add_roles(cargo_teste, reason="Modo teste do Departamento de Eventos")
-    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+        await candidatura.edit(
+            overwrites=overwrites,
+            reason="Permissões do canal de candidatura do Departamento de Eventos",
+        )
+    except discord.HTTPException:
         pass
 
-    # Permissões base por categoria/canal. Sempre inclui histórico para quem pode ver.
-    everyone = guild.default_role
-    aprendiz = roles["aprendiz"]
-    supervisor = roles["supervisor"]
-    coordenador = roles["coordenador"]
-    gerente = roles["gerente"]
-    diretor = roles["diretor"]
-    chef = roles["chef"]
-    intruso = roles["intruso"]
-
-    overwrites_geral = {
-        everyone: _overwrite(deny=("view_channel",)),
-        intruso: _overwrite(deny=("view_channel",)),
-        aprendiz: _overwrite(allow=("view_channel", "read_message_history", "send_messages")),
-        supervisor: _overwrite(allow=("view_channel", "read_message_history", "send_messages")),
-        coordenador: _overwrite(allow=("view_channel", "read_message_history", "send_messages")),
-        gerente: _overwrite(allow=("view_channel", "read_message_history", "send_messages")),
-        diretor: _overwrite(allow=("view_channel", "read_message_history", "send_messages")),
-        chef: _overwrite(allow=("view_channel", "read_message_history", "send_messages")),
-    }
-
-    overwrites_anuncios = dict(overwrites_geral)
-    for role in (aprendiz, supervisor, coordenador, gerente):
-        overwrites_anuncios[role] = _overwrite(allow=("view_channel", "read_message_history"), deny=("send_messages",))
-    overwrites_anuncios[diretor] = _overwrite(allow=("view_channel", "read_message_history", "send_messages"))
-    overwrites_anuncios[chef] = _overwrite(allow=("view_channel", "read_message_history", "send_messages"))
-
-    overwrites_comandos = {
-        everyone: _overwrite(deny=("view_channel",)),
-        intruso: _overwrite(deny=("view_channel",)),
-        aprendiz: _overwrite(deny=("view_channel",)),
-        supervisor: _overwrite(deny=("view_channel",)),
-        coordenador: _overwrite(deny=("view_channel",)),
-        gerente: _overwrite(allow=("view_channel", "read_message_history", "send_messages")),
-        diretor: _overwrite(allow=("view_channel", "read_message_history", "send_messages")),
-        chef: _overwrite(allow=("view_channel", "read_message_history", "send_messages")),
-    }
-
-    overwrites_gerentes = {
-        everyone: _overwrite(deny=("view_channel",)),
-        intruso: _overwrite(deny=("view_channel",)),
-        aprendiz: _overwrite(deny=("view_channel",)),
-        supervisor: _overwrite(deny=("view_channel",)),
-        coordenador: _overwrite(deny=("view_channel",)),
-        gerente: _overwrite(allow=("view_channel", "read_message_history", "send_messages")),
-        diretor: _overwrite(allow=("view_channel", "read_message_history", "send_messages")),
-        chef: _overwrite(allow=("view_channel", "read_message_history", "send_messages")),
-    }
-
-    overwrites_diretoria = {
-        everyone: _overwrite(deny=("view_channel",)),
-        intruso: _overwrite(deny=("view_channel",)),
-        aprendiz: _overwrite(deny=("view_channel",)),
-        supervisor: _overwrite(deny=("view_channel",)),
-        coordenador: _overwrite(deny=("view_channel",)),
-        gerente: _overwrite(deny=("view_channel",)),
-        diretor: _overwrite(allow=("view_channel", "read_message_history", "send_messages")),
-        chef: _overwrite(allow=("view_channel", "read_message_history", "send_messages")),
-    }
-
-    overwrites_voz = {
-        everyone: _overwrite(deny=("view_channel",)),
-        intruso: _overwrite(deny=("view_channel",)),
-        aprendiz: _overwrite(allow=("view_channel", "connect", "speak")),
-        supervisor: _overwrite(allow=("view_channel", "connect", "speak")),
-        coordenador: _overwrite(allow=("view_channel", "connect", "speak")),
-        gerente: _overwrite(allow=("view_channel", "connect", "speak")),
-        diretor: _overwrite(allow=("view_channel", "connect", "speak")),
-        chef: _overwrite(allow=("view_channel", "connect", "speak")),
-    }
-
-    categorias = {}
-    for nome_categoria, _ in CANAIS_EVENTOS:
-        categorias[nome_categoria] = await _obter_categoria(guild, nome_categoria)
-
-    criados = []
-    canais_por_chave = {}
-    for nome_categoria, canais in CANAIS_EVENTOS:
-        categoria = categorias[nome_categoria]
-        for nome_canal, chave in canais:
-            canal = None
-            if chave == "call":
-                canal = await _obter_canal_voz(categoria, nome_canal)
-            else:
-                canal = await _obter_canal_texto(categoria, nome_canal)
-            if chave in {"anuncios"}:
-                overwrites = overwrites_anuncios
-            elif chave in {"comandos"}:
-                overwrites = overwrites_comandos
-            elif chave in {"gerentes"}:
-                overwrites = overwrites_gerentes
-            elif chave in {"diretoria"}:
-                overwrites = overwrites_diretoria
-            elif chave == "call":
-                overwrites = overwrites_voz
-            elif chave == "candidatura":
-                overwrites = dict(overwrites_geral)
-                overwrites[intruso] = _overwrite(allow=("view_channel", "read_message_history"), deny=("send_messages",))
-            else:
-                overwrites = overwrites_geral
-            try:
-                await canal.edit(
-                    overwrites=overwrites,
-                    reason="Configuração automática do Departamento de Eventos"
-                )
-            except discord.HTTPException:
-                pass
-            criados.append(canal.name)
-            canais_por_chave[chave] = canal
-
-    cargo_departamento = await _sincronizar_cargo_departamento_e_hierarquia(
-        guild,
-        roles,
-        canais_por_chave,
-    )
-
-    try:
-        candidatura = canais_por_chave.get("candidatura")
-        if candidatura is None:
-            candidatura = discord.utils.get(
-                guild.text_channels, name="📜・𝑪𝒂𝒏𝒅𝒊𝒅𝒂𝒕𝒖𝒓𝒂"
-            )
-        if candidatura:
-            # Garante que a view sobreviva a reinícios/deploys.
-            try:
-                bot.add_view(CandidaturaEventosView())
-            except Exception:
-                pass
-
-            embed = discord.Embed(
-                title="📜・𝑪𝒂𝒏𝒅𝒊𝒅𝒂𝒕𝒖𝒓𝒂",
-                description=(
-                    "Quer entrar para o **Departamento de Eventos**?\n\n"
-                    "Selecione abaixo a verificação que deseja fazer.\n\n"
-                    "🎮 **Verificar Roblox** — disponível para quem possui o cargo de Roblox.\n"
-                    "⛏️ **Verificar Minecraft** — disponível para quem possui o cargo de Minecraft.\n"
-                    "🎮 **Verificar os dois** — disponível para quem possui os dois cargos.\n\n"
-                    "Depois de selecionar, o bot enviará o link da prova.\n"
-                    "A avaliação/ticket continua sendo processada no servidor principal."
-                ),
-                color=discord.Color.blurple(),
-            )
-            embed.set_footer(text="Departamento de Eventos • Candidatura")
-
-            ultima = None
-            async for msg in candidatura.history(limit=50):
-                if msg.author.id == bot.user.id and msg.components:
-                    ultima = msg
-                    break
-
-            view = CandidaturaEventosView()
-            if ultima:
-                await ultima.edit(embed=embed, view=view, content=None)
-            else:
-                await candidatura.send(embed=embed, view=view)
-    except (discord.Forbidden, discord.HTTPException) as erro:
-        print(f"Erro ao publicar menu de candidatura de Eventos: {erro}")
+    await _publicar_ou_atualizar_menu(candidatura)
 
     dados = carregar_servidores_config()
     dados["eventos_guild_id"] = str(guild.id)
     dados["eventos_guild_nome"] = guild.name
-    dados["roles"] = {chave: str(role.id) for chave, role in roles.items()}
-    dados["role_departamento_id"] = str(cargo_departamento.id)
-    dados["role_departamento_nome"] = cargo_departamento.name
-    dados["role_names"] = {chave: role.name for chave, role in roles.items()}
+    dados["candidatura_channel_id"] = str(candidatura.id)
+    dados["intruso_role_id"] = str(intruso.id)
     dados["configurado_em"] = __import__("datetime").datetime.now().isoformat()
     salvar_servidores_config(dados)
-
-    # Atualiza também o canal de candidatura do servidor principal para apontar
-    # diretamente para este canal do servidor de Eventos.
-    try:
-        if candidatura is not None:
-            canal_principal = bot.get_channel(CANAL_CANDIDATURA_PRINCIPAL_ID)
-            if canal_principal is None:
-                canal_principal = await bot.fetch_channel(CANAL_CANDIDATURA_PRINCIPAL_ID)
-            destino = f"https://discord.com/channels/{guild.id}/{candidatura.id}"
-            embed_principal = discord.Embed(
-                title="📝 Candidatura de Eventos",
-                description=(
-                    "As candidaturas do **Departamento de Eventos** agora são feitas no servidor de Eventos.\n\n"
-                    "Clique no botão abaixo para ir ao canal oficial de candidatura."
-                ),
-                color=discord.Color.blurple(),
-            )
-            view_principal = discord.ui.View(timeout=None)
-            view_principal.add_item(discord.ui.Button(
-                label="Ir para Candidatura",
-                emoji="📜",
-                style=discord.ButtonStyle.link,
-                url=destino,
-            ))
-            mensagem_existente = None
-            async for msg in canal_principal.history(limit=50):
-                if msg.author.id == bot.user.id and msg.embeds and msg.embeds[0].title == "📝 Candidatura de Eventos":
-                    mensagem_existente = msg
-                    break
-            if mensagem_existente:
-                await mensagem_existente.edit(content=None, embed=embed_principal, view=view_principal)
-            else:
-                await canal_principal.send(embed=embed_principal, view=view_principal)
-    except Exception as erro:
-        print(f"Erro ao redirecionar candidatura no servidor principal: {erro}")
 
     return {
         "guild_id": str(guild.id),
         "guild_name": guild.name,
-        "roles": dados["role_names"],
-        "channels": criados,
+        "roles": {"intruso": intruso.name},
+        "channels": [candidatura.name],
     }
+
+
+def _normalizar_respostas_formulario(payload):
+    respostas = payload.get("respostas") or payload.get("answers") or payload.get("respostas_formulario") or {}
+    if isinstance(respostas, list):
+        convertido = {}
+        for item in respostas:
+            if isinstance(item, dict):
+                pergunta = str(item.get("pergunta") or item.get("question") or item.get("titulo") or "Pergunta")
+                convertido[pergunta] = item.get("resposta") or item.get("answer") or item.get("valor") or ""
+        respostas = convertido
+    if not isinstance(respostas, dict):
+        respostas = {"Resposta": str(respostas)}
+    return {str(k): str(v) for k, v in respostas.items()}
+
+
+def _discord_id_do_payload(payload):
+    codigo_direto = payload.get("codigo") or payload.get("codigo_candidatura")
+    if codigo_direto:
+        encontrado = _discord_id_por_codigo(codigo_direto)
+        if encontrado:
+            return encontrado
+
+    respostas = _normalizar_respostas_formulario(payload)
+    for pergunta, valor in respostas.items():
+        titulo = pergunta.casefold().strip()
+        if "código da candidatura" in titulo or "codigo da candidatura" in titulo:
+            encontrado = _discord_id_por_codigo(valor)
+            if encontrado:
+                return encontrado
+
+    chaves = ("discord_id", "discordId", "id_discord", "usuario_discord_id", "user_id")
+    for chave in chaves:
+        valor = payload.get(chave)
+        if valor:
+            try:
+                return int(str(valor).strip().replace("<@", "").replace("!", "").replace(">", ""))
+            except ValueError:
+                pass
+    for pergunta, valor in respostas.items():
+        if "discord" in pergunta.casefold() and "id" in pergunta.casefold():
+            try:
+                return int(str(valor).strip().replace("<@", "").replace("!", "").replace(">", ""))
+            except ValueError:
+                pass
+    return None
+
+
+def _cargo_diretor_eventos(guild):
+    nomes = {"diretor de eventos", "diretor eventos", "diretoria de eventos"}
+    for role in guild.roles:
+        if role.name.casefold().strip() in nomes:
+            return role
+    return None
+
+
+def _cargo_departamento_eventos(guild):
+    nomes = {"departamento de eventos", "departamento eventos", "equipe de eventos", "eventos"}
+    if CARGO_EVENTOS_ID:
+        role = guild.get_role(CARGO_EVENTOS_ID)
+        if role:
+            return role
+    for role in guild.roles:
+        if role.name.casefold().strip() in nomes:
+            return role
+    return None
+
+
+async def _encerrar_canais_candidatura(channel, voice_channel=None, *, delay=8):
+    await asyncio.sleep(delay)
+    for alvo in (voice_channel, channel):
+        if alvo is not None:
+            try:
+                await alvo.delete(reason="Processo de candidatura finalizado")
+            except (discord.Forbidden, discord.HTTPException, discord.NotFound):
+                pass
+
+
+class EtapaFinalCandidaturaView(discord.ui.View):
+    def __init__(self, candidato_id, voice_channel_id=None):
+        super().__init__(timeout=86400)
+        self.candidato_id = int(candidato_id)
+        self.voice_channel_id = int(voice_channel_id) if voice_channel_id else None
+
+    async def interaction_check(self, interaction: discord.Interaction):
+        diretor = _cargo_diretor_eventos(interaction.guild) if interaction.guild else None
+        permitido = interaction.user.id == DONO_ID or (diretor and diretor in interaction.user.roles)
+        if not permitido:
+            await interaction.response.send_message("❌ Somente a Diretoria de Eventos pode concluir esta candidatura.", ephemeral=True)
+        return bool(permitido)
+
+    @discord.ui.button(label="Aprovar após call", style=discord.ButtonStyle.success, emoji="✅")
+    async def aprovar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        candidato = guild.get_member(self.candidato_id)
+        if candidato is None:
+            try:
+                candidato = await guild.fetch_member(self.candidato_id)
+            except Exception:
+                candidato = None
+        if candidato is None:
+            await interaction.response.send_message("❌ O candidato não está mais no servidor principal.", ephemeral=True)
+            return
+
+        cargo = _cargo_departamento_eventos(guild)
+        if cargo is None:
+            await interaction.response.send_message(
+                "❌ Não encontrei o cargo **Departamento de Eventos** no servidor principal. Configure `CARGO_EVENTOS_ID` ou use esse nome no cargo.",
+                ephemeral=True,
+            )
+            return
+        await candidato.add_roles(cargo, reason=f"Candidatura aprovada por {interaction.user}")
+
+        # No servidor de Eventos o aprovado entra oficialmente como Aprendiz.
+        cfg = carregar_servidores_config()
+        guild_eventos = bot.get_guild(int(cfg.get("eventos_guild_id") or 0)) if cfg.get("eventos_guild_id") else None
+        if guild_eventos:
+            membro_eventos = guild_eventos.get_member(candidato.id)
+            if membro_eventos:
+                aprendiz = discord.utils.get(guild_eventos.roles, name="Aprendiz de Eventos")
+                intruso = discord.utils.get(guild_eventos.roles, name="Intruso")
+                if aprendiz:
+                    await membro_eventos.add_roles(aprendiz, reason="Candidatura aprovada")
+                if intruso and intruso in membro_eventos.roles:
+                    await membro_eventos.remove_roles(intruso, reason="Candidatura aprovada")
+
+        await interaction.response.send_message(
+            f"✅ {candidato.mention} foi **aprovado na call** e recebeu o cargo {cargo.mention}.\nEste ticket será encerrado.",
+        )
+        voice = guild.get_channel(self.voice_channel_id) if self.voice_channel_id else None
+        asyncio.create_task(_encerrar_canais_candidatura(interaction.channel, voice))
+        self.stop()
+
+    @discord.ui.button(label="Reprovar após call", style=discord.ButtonStyle.danger, emoji="❌")
+    async def reprovar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        candidato = interaction.guild.get_member(self.candidato_id)
+        mencao = candidato.mention if candidato else f"<@{self.candidato_id}>"
+        await interaction.response.send_message(f"❌ {mencao} foi **reprovado após a call**. Este ticket será encerrado.")
+        voice = interaction.guild.get_channel(self.voice_channel_id) if self.voice_channel_id else None
+        asyncio.create_task(_encerrar_canais_candidatura(interaction.channel, voice))
+        self.stop()
+
+
+class AvaliacaoCandidaturaView(discord.ui.View):
+    def __init__(self, candidato_id):
+        super().__init__(timeout=86400)
+        self.candidato_id = int(candidato_id)
+
+    async def interaction_check(self, interaction: discord.Interaction):
+        diretor = _cargo_diretor_eventos(interaction.guild) if interaction.guild else None
+        permitido = interaction.user.id == DONO_ID or (diretor and diretor in interaction.user.roles)
+        if not permitido:
+            await interaction.response.send_message("❌ Somente a Diretoria de Eventos pode avaliar esta candidatura.", ephemeral=True)
+        return bool(permitido)
+
+    @discord.ui.button(label="Aprovar prova / criar call", style=discord.ButtonStyle.success, emoji="🎙️")
+    async def aprovar_prova(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        candidato = guild.get_member(self.candidato_id)
+        if candidato is None:
+            try:
+                candidato = await guild.fetch_member(self.candidato_id)
+            except Exception:
+                candidato = None
+        if candidato is None:
+            await interaction.response.send_message("❌ O candidato não está no servidor principal.", ephemeral=True)
+            return
+
+        diretor = _cargo_diretor_eventos(guild)
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False, connect=False),
+            candidato: discord.PermissionOverwrite(view_channel=True, connect=True, speak=True),
+        }
+        if diretor:
+            overwrites[diretor] = discord.PermissionOverwrite(view_channel=True, connect=True, speak=True, move_members=True)
+        if guild.me:
+            overwrites[guild.me] = discord.PermissionOverwrite(view_channel=True, connect=True, speak=True, manage_channels=True)
+
+        nome = f"entrevista-{candidato.display_name}"[:95].lower().replace(" ", "-")
+        voice = await guild.create_voice_channel(
+            nome,
+            category=interaction.channel.category,
+            overwrites=overwrites,
+            reason=f"Entrevista da candidatura de {candidato}",
+        )
+        await interaction.response.send_message(
+            f"✅ **Prova aprovada.**\n🎙️ Call privada criada: {voice.mention}\n\nDepois da entrevista, conclua a avaliação abaixo.",
+            view=EtapaFinalCandidaturaView(candidato.id, voice.id),
+        )
+        self.stop()
+
+    @discord.ui.button(label="Reprovar prova", style=discord.ButtonStyle.danger, emoji="❌")
+    async def reprovar_prova(self, interaction: discord.Interaction, button: discord.ui.Button):
+        candidato = interaction.guild.get_member(self.candidato_id)
+        mencao = candidato.mention if candidato else f"<@{self.candidato_id}>"
+        await interaction.response.send_message(f"❌ A candidatura de {mencao} foi **reprovada**. Este ticket será encerrado.")
+        asyncio.create_task(_encerrar_canais_candidatura(interaction.channel))
+        self.stop()
+
+
+async def criar_ticket_candidatura_eventos(payload):
+    if not GUILD_ID:
+        raise RuntimeError("GUILD_ID do servidor principal não está configurado.")
+    guild = bot.get_guild(int(GUILD_ID))
+    if guild is None:
+        raise RuntimeError("O bot não está conectado ao servidor principal.")
+
+    candidato_id = _discord_id_do_payload(payload)
+    if not candidato_id:
+        raise RuntimeError("A resposta do formulário não contém um ID do Discord válido.")
+    candidato = guild.get_member(candidato_id)
+    if candidato is None:
+        try:
+            candidato = await guild.fetch_member(candidato_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            candidato = None
+    if candidato is None:
+        raise RuntimeError("O candidato precisa estar no servidor principal para o ticket ser criado.")
+
+    diretor = _cargo_diretor_eventos(guild)
+    if diretor is None:
+        raise RuntimeError("Não encontrei o cargo Diretor de Eventos no servidor principal.")
+
+    canal_base = guild.get_channel(CANAL_CANDIDATURA_PRINCIPAL_ID)
+    categoria = canal_base.category if isinstance(canal_base, discord.TextChannel) else None
+    nome = f"candidatura-{candidato.display_name}-{candidato.id % 10000}"[:95].lower().replace(" ", "-")
+
+    # Evita ticket duplicado para a mesma pessoa.
+    existente = discord.utils.get(guild.text_channels, name=nome)
+    if existente:
+        return existente
+
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        candidato: discord.PermissionOverwrite(view_channel=True, read_message_history=True, send_messages=True),
+        diretor: discord.PermissionOverwrite(view_channel=True, read_message_history=True, send_messages=True, manage_messages=True),
+    }
+    if guild.me:
+        overwrites[guild.me] = discord.PermissionOverwrite(view_channel=True, read_message_history=True, send_messages=True, manage_channels=True)
+
+    canal = await guild.create_text_channel(
+        nome,
+        category=categoria,
+        overwrites=overwrites,
+        topic=f"Candidatura temporária | Discord ID: {candidato.id}",
+        reason="Resposta recebida do formulário de candidatura de Eventos",
+    )
+
+    respostas = _normalizar_respostas_formulario(payload)
+    cabecalho = discord.Embed(
+        title="📋 Respostas da candidatura",
+        description=(
+            f"**Candidato:** {candidato.mention} (`{candidato.id}`)\n"
+            f"**Status:** Aguardando avaliação da prova\n\n"
+            "Abaixo estão as respostas enviadas pelo formulário."
+        ),
+        color=discord.Color.gold(),
+    )
+    await canal.send(content=f"{candidato.mention} {diretor.mention}", embed=cabecalho)
+
+    if not respostas:
+        await canal.send("_O formulário não enviou respostas detalhadas._")
+    else:
+        atual = discord.Embed(title="🧾 Tabela de respostas", color=discord.Color.blurple())
+        campos = 0
+        for pergunta, resposta in respostas.items():
+            pergunta = pergunta[:256] or "Pergunta"
+            resposta = resposta[:1024] or "—"
+            if campos >= 20:
+                await canal.send(embed=atual)
+                atual = discord.Embed(title="🧾 Tabela de respostas (continuação)", color=discord.Color.blurple())
+                campos = 0
+            atual.add_field(name=pergunta, value=resposta, inline=False)
+            campos += 1
+        if campos:
+            await canal.send(embed=atual)
+
+    await canal.send(
+        "### Avaliação da prova\nA Diretoria de Eventos deve escolher uma opção:",
+        view=AvaliacaoCandidaturaView(candidato.id),
+    )
+    return canal
 
 
 DEFAULT_MENU = {
@@ -1033,15 +1282,22 @@ async def on_ready():
 
     registrar_views_persistentes()
 
-    # Garante em TODO deploy/reinício que o servidor de Eventos esteja configurado,
-    # que o canal 📜・𝑪𝒂𝒏𝒅𝒊𝒅𝒂𝒕𝒖𝒓𝒂 exista e que o canal principal esteja redirecionado.
-    if not getattr(bot, "_eventos_auto_config_feito", False):
-        try:
-            await configurar_servidor_eventos(EVENTOS_GUILD_ID)
-            bot._eventos_auto_config_feito = True
-            print(f"Servidor de Eventos {EVENTOS_GUILD_ID} configurado automaticamente.")
-        except Exception as erro:
-            print(f"Erro na configuração automática do servidor de Eventos: {erro}")
+    try:
+        await publicar_menu_candidatura_principal()
+    except Exception as erro:
+        print(f"Erro ao publicar menu de candidatura no servidor principal: {erro}")
+
+    # No startup, SOMENTE atualiza o canal de candidatura que já existe no
+    # Departamento de Eventos. Nunca cria canais/categorias/cargos aqui.
+    try:
+        cfg_eventos = carregar_servidores_config()
+        guild_eventos_id = int(cfg_eventos.get("eventos_guild_id") or EVENTOS_GUILD_ID or 0)
+        if guild_eventos_id and bot.get_guild(guild_eventos_id):
+            atualizado = await atualizar_menu_candidatura_eventos_existente(guild_eventos_id)
+            if not atualizado:
+                print("AVISO: canal de candidatura do servidor de Eventos não foi encontrado; nada foi criado.")
+    except Exception as erro:
+        print(f"Erro ao atualizar candidatura no servidor de Eventos: {erro}")
 
     if getattr(bot, "_menu_sync_feito", False):
         print(f"Bot conectado como {bot.user}")
@@ -1073,12 +1329,322 @@ def iniciar_bot():
 
 
 
+def _agora_utc_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _parse_iso_utc(valor):
+    try:
+        dt = datetime.fromisoformat(str(valor or "").replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+# =========================================================
+# IDENTIDADE GAMER — ROBLOX OAUTH 2.0 / OPENID CONNECT
+# =========================================================
+
+ROBLOX_VINCULOS_FILE = DATA_DIR / "roblox_vinculos.json"
+_roblox_vinculos_lock = threading.Lock()
+
+ROBLOX_VINCULO_SECRET = os.getenv(
+    "ROBLOX_VINCULO_SECRET",
+    "",
+).strip()
+ROBLOX_CLIENT_ID = os.getenv(
+    "ROBLOX_CLIENT_ID",
+    "",
+).strip()
+ROBLOX_CLIENT_SECRET = os.getenv(
+    "ROBLOX_CLIENT_SECRET",
+    "",
+).strip()
+ROBLOX_REDIRECT_URI = os.getenv(
+    "ROBLOX_REDIRECT_URI",
+    "https://resenha-maxima.up.railway.app/roblox/callback",
+).strip()
+
+ROBLOX_AUTHORIZE_URL = (
+    "https://apis.roblox.com/oauth/v1/authorize"
+)
+ROBLOX_TOKEN_URL = (
+    "https://apis.roblox.com/oauth/v1/token"
+)
+ROBLOX_USERINFO_URL = (
+    "https://apis.roblox.com/oauth/v1/userinfo"
+)
+ROBLOX_PENDENCIA_MINUTOS = 15
+
+
+def roblox_vinculos_vazio():
+    return {
+        "versao": 1,
+        "vinculos": {},
+        "pendentes": {},
+    }
+
+
+def _salvar_roblox_vinculos_sem_lock(dados):
+    temporario = ROBLOX_VINCULOS_FILE.with_suffix(".tmp")
+    with temporario.open(
+        "w",
+        encoding="utf-8",
+    ) as arquivo:
+        json.dump(
+            dados,
+            arquivo,
+            ensure_ascii=False,
+            indent=2,
+        )
+    temporario.replace(ROBLOX_VINCULOS_FILE)
+
+
+def carregar_roblox_vinculos():
+    with _roblox_vinculos_lock:
+        if not ROBLOX_VINCULOS_FILE.exists():
+            _salvar_roblox_vinculos_sem_lock(
+                roblox_vinculos_vazio()
+            )
+
+        try:
+            with ROBLOX_VINCULOS_FILE.open(
+                "r",
+                encoding="utf-8",
+            ) as arquivo:
+                dados = json.load(arquivo)
+        except (
+            OSError,
+            json.JSONDecodeError,
+        ):
+            dados = roblox_vinculos_vazio()
+
+        if not isinstance(dados, dict):
+            dados = roblox_vinculos_vazio()
+        if not isinstance(dados.get("vinculos"), dict):
+            dados["vinculos"] = {}
+        if not isinstance(dados.get("pendentes"), dict):
+            dados["pendentes"] = {}
+        dados.setdefault("versao", 1)
+
+        agora = datetime.now(timezone.utc)
+        expirados = []
+        for token, item in dados["pendentes"].items():
+            expira = _parse_iso_utc(
+                item.get("expira_em")
+                if isinstance(item, dict)
+                else None
+            )
+            if expira is None or expira <= agora:
+                expirados.append(token)
+        if expirados:
+            for token in expirados:
+                dados["pendentes"].pop(token, None)
+            _salvar_roblox_vinculos_sem_lock(dados)
+
+        return dados
+
+
+def salvar_roblox_vinculos(dados):
+    with _roblox_vinculos_lock:
+        _salvar_roblox_vinculos_sem_lock(dados)
+
+
+def _autorizado_roblox(payload=None):
+    segredo = request.headers.get(
+        "X-Roblox-Link-Secret",
+        "",
+    ).strip()
+    if not segredo and isinstance(payload, dict):
+        segredo = str(
+            payload.get("secret")
+            or ""
+        ).strip()
+
+    return bool(
+        ROBLOX_VINCULO_SECRET
+        and segredo
+        and secrets.compare_digest(
+            segredo,
+            ROBLOX_VINCULO_SECRET,
+        )
+    )
+
+
+def _roblox_configurado():
+    return bool(
+        ROBLOX_CLIENT_ID
+        and ROBLOX_CLIENT_SECRET
+        and ROBLOX_REDIRECT_URI
+    )
+
+
+def _pagina_roblox(
+    titulo,
+    mensagem,
+    sucesso=False,
+):
+    cor = "#57F287" if sucesso else "#ED4245"
+    icone = "✅" if sucesso else "⚠️"
+    titulo_seguro = str(titulo).replace(
+        "<", "&lt;"
+    ).replace(">", "&gt;")
+    mensagem_segura = str(mensagem).replace(
+        "<", "&lt;"
+    ).replace(">", "&gt;")
+    return f"""<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{titulo_seguro} • Resenha Máxima</title>
+<style>
+body {{
+  margin:0; min-height:100vh; display:grid; place-items:center;
+  background:#111214; color:#fff; font-family:Arial,sans-serif;
+}}
+.card {{
+  width:min(560px,calc(100% - 40px)); background:#1e1f22;
+  border:1px solid #2b2d31; border-radius:18px; padding:30px;
+  box-shadow:0 18px 60px rgba(0,0,0,.35);
+}}
+h1 {{ margin:0 0 14px; font-size:24px; }}
+p {{ color:#dbdee1; line-height:1.55; white-space:pre-line; }}
+.badge {{ color:{cor}; font-weight:700; }}
+small {{ color:#949ba4; }}
+</style>
+</head>
+<body>
+  <main class="card">
+    <div class="badge">{icone} RESENHA MÁXIMA</div>
+    <h1>{titulo_seguro}</h1>
+    <p>{mensagem_segura}</p>
+    <small>Você já pode voltar para o Discord.</small>
+  </main>
+</body>
+</html>"""
+
+
+def _post_form_roblox(url, campos):
+    corpo = urllib.parse.urlencode(
+        campos
+    ).encode("utf-8")
+    requisicao = urllib.request.Request(
+        url,
+        data=corpo,
+        headers={
+            "Content-Type": (
+                "application/x-www-form-urlencoded"
+            ),
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(
+        requisicao,
+        timeout=12,
+    ) as resposta:
+        bruto = resposta.read().decode(
+            "utf-8",
+            errors="replace",
+        )
+    return json.loads(bruto)
+
+
+def _userinfo_roblox(access_token):
+    requisicao = urllib.request.Request(
+        ROBLOX_USERINFO_URL,
+        headers={
+            "Authorization": (
+                f"Bearer {access_token}"
+            ),
+            "Accept": "application/json",
+        },
+        method="GET",
+    )
+    with urllib.request.urlopen(
+        requisicao,
+        timeout=12,
+    ) as resposta:
+        bruto = resposta.read().decode(
+            "utf-8",
+            errors="replace",
+        )
+    return json.loads(bruto)
+
 # =========================================================
 # SITE / PAINEL WEB
 # =========================================================
 
 app = Flask(__name__)
 app.secret_key = os.getenv("PANEL_SECRET_KEY") or secrets.token_hex(32)
+
+def _segredo_webhook_valido(payload):
+    if not FORM_WEBHOOK_SECRET:
+        return True
+    recebido = (
+        request.headers.get("X-Webhook-Secret")
+        or request.args.get("secret")
+        or (payload.get("secret") if isinstance(payload, dict) else "")
+        or ""
+    )
+    return secrets.compare_digest(str(recebido), str(FORM_WEBHOOK_SECRET))
+
+
+def _processar_webhook_candidatura(payload):
+    if not isinstance(payload, dict):
+        return {"ok": False, "erro": "Envie os dados do formulário em JSON."}, 400
+    if not _segredo_webhook_valido(payload):
+        return {"ok": False, "erro": "Webhook não autorizado."}, 401
+    if not TOKEN or not bot.is_ready() or BOT_LOOP is None:
+        return {"ok": False, "erro": "O bot ainda não está conectado ao Discord."}, 503
+    try:
+        futuro = asyncio.run_coroutine_threadsafe(
+            criar_ticket_candidatura_eventos(payload),
+            BOT_LOOP,
+        )
+        canal = futuro.result(timeout=20)
+        return {
+            "ok": True,
+            "ticket_channel_id": str(canal.id),
+            "ticket_channel_name": canal.name,
+        }, 201
+    except Exception as erro:
+        print(f"Erro no webhook de candidatura: {repr(erro)}")
+        return {"ok": False, "erro": str(erro)}, 400
+
+
+@app.route("/api/recrutamento/eventos/prova", methods=["POST"])
+def webhook_recrutamento_eventos_prova():
+    """Compatibilidade com o Apps Script antigo da candidatura de Eventos."""
+    payload = request.get_json(silent=True)
+    return _processar_webhook_candidatura(payload)
+
+
+@app.route("/api/recrutamento/eventos/configurar-prefill", methods=["POST"])
+def configurar_prefill_eventos():
+    """Registra o Web App do Apps Script usado para abrir o Forms pré-preenchido."""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return {"ok": False, "erro": "Envie JSON."}, 400
+    if not _segredo_webhook_valido(payload):
+        return {"ok": False, "erro": "Webhook não autorizado."}, 401
+    url = str(payload.get("prefill_script_url") or "").strip()
+    if not url.startswith("https://script.google.com/") or "/exec" not in url:
+        return {"ok": False, "erro": "URL do Web App inválida."}, 400
+    try:
+        _salvar_prefill_script_url(url)
+    except OSError as erro:
+        return {"ok": False, "erro": f"Não foi possível salvar a configuração: {erro}"}, 500
+    return {"ok": True, "prefill_script_url": url}, 200
+
+
+@app.route("/api/candidatura-eventos", methods=["POST"])
+def webhook_candidatura_eventos():
+    """Rota nova; mantém compatibilidade com integrações já existentes."""
+    return _processar_webhook_candidatura(request.get_json(silent=True))
 
 USERS_FILE = DATA_DIR / "panel_users.json"
 ADMIN_LOG_FILE = DATA_DIR / "admin_logs.json"
@@ -2319,6 +2885,436 @@ def remover_futura_atualizacao():
     except Exception as erro:
         flash(f"❌ Não foi possível remover: {erro}")
     return redirect(url_for("painel", aba="atualizacoes"))
+
+# =========================================================
+# ROBLOX — API INTERNA + OAUTH
+# =========================================================
+
+@app.route(
+    "/api/roblox/criar-vinculo",
+    methods=["POST"],
+)
+def api_roblox_criar_vinculo():
+    payload = request.get_json(silent=True) or {}
+    if not _autorizado_roblox(payload):
+        return jsonify({
+            "ok": False,
+            "erro": "Não autorizado.",
+        }), 401
+
+    if not _roblox_configurado():
+        return jsonify({
+            "ok": False,
+            "erro": (
+                "OAuth Roblox ainda não configurado no SITE. "
+                "Defina ROBLOX_CLIENT_ID, ROBLOX_CLIENT_SECRET "
+                "e ROBLOX_REDIRECT_URI."
+            ),
+        }), 503
+
+    discord_id = str(
+        payload.get("discord_id")
+        or ""
+    ).strip()
+    guild_id = str(
+        payload.get("guild_id")
+        or ""
+    ).strip()
+    discord_nome = str(
+        payload.get("discord_nome")
+        or ""
+    ).strip()[:150]
+
+    if not discord_id.isdigit():
+        return jsonify({
+            "ok": False,
+            "erro": "Discord ID inválido.",
+        }), 400
+
+    dados = carregar_roblox_vinculos()
+
+    # Mantém somente a solicitação mais recente do usuário.
+    for token_antigo, pendente in list(
+        dados["pendentes"].items()
+    ):
+        if str(
+            pendente.get("discord_id")
+            or ""
+        ) == discord_id:
+            dados["pendentes"].pop(
+                token_antigo,
+                None,
+            )
+
+    token = secrets.token_urlsafe(24)
+    oauth_state = secrets.token_urlsafe(32)
+    nonce = secrets.token_urlsafe(24)
+    agora = datetime.now(timezone.utc)
+    expira = agora + timedelta(
+        minutes=ROBLOX_PENDENCIA_MINUTOS
+    )
+
+    dados["pendentes"][token] = {
+        "discord_id": discord_id,
+        "discord_nome": discord_nome,
+        "guild_id": guild_id,
+        "oauth_state": oauth_state,
+        "nonce": nonce,
+        "criado_em": agora.isoformat(),
+        "expira_em": expira.isoformat(),
+    }
+    salvar_roblox_vinculos(dados)
+
+    url = (
+        request.url_root.rstrip("/")
+        + url_for(
+            "roblox_iniciar",
+            token=token,
+        )
+    )
+    return jsonify({
+        "ok": True,
+        "url": url,
+        "expira_em": expira.isoformat(),
+    })
+
+
+@app.route("/roblox/iniciar/<token>")
+def roblox_iniciar(token):
+    dados = carregar_roblox_vinculos()
+    pendente = dados["pendentes"].get(
+        str(token)
+    )
+    if not pendente:
+        return (
+            _pagina_roblox(
+                "Link expirado",
+                (
+                    "Este link de vinculação não existe mais "
+                    "ou passou do prazo de 15 minutos.\n\n"
+                    "Use /roblox vincular novamente no Discord."
+                ),
+            ),
+            410,
+        )
+
+    if not _roblox_configurado():
+        return (
+            _pagina_roblox(
+                "Roblox ainda não configurado",
+                (
+                    "O sistema foi instalado, mas as credenciais "
+                    "OAuth do Roblox ainda não foram configuradas "
+                    "no site."
+                ),
+            ),
+            503,
+        )
+
+    parametros = {
+        "client_id": ROBLOX_CLIENT_ID,
+        "redirect_uri": ROBLOX_REDIRECT_URI,
+        "scope": "openid profile",
+        "response_type": "code",
+        "state": pendente["oauth_state"],
+        "nonce": pendente["nonce"],
+    }
+    destino = (
+        ROBLOX_AUTHORIZE_URL
+        + "?"
+        + urllib.parse.urlencode(parametros)
+    )
+    return redirect(destino)
+
+
+@app.route("/roblox/callback")
+def roblox_callback():
+    erro_oauth = str(
+        request.args.get("error")
+        or ""
+    ).strip()
+    if erro_oauth:
+        descricao = str(
+            request.args.get("error_description")
+            or "A autorização foi cancelada ou recusada."
+        )
+        return (
+            _pagina_roblox(
+                "Vinculação cancelada",
+                descricao,
+            ),
+            400,
+        )
+
+    code = str(
+        request.args.get("code")
+        or ""
+    ).strip()
+    state = str(
+        request.args.get("state")
+        or ""
+    ).strip()
+    if not code or not state:
+        return (
+            _pagina_roblox(
+                "Resposta inválida",
+                "O Roblox não devolveu o código de autorização esperado.",
+            ),
+            400,
+        )
+
+    dados = carregar_roblox_vinculos()
+    token_pendente = None
+    pendente = None
+    for token, item in dados["pendentes"].items():
+        if secrets.compare_digest(
+            str(item.get("oauth_state") or ""),
+            state,
+        ):
+            token_pendente = token
+            pendente = item
+            break
+
+    if not pendente:
+        return (
+            _pagina_roblox(
+                "Sessão expirada",
+                (
+                    "Não encontrei uma solicitação válida para "
+                    "esta autorização. Use /roblox vincular novamente."
+                ),
+            ),
+            410,
+        )
+
+    try:
+        tokens = _post_form_roblox(
+            ROBLOX_TOKEN_URL,
+            {
+                "code": code,
+                "grant_type": "authorization_code",
+                "client_id": ROBLOX_CLIENT_ID,
+                "client_secret": ROBLOX_CLIENT_SECRET,
+                "redirect_uri": ROBLOX_REDIRECT_URI,
+            },
+        )
+        access_token = str(
+            tokens.get("access_token")
+            or ""
+        ).strip()
+        if not access_token:
+            raise RuntimeError(
+                "O Roblox não devolveu access_token."
+            )
+
+        perfil = _userinfo_roblox(
+            access_token
+        )
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        TimeoutError,
+        json.JSONDecodeError,
+        RuntimeError,
+    ) as erro:
+        print(
+            "Erro no OAuth Roblox: "
+            f"{type(erro).__name__}: {erro}"
+        )
+        return (
+            _pagina_roblox(
+                "Falha ao verificar a conta",
+                (
+                    "Não consegui concluir a verificação com o "
+                    "Roblox agora. Tente novamente pelo Discord."
+                ),
+            ),
+            502,
+        )
+
+    roblox_id = str(
+        perfil.get("sub")
+        or ""
+    ).strip()
+    if not roblox_id.isdigit():
+        return (
+            _pagina_roblox(
+                "Perfil Roblox inválido",
+                (
+                    "O Roblox autenticou a sessão, mas não enviou "
+                    "um User ID válido."
+                ),
+            ),
+            502,
+        )
+
+    discord_id = str(
+        pendente.get("discord_id")
+        or ""
+    )
+
+    # Uma conta Roblox não pode representar dois Discords ao mesmo tempo.
+    for outro_discord_id, vinculo in dados[
+        "vinculos"
+    ].items():
+        if (
+            outro_discord_id != discord_id
+            and str(
+                vinculo.get("roblox_id")
+                or ""
+            ) == roblox_id
+        ):
+            return (
+                _pagina_roblox(
+                    "Conta já vinculada",
+                    (
+                        "Essa conta Roblox já está vinculada a "
+                        "outro membro do Discord.\n\n"
+                        "Se isso estiver incorreto, procure a administração."
+                    ),
+                ),
+                409,
+            )
+
+    username = str(
+        perfil.get("preferred_username")
+        or perfil.get("nickname")
+        or perfil.get("name")
+        or roblox_id
+    )[:80]
+    display_name = str(
+        perfil.get("name")
+        or perfil.get("nickname")
+        or username
+    )[:80]
+    profile_url = str(
+        perfil.get("profile")
+        or (
+            f"https://www.roblox.com/users/"
+            f"{roblox_id}/profile"
+        )
+    )[:500]
+    picture = str(
+        perfil.get("picture")
+        or ""
+    )[:1000]
+
+    dados["vinculos"][discord_id] = {
+        "discord_id": discord_id,
+        "discord_nome": str(
+            pendente.get("discord_nome")
+            or ""
+        )[:150],
+        "guild_id": str(
+            pendente.get("guild_id")
+            or ""
+        ),
+        "roblox_id": roblox_id,
+        "username": username,
+        "display_name": display_name,
+        "profile": profile_url,
+        "picture": picture,
+        "verificado_em": _agora_utc_iso(),
+    }
+    if token_pendente:
+        dados["pendentes"].pop(
+            token_pendente,
+            None,
+        )
+    salvar_roblox_vinculos(dados)
+
+    return _pagina_roblox(
+        "Conta Roblox vinculada!",
+        (
+            f"Roblox: @{username}\n"
+            f"Display: {display_name}\n\n"
+            "Volte ao Discord e clique em “Já vinculei”. "
+            "Depois disso, a conta aparecerá no /perfil."
+        ),
+        sucesso=True,
+    )
+
+
+@app.route("/api/roblox/vinculo/<discord_id>")
+def api_roblox_vinculo(discord_id):
+    if not _autorizado_roblox():
+        return jsonify({
+            "ok": False,
+            "erro": "Não autorizado.",
+        }), 401
+
+    discord_id = str(
+        discord_id
+        or ""
+    ).strip()
+    if not discord_id.isdigit():
+        return jsonify({
+            "ok": False,
+            "erro": "Discord ID inválido.",
+        }), 400
+
+    dados = carregar_roblox_vinculos()
+    vinculo = dados["vinculos"].get(
+        discord_id
+    )
+    return jsonify({
+        "ok": True,
+        "vinculado": bool(vinculo),
+        "vinculo": vinculo,
+    })
+
+
+@app.route(
+    "/api/roblox/desvincular",
+    methods=["POST"],
+)
+def api_roblox_desvincular():
+    payload = request.get_json(silent=True) or {}
+    if not _autorizado_roblox(payload):
+        return jsonify({
+            "ok": False,
+            "erro": "Não autorizado.",
+        }), 401
+
+    discord_id = str(
+        payload.get("discord_id")
+        or ""
+    ).strip()
+    if not discord_id.isdigit():
+        return jsonify({
+            "ok": False,
+            "erro": "Discord ID inválido.",
+        }), 400
+
+    dados = carregar_roblox_vinculos()
+    removido = dados["vinculos"].pop(
+        discord_id,
+        None,
+    )
+    for token, item in list(
+        dados["pendentes"].items()
+    ):
+        if str(
+            item.get("discord_id")
+            or ""
+        ) == discord_id:
+            dados["pendentes"].pop(
+                token,
+                None,
+            )
+
+    salvar_roblox_vinculos(dados)
+
+    if removido is None:
+        return jsonify({
+            "ok": False,
+            "erro": "Nenhum vínculo encontrado.",
+        }), 404
+
+    return jsonify({
+        "ok": True,
+        "removido": removido,
+    })
 
 @app.route("/status")
 def status():

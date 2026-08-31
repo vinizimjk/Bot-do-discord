@@ -1,24 +1,23 @@
 {
-  "id": "2026-08-27-dev-mencoes-antispam",
-  "versao": "2026.08.27-dev-mencoes-antispam",
-  "data": "27/08/2026",
-  "titulo": "## Proteção da Call DEV e estabilidade",
+  "id": "2026-08-31-verificacao-roblox",
+  "versao": "2026.08.31-verificacao-roblox",
+  "data": "31/08/2026",
+  "titulo": "Cadastro Roblox restaurado",
   "novidades": [
-    "🛡️ Marcações ao administrador durante a Call DEV agora recebem prioridade máxima no processamento do bot.",
-    "🎙️ Call DEV permanece configurada pelo ID 1540578640020897862 e o bot tenta restaurar a conexão após reinícios."
+    "🎮 O bot voltou a detectar quando um membro recebe o cargo Roblox.",
+    "🔗 O cadastro usa login oficial do Roblox pelo site da Resenha Máxima."
   ],
   "alteracoes": [
-    "⚡ A proteção da Call DEV agora roda antes da IA, dos comandos e do antispam geral.",
-    "💬 O aviso da proteção é enviado pelo canal após a remoção da mensagem original, evitando responder a uma mensagem já apagada."
+    "📩 Quem recebe o cargo Roblox e ainda não está vinculado recebe uma DM com o botão Entrar com Roblox.",
+    "🔐 Bot e site agora usam ROBLOX_VINCULO_SECRET para proteger a comunicação interna."
   ],
   "correcoes": [
-    "🗑️ Mensagens que marcam diretamente o administrador enquanto ele está na Call DEV são apagadas imediatamente como primeira ação possível do bot.",
-    "🚫 Mensagens removidas pela proteção/antispam não continuam para o processamento de comandos.",
-    "🧯 Mantida a proteção contra rajadas de menções para impedir novas mensagens da mesma sequência enquanto a punição está sendo aplicada."
+    "✅ Corrigido o problema que fazia o cadastro automático do Roblox deixar de ser enviado.",
+    "⛏️ O cadastro de nickname do Minecraft continua funcionando normalmente junto com o Roblox."
   ],
   "problemas_conhecidos": [
-    "🔐 A exclusão imediata depende da permissão Gerenciar Mensagens no canal; sem ela, o Discord impede o bot de apagar a marcação.",
-    "📡 O Discord dispara o evento somente depois que a mensagem é enviada, então a proteção remove a mensagem imediatamente após o bot recebê-la, não antes do envio na origem."
+    "📪 Se o membro estiver com DMs fechadas, o Discord impede o bot de enviar a solicitação.",
+    "⚙️ O login Roblox depende das variáveis ROBLOX_CLIENT_ID, ROBLOX_CLIENT_SECRET e ROBLOX_REDIRECT_URI configuradas no serviço do site."
   ],
-  "resumo": "A proteção da Call DEV agora apaga marcações antes de qualquer outro processamento e reforça o antispam de menções."
+  "resumo": "Restaura o cadastro automático de contas Roblox sem remover o sistema de Minecraft."
 }
