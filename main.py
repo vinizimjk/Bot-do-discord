@@ -2,6 +2,7 @@ import asyncio
 import os
 import json
 import threading
+import hashlib
 import secrets
 import unicodedata
 import urllib.parse
@@ -1029,6 +1030,7 @@ GUILD_ID = os.getenv("GUILD_ID")
 BOT_LOOP = None
 
 intents = discord.Intents.default()
+intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
@@ -1299,6 +1301,10 @@ async def on_ready():
     except Exception as erro:
         print(f"Erro ao atualizar candidatura no servidor de Eventos: {erro}")
 
+    if not getattr(bot, "_scan_roblox_feito", False):
+        bot._scan_roblox_feito = True
+        asyncio.create_task(_varrer_membros_roblox_pendentes())
+
     if getattr(bot, "_menu_sync_feito", False):
         print(f"Bot conectado como {bot.user}")
         return
@@ -1318,6 +1324,95 @@ async def on_ready():
         print(f"Erro ao sincronizar comandos: {erro}")
 
     print(f"Bot conectado como {bot.user}")
+
+
+# =========================================================
+# ROBLOX — DM AUTOMÁTICA AO RECEBER O CARGO
+# =========================================================
+
+async def _enviar_dm_cadastro_roblox_site(membro: discord.Member):
+    if membro.bot:
+        return
+
+    # Se já estiver vinculado, não manda outra DM.
+    dados = carregar_roblox_vinculos()
+    if str(membro.id) in dados.get("vinculos", {}):
+        print(f"✅ Roblox já vinculado: {membro} ({membro.id})")
+        return
+
+    # Remove link antigo desse usuário e cria um novo.
+    for token_antigo, pendente in list(dados.get("pendentes", {}).items()):
+        if str(pendente.get("discord_id") or "") == str(membro.id):
+            dados["pendentes"].pop(token_antigo, None)
+
+    token = secrets.token_urlsafe(24)
+    oauth_state = secrets.token_urlsafe(32)
+    nonce = secrets.token_urlsafe(24)
+    agora = datetime.now(timezone.utc)
+    expira = agora + timedelta(minutes=ROBLOX_PENDENCIA_MINUTOS)
+
+    dados["pendentes"][token] = {
+        "discord_id": str(membro.id),
+        "discord_nome": str(membro)[:150],
+        "guild_id": str(membro.guild.id),
+        "oauth_state": oauth_state,
+        "nonce": nonce,
+        "criado_em": agora.isoformat(),
+        "expira_em": expira.isoformat(),
+    }
+    salvar_roblox_vinculos(dados)
+
+    url = f"{SITE_PUBLIC_URL}/roblox/iniciar/{token}"
+    embed = discord.Embed(
+        title="🎮 Cadastro do Roblox — Resenha Máxima",
+        description=(
+            "Você recebeu o cargo de **Roblox**.\n\n"
+            "Clique no botão abaixo e entre pela página oficial do Roblox "
+            "para confirmar qual conta é sua.\n\n"
+            "O link expira em 15 minutos."
+        ),
+        color=discord.Color.blurple(),
+    )
+    view = discord.ui.View(timeout=None)
+    view.add_item(discord.ui.Button(
+        label="Entrar com Roblox",
+        style=discord.ButtonStyle.link,
+        emoji="🎮",
+        url=url,
+    ))
+
+    try:
+        await membro.send(embed=embed, view=view)
+        print(f"📩 DM Roblox enviada: {membro} ({membro.id})")
+    except discord.Forbidden:
+        print(f"⚠️ DM fechada para Roblox: {membro} ({membro.id})")
+    except discord.HTTPException as erro:
+        print(f"❌ Erro ao mandar DM Roblox para {membro}: {erro}")
+
+
+@bot.event
+async def on_member_update(before: discord.Member, after: discord.Member):
+    if after.bot:
+        return
+    tinha_roblox = any(c.id == CARGO_ROBLOX_ID for c in before.roles)
+    tem_roblox = any(c.id == CARGO_ROBLOX_ID for c in after.roles)
+    if not tinha_roblox and tem_roblox:
+        await _enviar_dm_cadastro_roblox_site(after)
+
+
+async def _varrer_membros_roblox_pendentes():
+    # Corrige também quem já recebeu o cargo antes do deploy/reinício.
+    for guild in bot.guilds:
+        cargo = guild.get_role(CARGO_ROBLOX_ID)
+        if not cargo:
+            continue
+        for membro in cargo.members:
+            if membro.bot:
+                continue
+            dados = carregar_roblox_vinculos()
+            if str(membro.id) not in dados.get("vinculos", {}):
+                await _enviar_dm_cadastro_roblox_site(membro)
+                await asyncio.sleep(1)
 
 
 def iniciar_bot():
@@ -1354,6 +1449,13 @@ ROBLOX_VINCULO_SECRET = os.getenv(
     "ROBLOX_VINCULO_SECRET",
     "",
 ).strip()
+
+# Se a variável não existir, bot e site derivam a mesma chave do TOKEN.
+# Assim o cadastro Roblox funciona sem exigir uma variável extra no Railway.
+if not ROBLOX_VINCULO_SECRET and TOKEN:
+    ROBLOX_VINCULO_SECRET = hashlib.sha256(
+        ("resenha-maxima:roblox-vinculo:" + TOKEN).encode("utf-8")
+    ).hexdigest()
 ROBLOX_CLIENT_ID = os.getenv(
     "ROBLOX_CLIENT_ID",
     "",

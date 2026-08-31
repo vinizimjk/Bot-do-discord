@@ -1,0 +1,22 @@
+CORREÇÃO ROBLOX — 31/08/2026
+
+O que foi corrigido:
+- DM automática ao receber o cargo Roblox.
+- Scan na inicialização: quem já está com o cargo e ainda não vinculou recebe a DM após o bot iniciar.
+- ROBLOX_VINCULO_SECRET não é mais obrigatório: se estiver ausente, bot/site derivam uma chave interna usando o TOKEN sem expor o token.
+
+IMPORTANTE NO DISCORD DEVELOPER PORTAL:
+- Em Bot > Privileged Gateway Intents, SERVER MEMBERS INTENT precisa estar ligado.
+  Sem isso o Discord não entrega corretamente mudanças de cargos ao bot.
+
+NO RAILWAY:
+- ROBLOX_CLIENT_ID
+- ROBLOX_CLIENT_SECRET
+- ROBLOX_REDIRECT_URI = https://resenha-maxima.up.railway.app/roblox/callback
+Continuam necessários para o LOGIN do Roblox funcionar.
+
+TESTE:
+1. Faça o deploy deste pacote.
+2. Espere o bot ficar online.
+3. Se sua conta já estiver com o cargo Roblox e ainda não estiver vinculada, o scan inicial deve mandar a DM sozinho.
+4. Se não chegar, olhe os logs: agora eles mostram exatamente se foi DM fechada, cargo não encontrado, site sem OAuth ou outro erro.

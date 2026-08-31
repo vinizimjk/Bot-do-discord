@@ -1,23 +1,11 @@
 {
-  "id": "2026-08-31-verificacao-roblox",
-  "versao": "2026.08.31-verificacao-roblox",
-  "data": "31/08/2026",
-  "titulo": "Cadastro Roblox restaurado",
-  "novidades": [
-    "🎮 O bot voltou a detectar quando um membro recebe o cargo Roblox.",
-    "🔗 O cadastro usa login oficial do Roblox pelo site da Resenha Máxima."
-  ],
-  "alteracoes": [
-    "📩 Quem recebe o cargo Roblox e ainda não está vinculado recebe uma DM com o botão Entrar com Roblox.",
-    "🔐 Bot e site agora usam ROBLOX_VINCULO_SECRET para proteger a comunicação interna."
-  ],
-  "correcoes": [
-    "✅ Corrigido o problema que fazia o cadastro automático do Roblox deixar de ser enviado.",
-    "⛏️ O cadastro de nickname do Minecraft continua funcionando normalmente junto com o Roblox."
-  ],
-  "problemas_conhecidos": [
-    "📪 Se o membro estiver com DMs fechadas, o Discord impede o bot de enviar a solicitação.",
-    "⚙️ O login Roblox depende das variáveis ROBLOX_CLIENT_ID, ROBLOX_CLIENT_SECRET e ROBLOX_REDIRECT_URI configuradas no serviço do site."
-  ],
-  "resumo": "Restaura o cadastro automático de contas Roblox sem remover o sistema de Minecraft."
+  "id": "roblox-vinculo-fix-2026-08-31-2",
+  "titulo": "🎮 Cadastro Roblox corrigido",
+  "descricao": "O cadastro Roblox voltou a disparar automaticamente ao receber o cargo e também verifica membros que já estavam com o cargo após reinícios.",
+  "itens": [
+    "Corrigido envio automático da DM do Roblox ao receber o cargo.",
+    "O bot agora verifica quem já tinha o cargo Roblox antes do deploy.",
+    "A chave interna do Roblox é criada automaticamente a partir do TOKEN quando ROBLOX_VINCULO_SECRET não estiver definida.",
+    "Mantido o cadastro de Minecraft e os demais sistemas existentes."
+  ]
 }

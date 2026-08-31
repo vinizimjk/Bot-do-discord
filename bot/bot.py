@@ -6,6 +6,9 @@ import random
 import re
 import sqlite3
 import uuid
+import hashlib
+import urllib.error
+import urllib.request
 from collections import deque
 from datetime import datetime, timedelta, timezone, time as dt_time
 from zoneinfo import ZoneInfo
@@ -29,8 +32,16 @@ CANAL_APROVACAO_ID = 1536073451633254420
 CANAL_CALL_MANUTENCAO_ID = 1540578640020897862
 CHAT_GERAL_ID = 1532792216047849673
 PAINEL_MENU_URL = "https://resenha-maxima.up.railway.app"
+ROBLOX_VINCULO_SECRET = os.getenv("ROBLOX_VINCULO_SECRET", "").strip()
+if not ROBLOX_VINCULO_SECRET:
+    _token_para_chave_roblox = (os.getenv("TOKEN") or "").strip()
+    if _token_para_chave_roblox:
+        ROBLOX_VINCULO_SECRET = hashlib.sha256(
+            ("resenha-maxima:roblox-vinculo:" + _token_para_chave_roblox).encode("utf-8")
+        ).hexdigest()
 
 CARGO_MINECRAFT_ID = 1534006899371147304
+CARGO_ROBLOX_ID = 1540858217301549176
 CANAL_STATUS_MINECRAFT_ID = 1538109074779144253
 CANAL_NICKNAMES_MINECRAFT_ID = 1534423515183448155
 CARGO_DESENVOLVIMENTO_ID = 1533625836874498181
@@ -5274,12 +5285,192 @@ async def on_member_remove(member: discord.Member):
         )
 
 
+# ==========================================================
+# ROBLOX - VINCULACAO AUTOMATICA POR CARGO
+# ==========================================================
+
+def _requisicao_json_roblox(caminho, metodo="GET", payload=None):
+    """Faz uma chamada interna ao site sem travar o bot."""
+    url = PAINEL_MENU_URL.rstrip("/") + caminho
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "Resenha-Maxima-Bot/1.0",
+    }
+
+    if ROBLOX_VINCULO_SECRET:
+        headers["X-Roblox-Link-Secret"] = ROBLOX_VINCULO_SECRET
+
+    corpo = None
+    if payload is not None:
+        dados = dict(payload)
+        if ROBLOX_VINCULO_SECRET:
+            dados.setdefault("secret", ROBLOX_VINCULO_SECRET)
+        corpo = json.dumps(dados).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    requisicao = urllib.request.Request(
+        url,
+        data=corpo,
+        headers=headers,
+        method=metodo,
+    )
+
+    try:
+        with urllib.request.urlopen(requisicao, timeout=15) as resposta:
+            texto = resposta.read().decode("utf-8")
+            return json.loads(texto or "{}")
+    except urllib.error.HTTPError as erro:
+        try:
+            texto = erro.read().decode("utf-8")
+            dados = json.loads(texto or "{}")
+        except Exception:
+            dados = {}
+        return {
+            "ok": False,
+            "erro": dados.get("erro") or f"Site respondeu HTTP {erro.code}.",
+        }
+    except Exception as erro:
+        return {
+            "ok": False,
+            "erro": f"Não consegui falar com o site: {erro}",
+        }
+
+
+async def buscar_vinculo_roblox(discord_id):
+    return await asyncio.to_thread(
+        _requisicao_json_roblox,
+        f"/api/roblox/vinculo/{discord_id}",
+    )
+
+
+async def criar_link_vinculo_roblox(membro):
+    return await asyncio.to_thread(
+        _requisicao_json_roblox,
+        "/api/roblox/criar-vinculo",
+        "POST",
+        {
+            "discord_id": str(membro.id),
+            "guild_id": str(membro.guild.id),
+            "discord_nome": str(membro),
+        },
+    )
+
+
+async def iniciar_cadastro_roblox(membro):
+    """Envia a DM de login Roblox somente se a conta ainda não estiver vinculada."""
+    if membro.bot:
+        return
+
+    if not ROBLOX_VINCULO_SECRET:
+        print("⚠️ Roblox: não foi possível criar a chave interna de vinculação.")
+        return
+
+    atual = await buscar_vinculo_roblox(membro.id)
+    if atual.get("ok") and atual.get("vinculado"):
+        vinculo = atual.get("vinculo") or {}
+        usuario = vinculo.get("username") or vinculo.get("display_name") or "conta vinculada"
+        print(
+            f"✅ Roblox já vinculado para {membro} ({membro.id}): {usuario}"
+        )
+        return
+
+    resposta = await criar_link_vinculo_roblox(membro)
+    if not resposta.get("ok"):
+        print(
+            "❌ Não consegui criar o link Roblox para "
+            f"{membro} ({membro.id}): {resposta.get('erro', 'erro desconhecido')}"
+        )
+        return
+
+    url = str(resposta.get("url") or "").strip()
+    if not url:
+        print(
+            f"❌ O site não devolveu um link Roblox para {membro} ({membro.id})."
+        )
+        return
+
+    embed = discord.Embed(
+        title="🎮 Cadastro do Roblox — Resenha Máxima",
+        description=(
+            "Você recebeu o cargo de **Roblox**. Para cadastrar sua conta, "
+            "clique no botão abaixo e entre na sua conta pelo login oficial do Roblox.\
+\
+"
+            "O link é temporário e serve apenas para confirmar qual conta Roblox é sua."
+        ),
+        color=discord.Color.blurple(),
+    )
+    embed.set_footer(text="Resenha Máxima • Vinculação Roblox")
+
+    view = discord.ui.View(timeout=None)
+    view.add_item(
+        discord.ui.Button(
+            label="Entrar com Roblox",
+            style=discord.ButtonStyle.link,
+            emoji="🎮",
+            url=url,
+        )
+    )
+
+    try:
+        await membro.send(embed=embed, view=view)
+        print(
+            f"📩 Cadastro Roblox enviado por DM para {membro} ({membro.id})."
+        )
+    except discord.Forbidden:
+        print(
+            f"⚠️ Não consegui enviar DM de cadastro Roblox para {membro} ({membro.id}). DMs fechadas."
+        )
+    except discord.HTTPException as erro:
+        print(
+            f"❌ Erro ao enviar DM Roblox para {membro} ({membro.id}): {erro}"
+        )
+
+
+async def varrer_membros_roblox():
+    """Envia cadastro para quem já tinha o cargo antes do bot reiniciar."""
+    for guild in bot.guilds:
+        cargo = guild.get_role(CARGO_ROBLOX_ID)
+        if cargo is None:
+            continue
+        for membro in cargo.members:
+            if membro.bot:
+                continue
+            atual = await buscar_vinculo_roblox(membro.id)
+            if atual.get("ok") and atual.get("vinculado"):
+                continue
+            await iniciar_cadastro_roblox(membro)
+            await asyncio.sleep(1)
+
+
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
-    tinha = any(cargo.id == CARGO_MINECRAFT_ID for cargo in before.roles)
-    tem = any(cargo.id == CARGO_MINECRAFT_ID for cargo in after.roles)
-    if not tinha and tem and not after.bot:
+    if after.bot:
+        return
+
+    tinha_minecraft = any(
+        cargo.id == CARGO_MINECRAFT_ID
+        for cargo in before.roles
+    )
+    tem_minecraft = any(
+        cargo.id == CARGO_MINECRAFT_ID
+        for cargo in after.roles
+    )
+
+    tinha_roblox = any(
+        cargo.id == CARGO_ROBLOX_ID
+        for cargo in before.roles
+    )
+    tem_roblox = any(
+        cargo.id == CARGO_ROBLOX_ID
+        for cargo in after.roles
+    )
+
+    if not tinha_minecraft and tem_minecraft:
         await iniciar_cadastro_nick(after)
+
+    if not tinha_roblox and tem_roblox:
+        await iniciar_cadastro_roblox(after)
 
 
 
@@ -7284,6 +7475,106 @@ async def antes_ia_caos_automatico():
 # Os antigos comandos /ia foram removidos. O bot lê /api/ia-config.
 
 
+
+# ==========================================================
+# ANTISPAM DE MENÇÕES — RAJADAS
+# ==========================================================
+_MENCAO_SPAM_JANELA = 8.0
+_MENCAO_SPAM_BLOQUEIO = 45.0
+_MENCAO_SPAM_MSG_LIMITE = 5
+_MENCAO_SPAM_TOTAL_LIMITE = 8
+_MENCAO_SPAM_ALVO_LIMITE = 4
+_mencao_spam_estado = {}
+_mencao_spam_bloqueados = {}
+_mencao_spam_lock = {}
+
+
+def _ids_mencionados_diretamente(message):
+    texto = str(message.content or "")
+    return [int(x) for x in re.findall(r"<@!?(\\d+)>", texto)]
+
+
+async def processar_antispam_mencoes(message: discord.Message):
+    if message.guild is None or message.author.bot:
+        return False
+    if message.author.id == DONO_ID:
+        return False
+
+    ids = _ids_mencionados_diretamente(message)
+    if not ids:
+        return False
+
+    # A proteção especial da call DEV tem sua própria contagem/aviso.
+    if DONO_ID in ids and dono_esta_na_call_manutencao(message.guild):
+        return False
+
+    agora = time.monotonic()
+    uid = message.author.id
+
+    bloqueado_ate = _mencao_spam_bloqueados.get(uid, 0.0)
+    if agora < bloqueado_ate:
+        try:
+            await message.delete()
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+            pass
+        return True
+
+    estado = _mencao_spam_estado.setdefault(uid, deque())
+    estado.append((agora, message, ids))
+    while estado and agora - estado[0][0] > _MENCAO_SPAM_JANELA:
+        estado.popleft()
+
+    qtd_msgs = len(estado)
+    total_mencoes = sum(len(item[2]) for item in estado)
+    por_alvo = {}
+    for _, _, alvos in estado:
+        for alvo in alvos:
+            por_alvo[alvo] = por_alvo.get(alvo, 0) + 1
+    repeticao_max = max(por_alvo.values(), default=0)
+
+    disparou = (
+        qtd_msgs >= _MENCAO_SPAM_MSG_LIMITE
+        or total_mencoes >= _MENCAO_SPAM_TOTAL_LIMITE
+        or repeticao_max >= _MENCAO_SPAM_ALVO_LIMITE
+    )
+    if not disparou:
+        return False
+
+    # Bloqueia primeiro para impedir novas mensagens enquanto apaga a rajada.
+    _mencao_spam_bloqueados[uid] = agora + _MENCAO_SPAM_BLOQUEIO
+    lock = _mencao_spam_lock.setdefault(uid, asyncio.Lock())
+    if lock.locked():
+        return True
+
+    async with lock:
+        membro = message.author if isinstance(message.author, discord.Member) else None
+        if membro is not None:
+            try:
+                await membro.timeout(
+                    timedelta(minutes=1),
+                    reason="Rajada de menções detectada pelo antispam"
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+
+        mensagens = []
+        vistos = set()
+        for _, msg, _ in list(estado):
+            if msg.id not in vistos:
+                vistos.add(msg.id)
+                mensagens.append(msg)
+        # PartialMessage.delete não aceita reason; não passar reason aqui.
+        for msg in reversed(mensagens):
+            try:
+                await msg.delete()
+            except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                pass
+
+        estado.clear()
+
+    return True
+
+
 # ==========================================================
 # MODO MANUTENÇÃO — CALL DE DESENVOLVIMENTO
 # ==========================================================
@@ -7505,6 +7796,41 @@ async def processar_protecao_manutencao(message: discord.Message):
     return True
 
 
+
+
+async def entrar_call_dev_automaticamente(guild, canal=None):
+    canal = canal or guild.get_channel(CANAL_CALL_MANUTENCAO_ID)
+    if not isinstance(canal, discord.VoiceChannel):
+        try:
+            buscado = await bot.fetch_channel(CANAL_CALL_MANUTENCAO_ID)
+            canal = buscado if isinstance(buscado, discord.VoiceChannel) else None
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            canal = None
+    if canal is None or canal.guild.id != guild.id:
+        return False, "call DEV não encontrada neste servidor"
+
+    me = guild.me
+    if me is None:
+        return False, "membro do bot não encontrado"
+    perms = canal.permissions_for(me)
+    if not perms.connect:
+        return False, "sem permissão Connect na call DEV"
+
+    try:
+        voice = guild.voice_client
+        if voice is None or not voice.is_connected():
+            voice = await canal.connect(self_mute=False, self_deaf=False)
+        elif voice.channel.id != canal.id:
+            await voice.move_to(canal)
+        try:
+            await guild.change_voice_state(channel=canal, self_mute=False, self_deaf=False)
+        except Exception:
+            pass
+        return True, None
+    except Exception as erro:
+        return False, f"{type(erro).__name__}: {erro}"
+
+
 @bot.event
 async def on_voice_state_update(member, before, after):
     if member.id != DONO_ID:
@@ -7522,6 +7848,9 @@ async def on_voice_state_update(member, before, after):
     if not antes_manutencao and depois_manutencao:
         iniciar_sessao_manutencao()
         print("Modo manutenção: ATIVO — nova sessão iniciada.")
+        ok, erro = await entrar_call_dev_automaticamente(member.guild, after.channel)
+        if not ok:
+            print(f"Falha ao entrar automaticamente na call DEV: {erro}")
     elif antes_manutencao and not depois_manutencao:
         resetar_sessao_manutencao()
         print("Modo manutenção: ENCERRADO — contadores zerados.")
@@ -7592,6 +7921,11 @@ async def on_message(
                         "solicitar um novo cadastro."
                     )
                     return
+
+    bloqueou_spam_mencoes = await processar_antispam_mencoes(message)
+    if bloqueou_spam_mencoes:
+        await bot.process_commands(message)
+        return
 
     tratado_manutencao = await processar_protecao_manutencao(
         message
@@ -9733,6 +10067,9 @@ async def on_ready():
         for guild in bot.guilds:
             if dono_esta_na_call_manutencao(guild):
                 iniciar_sessao_manutencao()
+                ok, erro = await entrar_call_dev_automaticamente(guild)
+                if not ok:
+                    print(f"Falha ao restaurar conexão na call DEV: {erro}")
                 break
 
     if not getattr(
@@ -9815,6 +10152,10 @@ async def on_ready():
     if not getattr(bot, '_scan_nicks_feito', False):
         bot._scan_nicks_feito = True
         asyncio.create_task(varrer_membros_minecraft())
+
+    if not getattr(bot, '_scan_roblox_feito', False):
+        bot._scan_roblox_feito = True
+        asyncio.create_task(varrer_membros_roblox())
 
     print("--------------------------------")
     print(f"Bot conectado como: {bot.user}")
