@@ -1334,35 +1334,57 @@ async def _enviar_dm_cadastro_roblox_site(membro: discord.Member):
     if membro.bot:
         return
 
-    # Se já estiver vinculado, não manda outra DM.
-    dados = carregar_roblox_vinculos()
-    if str(membro.id) in dados.get("vinculos", {}):
-        print(f"✅ Roblox já vinculado: {membro} ({membro.id})")
+    # IMPORTANTE: o link precisa ser criado PELO SITE que vai abrir a URL.
+    # Assim o token fica salvo exatamente no serviço que recebe /roblox/iniciar/...
+    def criar_link_no_site():
+        payload = {
+            "discord_id": str(membro.id),
+            "discord_nome": str(membro)[:150],
+            "guild_id": str(membro.guild.id),
+        }
+
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "Resenha-Maxima-Bot/1.0",
+        }
+        if ROBLOX_VINCULO_SECRET:
+            headers["X-Roblox-Link-Secret"] = ROBLOX_VINCULO_SECRET
+            payload["secret"] = ROBLOX_VINCULO_SECRET
+
+        requisicao = urllib.request.Request(
+            SITE_PUBLIC_URL + "/api/roblox/criar-vinculo",
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(requisicao, timeout=15) as resposta:
+                return json.loads(resposta.read().decode("utf-8") or "{}")
+        except urllib.error.HTTPError as erro:
+            try:
+                dados_erro = json.loads(erro.read().decode("utf-8") or "{}")
+                mensagem = dados_erro.get("erro") or f"HTTP {erro.code}"
+            except Exception:
+                mensagem = f"HTTP {erro.code}"
+            return {"ok": False, "erro": mensagem}
+        except Exception as erro:
+            return {"ok": False, "erro": str(erro)}
+
+    resposta = await asyncio.to_thread(criar_link_no_site)
+    if not resposta.get("ok"):
+        print(
+            f"❌ Roblox: não consegui criar o link para {membro} "
+            f"({membro.id}): {resposta.get('erro', 'erro desconhecido')}"
+        )
         return
 
-    # Remove link antigo desse usuário e cria um novo.
-    for token_antigo, pendente in list(dados.get("pendentes", {}).items()):
-        if str(pendente.get("discord_id") or "") == str(membro.id):
-            dados["pendentes"].pop(token_antigo, None)
+    url = str(resposta.get("url") or "").strip()
+    if not url:
+        print(f"❌ Roblox: o site não devolveu a URL para {membro} ({membro.id}).")
+        return
 
-    token = secrets.token_urlsafe(24)
-    oauth_state = secrets.token_urlsafe(32)
-    nonce = secrets.token_urlsafe(24)
-    agora = datetime.now(timezone.utc)
-    expira = agora + timedelta(minutes=ROBLOX_PENDENCIA_MINUTOS)
-
-    dados["pendentes"][token] = {
-        "discord_id": str(membro.id),
-        "discord_nome": str(membro)[:150],
-        "guild_id": str(membro.guild.id),
-        "oauth_state": oauth_state,
-        "nonce": nonce,
-        "criado_em": agora.isoformat(),
-        "expira_em": expira.isoformat(),
-    }
-    salvar_roblox_vinculos(dados)
-
-    url = f"{SITE_PUBLIC_URL}/roblox/iniciar/{token}"
     embed = discord.Embed(
         title="🎮 Cadastro do Roblox — Resenha Máxima",
         description=(
