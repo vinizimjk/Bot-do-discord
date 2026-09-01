@@ -3367,12 +3367,10 @@ async def _roblox_game_fetch_member(guild_id, discord_id):
 async def _roblox_game_discord_profile(discord_id):
     cfg = carregar_servidores_config()
 
+    # Usa SEMPRE o servidor principal oficial do jogo.
+    # Não sobrescreve com GUILD_ID, porque essa variável pode apontar
+    # para outro servidor usado por partes antigas do bot.
     principal_id = ROBLOX_GAME_MAIN_GUILD_ID
-    if GUILD_ID:
-        try:
-            principal_id = int(GUILD_ID)
-        except (TypeError, ValueError):
-            pass
 
     eventos_id = int(
         cfg.get("eventos_guild_id")
@@ -3534,4 +3532,3 @@ if __name__ == "__main__":
         debug=False,
         use_reloader=False
     )
-    
