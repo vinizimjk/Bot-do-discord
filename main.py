@@ -3347,20 +3347,77 @@ ROBLOX_GAME_EVENT_ROLES = [
 
 
 async def _roblox_game_fetch_member(guild_id, discord_id):
-    guild = bot.get_guild(int(guild_id))
+    guild_id = int(guild_id)
+    discord_id = int(discord_id)
+
+    guild = bot.get_guild(guild_id)
+
     if guild is None:
+        print(
+            f"[ROBLOX GAME] Servidor {guild_id} não está no cache do bot. "
+            "Tentando buscar diretamente pela API do Discord..."
+        )
+
+        try:
+            guild = await bot.fetch_guild(guild_id)
+        except discord.NotFound:
+            print(
+                f"[ROBLOX GAME] Servidor {guild_id} não foi encontrado "
+                "pela conta do bot."
+            )
+            return None, False
+        except discord.Forbidden:
+            print(
+                f"[ROBLOX GAME] Bot sem acesso ao servidor {guild_id}."
+            )
+            return None, False
+        except discord.HTTPException as erro:
+            print(
+                f"[ROBLOX GAME] Erro HTTP ao buscar servidor {guild_id}: {erro}"
+            )
+            return None, False
+
+    # Primeiro tenta o cache, quando o objeto suporta get_member.
+    get_member = getattr(guild, "get_member", None)
+    if callable(get_member):
+        membro = get_member(discord_id)
+        if membro is not None:
+            print(
+                f"[ROBLOX GAME] Membro {discord_id} encontrado no cache "
+                f"do servidor {guild_id}."
+            )
+            return membro, True
+
+    # Depois consulta DIRETAMENTE a API do Discord.
+    # Isso funciona mesmo quando o membro não está carregado no cache.
+    try:
+        membro = await guild.fetch_member(discord_id)
+
+        print(
+            f"[ROBLOX GAME] Membro {discord_id} confirmado pela API "
+            f"no servidor {guild_id}."
+        )
+
+        return membro, True
+
+    except discord.NotFound:
+        print(
+            f"[ROBLOX GAME] Membro {discord_id} NÃO está no servidor {guild_id}."
+        )
+        return None, True
+
+    except discord.Forbidden:
+        print(
+            f"[ROBLOX GAME] Bot sem permissão para consultar membros "
+            f"do servidor {guild_id}."
+        )
         return None, False
 
-    membro = guild.get_member(int(discord_id))
-    if membro is not None:
-        return membro, True
-
-    try:
-        membro = await guild.fetch_member(int(discord_id))
-        return membro, True
-    except discord.NotFound:
-        return None, True
-    except (discord.Forbidden, discord.HTTPException):
+    except discord.HTTPException as erro:
+        print(
+            f"[ROBLOX GAME] Erro HTTP ao consultar membro {discord_id} "
+            f"no servidor {guild_id}: {erro}"
+        )
         return None, False
 
 
