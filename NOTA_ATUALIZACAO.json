@@ -1,11 +1,26 @@
 {
-  "id": "roblox-vinculo-fix-2026-08-31-2",
-  "titulo": "🎮 Cadastro Roblox corrigido",
-  "descricao": "O cadastro Roblox voltou a disparar automaticamente ao receber o cargo e também verifica membros que já estavam com o cargo após reinícios.",
-  "itens": [
-    "Corrigido envio automático da DM do Roblox ao receber o cargo.",
-    "O bot agora verifica quem já tinha o cargo Roblox antes do deploy.",
-    "A chave interna do Roblox é criada automaticamente a partir do TOKEN quando ROBLOX_VINCULO_SECRET não estiver definida.",
-    "Mantido o cadastro de Minecraft e os demais sistemas existentes."
-  ]
+  "id": "2026-09-01-restauracao-funcoes-antigas",
+  "versao": "2026.09.01-restauracao-funcoes-antigas",
+  "data": "01/09/2026",
+  "titulo": "## Funções antigas restauradas + integração Roblox",
+  "novidades": [
+    "🎮 Restaurada a integração Roblox ↔ Discord sem substituir o sistema antigo.",
+    "🔗 A rota /api/roblox/game-profile/<roblox_id> consulta vínculo, presença nos servidores e cargos.",
+    "🏆 A API informa a elegibilidade do bônus Discord de 40% para a recompensa do jogo."
+  ],
+  "alteracoes": [
+    "🧩 Todas as funções antigas do bot e do painel foram mantidas na base.",
+    "📝 O sistema novo de candidatura foi acrescentado sobre o código antigo.",
+    "💬 A proteção da Call DEV ganhou frases variadas e o suporte de figurinhas foi corrigido."
+  ],
+  "correcoes": [
+    "🛡️ Nenhuma função antiga identificada foi removida durante a mesclagem.",
+    "🎭 Instruções internas REAGIR:/STICKER: não devem aparecer quebradas no chat.",
+    "👤 A regra de membro no Roblox não exige o cargo [MEM] quando o usuário ainda está no servidor principal."
+  ],
+  "problemas_conhecidos": [
+    "🎁 O sorteio de 40% para receber 2 troféus continua sendo responsabilidade do script de recompensa do Roblox.",
+    "🔐 A consulta direta depende de o bot estar conectado aos servidores do Discord."
+  ],
+  "resumo": "Base antiga preservada e recursos novos adicionados sem resetar as funções existentes."
 }

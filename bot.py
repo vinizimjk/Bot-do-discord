@@ -29,13 +29,11 @@ DONO_ID = 1455937306400653344
 CANAL_APROVACAO_ID = 1536073451633254420
 PAINEL_MENU_URL = os.getenv("SITE_PUBLIC_URL", "https://resenha-maxima.up.railway.app").rstrip("/")
 SITE_PUBLIC_URL = PAINEL_MENU_URL
-ROBLOX_VINCULO_SECRET = os.getenv("ROBLOX_VINCULO_SECRET", "").strip()
 DEV_CALL_ID = 1540578640020897862
 CONTA_SECUNDARIA_ID = int(os.getenv("CONTA_SECUNDARIA_ID", "0") or 0)
-GOOGLE_FORMS_URL = os.getenv("GOOGLE_FORMS_URL", "https://forms.gle/gpvZhRAWc41CUurJ8")
+GOOGLE_FORMS_URL = os.getenv("GOOGLE_FORMS_URL", "https://forms.gle/h4kt2Cp7fduGG4Pc8")
 
 CARGO_MINECRAFT_ID = 1534006899371147304
-CARGO_ROBLOX_ID = 1540858217301549176
 CANAL_STATUS_MINECRAFT_ID = 1538109074779144253
 CANAL_NICKNAMES_MINECRAFT_ID = 1534423515183448155
 CARGO_DESENVOLVIMENTO_ID = 1533625836874498181
@@ -384,6 +382,10 @@ FORMATO DE RESPOSTA:
   REAGIR: 😂
 - Para reação, use apenas UM destes emojis:
   😂 💀 🤨 👀 👑 😭 🔥 🤝 😎 🫡 ❤️ 👍 😈 🙄 🤣
+- Se uma figurinha do servidor combinar melhor, responda EXATAMENTE com:
+  STICKER:
+  O bot escolhe a figurinha pelo contexto. Nunca deixe REAGIR: ou STICKER:
+  aparecendo como texto normal para os membros.
 """.strip()
 
 groq_client = (
@@ -5412,157 +5414,12 @@ async def on_member_remove(member: discord.Member):
         )
 
 
-
-# ==========================================================
-# ROBLOX - VINCULACAO AUTOMATICA POR CARGO
-# ==========================================================
-
-async def _roblox_site_json(caminho, metodo="GET", payload=None):
-    """Conversa com o site da Resenha Máxima usando o segredo interno."""
-    if not ROBLOX_VINCULO_SECRET:
-        return {
-            "ok": False,
-            "erro": "ROBLOX_VINCULO_SECRET não configurado no bot.",
-        }
-
-    url = PAINEL_MENU_URL.rstrip("/") + caminho
-    headers = {
-        "Accept": "application/json",
-        "X-Roblox-Link-Secret": ROBLOX_VINCULO_SECRET,
-    }
-
-    try:
-        timeout = aiohttp.ClientTimeout(total=15)
-        async with aiohttp.ClientSession(timeout=timeout) as sessao:
-            async with sessao.request(
-                metodo,
-                url,
-                json=payload,
-                headers=headers,
-            ) as resposta:
-                try:
-                    dados = await resposta.json(content_type=None)
-                except Exception:
-                    texto = await resposta.text()
-                    dados = {
-                        "ok": False,
-                        "erro": texto[:400] or f"HTTP {resposta.status}",
-                    }
-
-                if not isinstance(dados, dict):
-                    dados = {"ok": False, "erro": "Resposta inválida do site."}
-
-                if resposta.status < 200 or resposta.status >= 300:
-                    dados["ok"] = False
-                    dados.setdefault("erro", f"Site respondeu HTTP {resposta.status}.")
-
-                return dados
-    except Exception as erro:
-        return {
-            "ok": False,
-            "erro": f"Não consegui falar com o site: {type(erro).__name__}: {erro}",
-        }
-
-
-async def buscar_vinculo_roblox(discord_id):
-    return await _roblox_site_json(
-        f"/api/roblox/vinculo/{int(discord_id)}"
-    )
-
-
-async def criar_link_vinculo_roblox(membro):
-    return await _roblox_site_json(
-        "/api/roblox/criar-vinculo",
-        metodo="POST",
-        payload={
-            "discord_id": str(membro.id),
-            "guild_id": str(membro.guild.id),
-            "discord_nome": str(membro),
-        },
-    )
-
-
-async def iniciar_cadastro_roblox(membro):
-    """Manda a DM de cadastro quando a pessoa recebe o cargo Roblox."""
-    if not isinstance(membro, discord.Member) or membro.bot:
-        return False
-
-    if not ROBLOX_VINCULO_SECRET:
-        print("⚠️ Roblox: ROBLOX_VINCULO_SECRET não está configurado no bot.")
-        return False
-
-    atual = await buscar_vinculo_roblox(membro.id)
-    if atual.get("ok") and atual.get("vinculado"):
-        vinculo = atual.get("vinculo") or {}
-        usuario = (
-            vinculo.get("username")
-            or vinculo.get("display_name")
-            or "conta vinculada"
-        )
-        print(f"✅ Roblox já vinculado para {membro} ({membro.id}): {usuario}")
-        return True
-
-    resposta = await criar_link_vinculo_roblox(membro)
-    if not resposta.get("ok"):
-        print(
-            "❌ Não consegui criar o link Roblox para "
-            f"{membro} ({membro.id}): {resposta.get('erro', 'erro desconhecido')}"
-        )
-        return False
-
-    url = str(resposta.get("url") or "").strip()
-    if not url:
-        print(f"❌ O site não devolveu um link Roblox para {membro} ({membro.id}).")
-        return False
-
-    embed = discord.Embed(
-        title="🎮 Cadastro do Roblox — Resenha Máxima",
-        description=(
-            "Você recebeu o cargo de **Roblox**. Para cadastrar sua conta, "
-            "clique no botão abaixo e entre pelo login oficial do Roblox.\n\n"
-            "O link é temporário e serve apenas para confirmar qual conta Roblox é sua."
-        ),
-        color=discord.Color.blurple(),
-    )
-    embed.set_footer(text="Resenha Máxima • Vinculação Roblox")
-
-    view = discord.ui.View(timeout=None)
-    view.add_item(
-        discord.ui.Button(
-            label="Entrar com Roblox",
-            style=discord.ButtonStyle.link,
-            emoji="🎮",
-            url=url,
-        )
-    )
-
-    try:
-        await membro.send(embed=embed, view=view)
-        print(f"📩 Cadastro Roblox enviado por DM para {membro} ({membro.id}).")
-        return True
-    except discord.Forbidden:
-        print(f"⚠️ Não consegui enviar DM Roblox para {membro} ({membro.id}). DMs fechadas.")
-    except discord.HTTPException as erro:
-        print(f"❌ Erro ao enviar DM Roblox para {membro} ({membro.id}): {erro}")
-
-    return False
-
-
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
-    if after.bot:
-        return
-
-    tinha_minecraft = any(cargo.id == CARGO_MINECRAFT_ID for cargo in before.roles)
-    tem_minecraft = any(cargo.id == CARGO_MINECRAFT_ID for cargo in after.roles)
-    tinha_roblox = any(cargo.id == CARGO_ROBLOX_ID for cargo in before.roles)
-    tem_roblox = any(cargo.id == CARGO_ROBLOX_ID for cargo in after.roles)
-
-    if not tinha_minecraft and tem_minecraft:
+    tinha = any(cargo.id == CARGO_MINECRAFT_ID for cargo in before.roles)
+    tem = any(cargo.id == CARGO_MINECRAFT_ID for cargo in after.roles)
+    if not tinha and tem and not after.bot:
         await iniciar_cadastro_nick(after)
-
-    if not tinha_roblox and tem_roblox:
-        await iniciar_cadastro_roblox(after)
 
 
 
@@ -6445,75 +6302,154 @@ def contexto_social_ia(
     )
 
 
-def extrair_resposta_ia(
-    conteudo
-):
-    """
-    A Groq agora responde em texto normal.
-    Se quiser apenas reagir, ela usa: REAGIR: 😂
-    """
-    conteudo = str(
-        conteudo or ""
-    ).strip()
 
+_STICKERS_CATALOGO_CACHE = None
+_ULTIMOS_STICKERS_IA = deque(maxlen=4)
+
+
+def carregar_stickers_contexto():
+    global _STICKERS_CATALOGO_CACHE
+    if _STICKERS_CATALOGO_CACHE is not None:
+        return _STICKERS_CATALOGO_CACHE
+
+    caminho = Path(__file__).with_name("stickers_contexto.json")
+    try:
+        dados = json.loads(caminho.read_text(encoding="utf-8"))
+        stickers = dados.get("stickers", []) if isinstance(dados, dict) else []
+        _STICKERS_CATALOGO_CACHE = [
+            item for item in stickers
+            if isinstance(item, dict)
+            and item.get("auto_uso") is True
+            and str(item.get("id", "")).isdigit()
+        ]
+    except (OSError, json.JSONDecodeError):
+        _STICKERS_CATALOGO_CACHE = []
+    return _STICKERS_CATALOGO_CACHE
+
+
+def escolher_sticker_contextual(texto):
+    texto_norm = normalizar_texto_ia(str(texto or ""))
+    if not texto_norm:
+        return None
+    tokens = {t for t in re.findall(r"[a-z0-9]{3,}", texto_norm) if len(t) >= 3}
+    candidatos = []
+    for item in carregar_stickers_contexto():
+        sticker_id = str(item.get("id", ""))
+        if sticker_id in _ULTIMOS_STICKERS_IA:
+            continue
+        campos = []
+        campos.extend(item.get("palavras_chave", []) or [])
+        campos.extend(item.get("emocao", []) or [])
+        campos.extend(item.get("usar_quando", []) or [])
+        base = normalizar_texto_ia(" ".join(map(str, campos)))
+        score = sum(2 for token in tokens if token in base)
+        for palavra in item.get("palavras_chave", []) or []:
+            p = normalizar_texto_ia(str(palavra))
+            if p and p in texto_norm:
+                score += 3
+        if score > 0:
+            candidatos.append((score, random.random(), item))
+    if candidatos:
+        candidatos.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        return candidatos[0][2]
+    neutros = [
+        item for item in carregar_stickers_contexto()
+        if str(item.get("id", "")) not in _ULTIMOS_STICKERS_IA
+        and any(
+            termo in normalizar_texto_ia(" ".join(map(str, item.get("emocao", []) or [])))
+            for termo in ("sem reacao", "desconfianca", "confusao", "surpresa")
+        )
+    ]
+    return random.choice(neutros) if neutros else None
+
+
+async def obter_sticker_guild(guild, sticker_id):
+    if guild is None:
+        return None
+    try:
+        sticker_id = int(sticker_id)
+    except (TypeError, ValueError):
+        return None
+    encontrado = discord.utils.get(guild.stickers, id=sticker_id)
+    if encontrado is not None:
+        return encontrado
+    try:
+        stickers = await guild.fetch_stickers()
+    except (discord.Forbidden, discord.HTTPException):
+        return None
+    return discord.utils.get(stickers, id=sticker_id)
+
+
+async def enviar_sticker_contextual(message, texto_contexto, texto_resposta=""):
+    item = escolher_sticker_contextual(texto_contexto)
+    if item is None:
+        return False
+    sticker = await obter_sticker_guild(message.guild, item.get("id"))
+    if sticker is None:
+        return False
+    try:
+        await message.reply(
+            texto_resposta or None,
+            mention_author=False,
+            allowed_mentions=discord.AllowedMentions(
+                users=True, roles=False, everyone=False, replied_user=False
+            ),
+            stickers=[sticker],
+        )
+    except (discord.Forbidden, discord.HTTPException, TypeError):
+        return False
+    _ULTIMOS_STICKERS_IA.append(str(item.get("id")))
+    return True
+
+
+def extrair_resposta_ia(conteudo):
+    """Interpreta instruções internas sem deixar REAGIR/STICKER vazarem no chat."""
+    conteudo = str(conteudo or "").strip()
     if not conteudo:
-        return {
-            "acao": "reagir",
-            "texto": "",
-            "emoji": "🤨",
-        }
+        return {"acao": "sticker", "texto": "", "emoji": ""}
 
     match_call = re.fullmatch(
-        r"ENTRAR_CALL:\s*(.*)",
-        conteudo,
+        r"ENTRAR_CALL:\s*(.*)", conteudo,
         flags=re.IGNORECASE | re.DOTALL
     )
-
     if match_call:
-        texto_call = match_call.group(1).strip()
+        return {"acao": "entrar_call", "texto": match_call.group(1).strip()[:500], "emoji": ""}
+
+    match_sticker = re.search(
+        r"(?:^|\n)\s*(?:STICKER|FIGURINHA):\s*([^\n]*)\s*$",
+        conteudo, flags=re.IGNORECASE
+    )
+    if match_sticker:
+        texto = conteudo[:match_sticker.start()].strip()
         return {
-            "acao": "entrar_call",
-            "texto": texto_call[:500],
-            "emoji": "",
+            "acao": "responder_sticker" if texto else "sticker",
+            "texto": texto[:IA_MAX_RESPOSTA_CARACTERES], "emoji": ""
         }
 
-    match = re.fullmatch(
-        r"REAGIR:\s*(\S+)",
-        conteudo,
-        flags=re.IGNORECASE
+    match_reagir = re.search(
+        r"(?:^|\n)\s*REAGIR:\s*([^\s\n]*)\s*$",
+        conteudo, flags=re.IGNORECASE
     )
-
-    if match:
-        emoji = match.group(1).strip()
-
-        if emoji in EMOJIS_REACAO_IA:
+    if match_reagir:
+        texto = conteudo[:match_reagir.start()].strip()
+        valor = match_reagir.group(1).strip()
+        if valor in EMOJIS_REACAO_IA:
             return {
-                "acao": "reagir",
-                "texto": "",
-                "emoji": emoji,
+                "acao": "responder_reagir" if texto else "reagir",
+                "texto": texto[:IA_MAX_RESPOSTA_CARACTERES], "emoji": valor
             }
+        return {
+            "acao": "responder_sticker" if texto else "sticker",
+            "texto": texto[:IA_MAX_RESPOSTA_CARACTERES], "emoji": ""
+        }
 
-    # Remove cercas de código caso o modelo invente uma.
+    conteudo = re.sub(r"^```(?:text)?\s*", "", conteudo, flags=re.IGNORECASE)
+    conteudo = re.sub(r"\s*```$", "", conteudo)
     conteudo = re.sub(
-        r"^```(?:text)?\s*",
-        "",
-        conteudo,
-        flags=re.IGNORECASE
-    )
-    conteudo = re.sub(
-        r"\s*```$",
-        "",
-        conteudo
-    )
-
-    return {
-        "acao": "responder",
-        "texto": conteudo[
-            :IA_MAX_RESPOSTA_CARACTERES
-        ],
-        "emoji": "",
-    }
-
+        r"(?:^|\n)\s*(?:REAGIR|STICKER|FIGURINHA):\s*$",
+        "", conteudo, flags=re.IGNORECASE
+    ).strip()
+    return {"acao": "responder", "texto": conteudo[:IA_MAX_RESPOSTA_CARACTERES], "emoji": ""}
 
 def mensagem_abusiva_contra_ia(message: discord.Message):
     """Heurística conservadora: conta só ofensa claramente dirigida ao bot."""
@@ -6981,6 +6917,56 @@ async def responder_com_ia(
                 resultado.get("texto", "")
             )
         )
+        return True
+
+    if resultado["acao"] in {"sticker", "responder_sticker"}:
+        texto_sticker = reduzir_emojis_ia(resultado.get("texto", ""))
+        enviado = await enviar_sticker_contextual(
+            message, pergunta,
+            texto_sticker if resultado["acao"] == "responder_sticker" else "",
+        )
+        if not enviado:
+            if texto_sticker:
+                try:
+                    await message.reply(
+                        texto_sticker, mention_author=False,
+                        allowed_mentions=discord.AllowedMentions(
+                            users=True, roles=False, everyone=False, replied_user=False
+                        ),
+                    )
+                except discord.HTTPException:
+                    pass
+            else:
+                try:
+                    await message.add_reaction("🤨")
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+        memoria.append({
+            "role": "assistant",
+            "content": texto_sticker or "[enviou uma figurinha contextual]",
+        })
+        return True
+
+    if resultado["acao"] == "responder_reagir":
+        texto_reacao = reduzir_emojis_ia(resultado.get("texto", ""))
+        try:
+            await message.add_reaction(resultado["emoji"])
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+        if texto_reacao:
+            try:
+                await message.reply(
+                    texto_reacao, mention_author=False,
+                    allowed_mentions=discord.AllowedMentions(
+                        users=True, roles=False, everyone=False, replied_user=False
+                    ),
+                )
+            except discord.HTTPException:
+                pass
+        memoria.append({
+            "role": "assistant",
+            "content": texto_reacao or f"[reagiu com {resultado['emoji']}]",
+        })
         return True
 
     if resultado["acao"] == "reagir":
@@ -9603,6 +9589,72 @@ _dev_mencao_contadores = {}
 _dev_mencao_punidos = set()
 
 
+_dev_frases_recentes = {}
+
+DEV_FRASES_MENCAO = {
+    1: [
+        "O Vini tá na call DEV trabalhando 😭 marcação 1/5 — deixa o homem trabalhar.",
+        "Pegou o Vini no modo trabalho 👀 1/5. Deixa ele terminar o que tá fazendo.",
+        "O homem entrou na DEV pra trabalhar e já veio marcação KKK. 1/5.",
+        "Vini tá ocupado na call DEV. Primeira marcação: 1/5.",
+        "Chamou o Vini justo na hora do trabalho 😭 1/5. Dá uma folga pro homem.",
+        "Call DEV ativa. O Vini tá trabalhando por lá — marcação 1/5.",
+        "Começou cedo KKK. Vini tá na DEV trabalhando: 1/5.",
+        "O Vini tá resolvendo as coisas na DEV 👀 1/5. Segura a marcação aí.",
+    ],
+    2: [
+        "De novo? KKK o Vini ainda tá trabalhando. Marcação 2/5.",
+        "Segunda chamada pro homem ocupado 😭 2/5.",
+        "Tu realmente tentou de novo 👀 2/5. Deixa o Vini trabalhar.",
+        "A call DEV continua ocupada e você continua marcando KKK. 2/5.",
+        "Vini ainda tá na DEV, guerreiro. Essa foi 2/5.",
+        "Dois pings no homem trabalhando 😭 2/5. Calma aí.",
+        "Segunda marcação registrada. O Vini segue trabalhando: 2/5.",
+        "Tá testando o sistema já? KKK 2/5. O Vini tá ocupado.",
+    ],
+    3: [
+        "Terceira já KKKK. O Vini tá trabalhando, meu parceiro — 3/5.",
+        "3/5 👀 agora já virou insistência.",
+        "Meu mano, ele ainda tá na call DEV 😭 marcação 3/5.",
+        "O Vini não saiu da DEV desde a última marcação KKK. 3/5.",
+        "Três vezes no homem ocupado é dedicação demais 😭 3/5.",
+        "Metade do caminho pro castigo já foi KKK. 3/5.",
+        "Terceira chamada registrada: 3/5. Deixa o homem trabalhar.",
+        "A call é DEV, não campainha KKKK. Marcação 3/5.",
+    ],
+    4: [
+        "4/5 👀 essa é a última antes do minutinho de reflexão.",
+        "Quarta marcação KKK. Mais uma e o bot te dá férias de 1 minuto.",
+        "Tu tá muito perto de descobrir o que acontece na quinta 😭 4/5.",
+        "Último aviso: o Vini tá trabalhando e essa foi 4/5.",
+        "Quatro vezes já, guerreiro 💀 4/5. A próxima tem timeout.",
+        "O bot tá contando, viu? KKKK 4/5.",
+        "Mais uma marcação e vem o descanso obrigatório 😭 4/5.",
+        "Quarta registrada. Agora é melhor deixar o Vini em paz 👀 4/5.",
+    ],
+}
+
+DEV_FRASES_TIMEOUT = [
+    "Cinco marcações KKKKK. Ganhou 1 minutinho pra refletir.",
+    "A quinta chegou 💀 1 minuto de descanso obrigatório.",
+    "Tu conseguiu KKKK. Cinco marcações = 1 minuto de timeout.",
+    "Parabéns pela persistência 😭 agora descansa 1 minutinho.",
+    "O bot avisou quatro vezes 👀 na quinta veio 1 minuto de férias.",
+    "Cinco pings no homem trabalhando é talento KKK. 1 minuto de timeout.",
+    "Missão concluída: 5/5 💀 prêmio: 1 minuto sem mandar mensagem.",
+    "A quinta não perdoou KKKK. Vai ali respirar por 1 minuto.",
+]
+
+
+def escolher_frase_dev(uid, etapa):
+    opcoes = DEV_FRASES_TIMEOUT if etapa >= 5 else DEV_FRASES_MENCAO.get(etapa, DEV_FRASES_MENCAO[1])
+    recentes = _dev_frases_recentes.setdefault(uid, deque(maxlen=4))
+    disponiveis = [frase for frase in opcoes if frase not in recentes] or list(opcoes)
+    escolhida = random.choice(disponiveis)
+    recentes.append(escolhida)
+    return escolhida
+
+
 def dono_esta_na_call_manutencao(guild):
     if guild is None:
         return False
@@ -9643,7 +9695,7 @@ async def processar_protecao_manutencao(message: discord.Message):
     if uid in _dev_mencao_punidos:
         try:
             await canal.send(
-                "deixa o Vini trabalhar na call DEV kkk",
+                escolher_frase_dev(uid, 5),
                 allowed_mentions=discord.AllowedMentions.none(),
             )
         except discord.HTTPException:
@@ -9653,7 +9705,7 @@ async def processar_protecao_manutencao(message: discord.Message):
     if qtd < 5:
         try:
             await canal.send(
-                f"o Vini tá na call DEV trabalhando. marcação {qtd}/5 — deixa o homem trabalhar kkk",
+                escolher_frase_dev(uid, qtd),
                 allowed_mentions=discord.AllowedMentions.none(),
             )
         except discord.HTTPException:
@@ -9672,7 +9724,7 @@ async def processar_protecao_manutencao(message: discord.Message):
 
     try:
         await canal.send(
-            "cinco marcações. ganhou 1 minuto pra refletir kkkkk",
+            escolher_frase_dev(uid, 5),
             allowed_mentions=discord.AllowedMentions.none(),
         )
     except discord.HTTPException:
