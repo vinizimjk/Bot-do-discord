@@ -2211,7 +2211,9 @@ def pode_usar_comando_admin(membro):
 
 
 def pode_usar_sistema_ban(membro):
-    return pode_usar_comando_admin(membro)
+    # Qualquer membro humano pode abrir uma solicitação.
+    # Aprovar/negar continua restrito ao sistema administrativo.
+    return isinstance(membro, discord.Member) and not membro.bot
 
 
 async def negar_se_nao_admin(interaction):
@@ -2896,10 +2898,7 @@ async def processar_negacao(
             False
         )
 
-        if membro is not None:
-            cadastro_nick = buscar_cadastro_nick(guild.id, membro.id)
-            if cadastro_nick and cadastro_nick["castigo_aplicado"]:
-                await aplicar_castigo_nick(membro)
+        # Não existe mais castigo por nickname pendente.
 
     finalizar_solicitacao_ban(
         solicitacao_id,
@@ -4354,10 +4353,10 @@ async def enviar_pergunta_nick(membro, aviso=None):
             "Você recebeu o cargo de Minecraft. Responda **esta DM** com o seu nickname no Minecraft."
         )
     else:
+        # Compatibilidade: não há mais cobrança repetida.
         texto = (
-            f"⚠️ **Aviso {aviso}/4 — nickname pendente**\n\n"
-            "Responda esta DM com o seu nickname no Minecraft. "
-            "Após o 4º aviso, será aplicado timeout até o cadastro."
+            "🎮 **Cadastro do Minecraft — Resenha Máxima**\n\n"
+            "Quando puder, responda **esta DM** com o seu nickname no Minecraft."
         )
     try:
         await membro.send(texto)
@@ -4827,28 +4826,9 @@ async def verificar_nicknames_minecraft():
         except (TypeError, ValueError):
             inicio = agora
 
-        horas = (agora - inicio).total_seconds() / 3600
-        enviados = int(cadastro['avisos_enviados'] or 0)
-        proximo = enviados + 1
-
-        if proximo <= 4 and horas >= AVISOS_NICK_HORAS[proximo - 1]:
-            dm = await enviar_pergunta_nick(membro, proximo)
-            atualizar_cadastro_nick(guild.id, membro.id, avisos_enviados=proximo)
-            await enviar_log_dono(
-                f"⚠️ Aviso {proximo}/4 de nickname para {membro} ({membro.id}). "
-                f"DM: {'enviada' if dm else 'falhou/bloqueada'}."
-            )
-            if proximo == 4:
-                ok, erro = await aplicar_castigo_nick(membro)
-                await enviar_log_dono(
-                    f"🔒 Timeout de nickname para {membro}: " + ('aplicado.' if ok else f'falhou — {erro}')
-                )
-
-        atual = buscar_cadastro_nick(guild.id, membro.id)
-        if atual and atual['castigo_aplicado']:
-            limite = getattr(membro, 'timed_out_until', None)
-            if limite is None or limite < agora + timedelta(days=7):
-                await aplicar_castigo_nick(membro)
+        # O pedido do nickname já foi enviado uma vez ao iniciar o cadastro.
+        # Sem lembretes automáticos e sem timeout/castigo.
+        continue
 
     for cadastro in listar_nicks_por_status('ausente'):
         try:
@@ -5572,7 +5552,8 @@ def criar_texto_atualizacao_bot(nota=None):
     )
 
     partes = [
-        "# Notas de atualização",
+        ("@here\n\n" if nota.get("mencionar_here") is True else "")
+        + "# Notas de atualização",
         f"**Versão:** `{versao}`\n**Data:** {data_exibicao}",
     ]
 
@@ -5768,7 +5749,7 @@ async def publicar_atualizacao_bot(*, forcar=False):
                 allowed_mentions=discord.AllowedMentions(
                     users=True,
                     roles=False,
-                    everyone=False,
+                    everyone=(nota.get("mencionar_here") is True),
                     replied_user=False,
                 ),
             )
