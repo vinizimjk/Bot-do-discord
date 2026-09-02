@@ -1,26 +1,25 @@
 {
-  "id": "2026-09-01-restauracao-funcoes-antigas",
-  "versao": "2026.09.01-restauracao-funcoes-antigas",
+  "id": "2026-09-01-restauracao-completa-historico",
+  "versao": "2026.09.01-restauracao-completa-historico",
   "data": "01/09/2026",
-  "titulo": "## Funções antigas restauradas + integração Roblox",
+  "titulo": "## Restauração completa do bot e site",
   "novidades": [
-    "🎮 Restaurada a integração Roblox ↔ Discord sem substituir o sistema antigo.",
-    "🔗 A rota /api/roblox/game-profile/<roblox_id> consulta vínculo, presença nos servidores e cargos.",
-    "🏆 A API informa a elegibilidade do bônus Discord de 40% para a recompensa do jogo."
+    "🔄 Recuperadas funções antigas do bot e do site a partir do histórico do projeto.",
+    "🎮 Adicionada a rota /api/roblox/game-profile/<roblox_id> sem remover o sistema antigo de vínculos.",
+    "📝 Formulário de candidatura atualizado para o endereço correto."
   ],
   "alteracoes": [
-    "🧩 Todas as funções antigas do bot e do painel foram mantidas na base.",
-    "📝 O sistema novo de candidatura foi acrescentado sobre o código antigo.",
-    "💬 A proteção da Call DEV ganhou frases variadas e o suporte de figurinhas foi corrigido."
+    "🤖 bot.py completo disponível na raiz e em bot/bot.py para compatibilidade.",
+    "🌐 main.py completo restaurado na raiz para o serviço do site.",
+    "🛡️ Mantidas as correções recentes de Call DEV, antispam, frases variadas e stickers no bot."
   ],
   "correcoes": [
-    "🛡️ Nenhuma função antiga identificada foi removida durante a mesclagem.",
-    "🎭 Instruções internas REAGIR:/STICKER: não devem aparecer quebradas no chat.",
-    "👤 A regra de membro no Roblox não exige o cargo [MEM] quando o usuário ainda está no servidor principal."
+    "🧩 O main.py foi recuperado de uma versão antiga mais completa do histórico, antes do reset.",
+    "🏠 A API verifica presença real nos servidores principal e de Eventos e retorna os cargos ao Roblox.",
+    "👤 Estar no servidor principal já permite Membro no jogo mesmo sem o cargo [MEM]."
   ],
   "problemas_conhecidos": [
-    "🎁 O sorteio de 40% para receber 2 troféus continua sendo responsabilidade do script de recompensa do Roblox.",
-    "🔐 A consulta direta depende de o bot estar conectado aos servidores do Discord."
+    "🚂 No Railway, o serviço do BOT deve usar python bot.py; o serviço do SITE deve usar python main.py."
   ],
-  "resumo": "Base antiga preservada e recursos novos adicionados sem resetar as funções existentes."
+  "resumo": "Funções antigas recuperadas do histórico e recursos novos adicionados sem apagar a base antiga."
 }
