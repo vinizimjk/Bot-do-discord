@@ -1,25 +1,19 @@
 {
-  "id": "2026-09-01-restauracao-completa-historico",
-  "versao": "2026.09.01-restauracao-completa-historico",
-  "data": "01/09/2026",
-  "titulo": "## Restauração completa do bot e site",
+  "id": "2026-09-03-ban-livre-nick-sem-castigo",
+  "versao": "2026.09.03-ban-livre-nick-sem-castigo",
+  "data": "03/09/2026",
+  "titulo": "## Solicitações de ban e cadastro de nickname",
+  "mencionar_here": true,
   "novidades": [
-    "🔄 Recuperadas funções antigas do bot e do site a partir do histórico do projeto.",
-    "🎮 Adicionada a rota /api/roblox/game-profile/<roblox_id> sem remover o sistema antigo de vínculos.",
-    "📝 Formulário de candidatura atualizado para o endereço correto."
-  ],
-  "alteracoes": [
-    "🤖 bot.py completo disponível na raiz e em bot/bot.py para compatibilidade.",
-    "🌐 main.py completo restaurado na raiz para o serviço do site.",
-    "🛡️ Mantidas as correções recentes de Call DEV, antispam, frases variadas e stickers no bot."
+    "🔨 Agora qualquer membro do servidor pode solicitar um ban para análise."
   ],
   "correcoes": [
-    "🧩 O main.py foi recuperado de uma versão antiga mais completa do histórico, antes do reset.",
-    "🏠 A API verifica presença real nos servidores principal e de Eventos e retorna os cargos ao Roblox.",
-    "👤 Estar no servidor principal já permite Membro no jogo mesmo sem o cargo [MEM]."
+    "📩 O bot ainda pede o nickname por DM, mas agora pede apenas uma vez.",
+    "🎮 Castigo após não informar o username/nickname removido.\n\n## Motivo da remoção\nAs donzelas aparentemente não sabem o que significa “responder a DM” 😂"
   ],
-  "problemas_conhecidos": [
-    "🚂 No Railway, o serviço do BOT deve usar python bot.py; o serviço do SITE deve usar python main.py."
+  "alteracoes": [
+    "⚖️ Qualquer pessoa pode solicitar um ban; aprovar ou negar continua protegido."
   ],
-  "resumo": "Funções antigas recuperadas do histórico e recursos novos adicionados sem apagar a base antiga."
+  "problemas_conhecidos": [],
+  "resumo": "Solicitação de ban liberada e castigo por nickname pendente removido."
 }
