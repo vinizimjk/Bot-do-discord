@@ -7830,7 +7830,10 @@ async def on_voice_state_update(member, before, after):
         ok, erro = await entrar_call_dev_automaticamente(member.guild, after.channel)
         if not ok:
             print(f"Falha ao entrar automaticamente na call DEV: {erro}")
+        else:
+            iniciar_playlist_dev(member.guild)
     elif antes_manutencao and not depois_manutencao:
+        await parar_playlist_dev(member.guild, desconectar=True)
         resetar_sessao_manutencao()
         print("Modo manutenção: ENCERRADO — contadores zerados.")
 
@@ -9373,13 +9376,28 @@ async def cancelarreidamadrugada(interaction: discord.Interaction):
 # ZOEIRA EM CALL — ÁUDIOS LOCAIS
 # ==========================================================
 
+BOT_DIR = Path(__file__).resolve().parent
+
 AUDIO_CALL_DIR = Path(
-    os.getenv("AUDIOS_CALL_DIR", "audios_call")
+    os.getenv(
+        "AUDIOS_CALL_DIR",
+        str(BOT_DIR / "audios_call")
+    )
 )
 AUDIO_CALL_DIR.mkdir(
     parents=True,
     exist_ok=True
 )
+
+# Os áudios soltos diretamente em audios_call/ continuam sendo do /zoarcall.
+# As músicas exclusivas da call DEV ficam em audios_call/playlist_dev/.
+PLAYLIST_DEV_DIR = AUDIO_CALL_DIR / "playlist_dev"
+PLAYLIST_DEV_DIR.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+_playlist_dev_tasks = {}
 
 AUDIO_CALL_EXTENSOES = {
     ".mp3",
@@ -9430,6 +9448,156 @@ def listar_audios_call():
         key=lambda arquivo: arquivo.name.casefold()
     )
 
+
+
+def listar_musicas_playlist_dev():
+    try:
+        arquivos = [
+            arquivo
+            for arquivo in PLAYLIST_DEV_DIR.iterdir()
+            if (
+                arquivo.is_file()
+                and arquivo.suffix.casefold()
+                in AUDIO_CALL_EXTENSOES
+            )
+        ]
+    except OSError:
+        return []
+
+    return sorted(
+        arquivos,
+        key=lambda arquivo: arquivo.name.casefold()
+    )
+
+
+async def _loop_playlist_dev(guild: discord.Guild):
+    try:
+        while dono_esta_na_call_manutencao(guild):
+            musicas = listar_musicas_playlist_dev()
+            if not musicas:
+                print(
+                    "Call DEV: nenhuma música encontrada em "
+                    f"{PLAYLIST_DEV_DIR}"
+                )
+                return
+
+            voice = guild.voice_client
+            canal = guild.get_channel(CANAL_CALL_MANUTENCAO_ID)
+
+            if (
+                voice is None
+                or not voice.is_connected()
+                or voice.channel is None
+                or voice.channel.id != CANAL_CALL_MANUTENCAO_ID
+            ):
+                ok, erro = await entrar_call_dev_automaticamente(
+                    guild,
+                    canal
+                )
+                if not ok:
+                    print(
+                        "Call DEV: não consegui conectar para tocar "
+                        f"a playlist: {erro}"
+                    )
+                    return
+                voice = guild.voice_client
+
+            if voice is None:
+                return
+
+            for arquivo in musicas:
+                if not dono_esta_na_call_manutencao(guild):
+                    return
+
+                if not arquivo.exists():
+                    continue
+
+                while voice.is_playing() or voice.is_paused():
+                    if not dono_esta_na_call_manutencao(guild):
+                        return
+                    await asyncio.sleep(0.25)
+
+                try:
+                    fonte = await discord.FFmpegOpusAudio.from_probe(
+                        str(arquivo),
+                        executable=FFMPEG_BIN,
+                        method="fallback",
+                        options="-vn"
+                    )
+                    voice.play(fonte)
+                    print(
+                        f"Call DEV: tocando {arquivo.name}"
+                    )
+                except Exception as erro:
+                    print(
+                        "Call DEV: erro ao tocar "
+                        f"{arquivo.name}: {type(erro).__name__}: {erro}"
+                    )
+                    continue
+
+                while voice.is_playing() or voice.is_paused():
+                    if not dono_esta_na_call_manutencao(guild):
+                        try:
+                            voice.stop()
+                        except Exception:
+                            pass
+                        return
+                    await asyncio.sleep(0.25)
+
+            # Recomeça a playlist enquanto o Dono continuar na call DEV.
+            await asyncio.sleep(0.5)
+
+    except asyncio.CancelledError:
+        voice = guild.voice_client
+        if voice is not None and voice.is_playing():
+            try:
+                voice.stop()
+            except Exception:
+                pass
+        raise
+    finally:
+        _playlist_dev_tasks.pop(guild.id, None)
+
+
+def iniciar_playlist_dev(guild: discord.Guild):
+    atual = _playlist_dev_tasks.get(guild.id)
+    if atual is not None and not atual.done():
+        return atual
+
+    tarefa = asyncio.create_task(
+        _loop_playlist_dev(guild),
+        name=f"playlist_dev_{guild.id}"
+    )
+    _playlist_dev_tasks[guild.id] = tarefa
+    return tarefa
+
+
+async def parar_playlist_dev(
+    guild: discord.Guild,
+    *,
+    desconectar=True
+):
+    tarefa = _playlist_dev_tasks.pop(guild.id, None)
+    if tarefa is not None and not tarefa.done():
+        tarefa.cancel()
+        try:
+            await tarefa
+        except asyncio.CancelledError:
+            pass
+
+    voice = guild.voice_client
+    if voice is not None:
+        try:
+            if voice.is_playing() or voice.is_paused():
+                voice.stop()
+        except Exception:
+            pass
+
+        if desconectar and voice.is_connected():
+            try:
+                await voice.disconnect(force=True)
+            except Exception:
+                pass
 
 def localizar_audio_call(nome):
     nome = str(nome or "").strip().casefold()
@@ -9790,6 +9958,68 @@ async def autocomplete_audio_zoarcall(
     return opcoes
 
 
+
+
+@bot.tree.command(
+    name="falar",
+    description="Envia uma mensagem em um canal usando a conta do bot"
+)
+@app_commands.describe(
+    canal="Canal onde o bot vai falar",
+    mensagem="Mensagem que o bot deve enviar"
+)
+async def falar(
+    interaction: discord.Interaction,
+    canal: discord.TextChannel,
+    mensagem: str
+):
+    if interaction.user.id != DONO_ID:
+        await interaction.response.send_message(
+            "❌ Este comando é exclusivo do Dono/Programador.",
+            ephemeral=True
+        )
+        return
+
+    mensagem = str(mensagem or "").strip()
+
+    if not mensagem:
+        await interaction.response.send_message(
+            "❌ Escreva uma mensagem para eu enviar.",
+            ephemeral=True
+        )
+        return
+
+    if len(mensagem) > 2000:
+        await interaction.response.send_message(
+            "❌ A mensagem passou do limite de 2000 caracteres do Discord.",
+            ephemeral=True
+        )
+        return
+
+    try:
+        await canal.send(
+            mensagem,
+            allowed_mentions=discord.AllowedMentions.none()
+        )
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            "❌ Eu não tenho permissão para enviar mensagens nesse canal.",
+            ephemeral=True
+        )
+        return
+    except discord.HTTPException as erro:
+        await interaction.response.send_message(
+            f"❌ O Discord recusou a mensagem: {erro}",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.send_message(
+        f"✅ Mensagem enviada em {canal.mention}.",
+        ephemeral=True
+    )
+
+
 @bot.tree.command(
     name="zoarcall",
     description="Entra em uma call, toca um áudio e sai"
@@ -10049,6 +10279,8 @@ async def on_ready():
                 ok, erro = await entrar_call_dev_automaticamente(guild)
                 if not ok:
                     print(f"Falha ao restaurar conexão na call DEV: {erro}")
+                else:
+                    iniciar_playlist_dev(guild)
                 break
 
     if not getattr(
