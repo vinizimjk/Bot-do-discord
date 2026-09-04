@@ -6,6 +6,8 @@ import random
 import re
 import sqlite3
 import uuid
+import urllib.error
+import urllib.request
 from collections import deque
 from datetime import datetime, timedelta, timezone, time as dt_time
 from zoneinfo import ZoneInfo
@@ -18,7 +20,6 @@ from dotenv import load_dotenv
 from mcstatus import JavaServer, BedrockServer
 from groq import AsyncGroq
 import imageio_ffmpeg
-import aiohttp
 
 
 # ==========================================================
@@ -27,17 +28,16 @@ import aiohttp
 
 DONO_ID = 1455937306400653344
 CANAL_APROVACAO_ID = 1536073451633254420
-PAINEL_MENU_URL = os.getenv("SITE_PUBLIC_URL", "https://resenha-maxima.up.railway.app").rstrip("/")
-SITE_PUBLIC_URL = PAINEL_MENU_URL
-DEV_CALL_ID = 1540578640020897862
-CONTA_SECUNDARIA_ID = int(os.getenv("CONTA_SECUNDARIA_ID", "0") or 0)
-GOOGLE_FORMS_URL = os.getenv("GOOGLE_FORMS_URL", "https://forms.gle/h4kt2Cp7fduGG4Pc8")
+CANAL_CALL_MANUTENCAO_ID = 1540578640020897862
+CHAT_GERAL_ID = 1532792216047849673
+PAINEL_MENU_URL = "https://resenha-maxima.up.railway.app"
+ROBLOX_VINCULO_SECRET = os.getenv("ROBLOX_VINCULO_SECRET", "").strip()
 
 CARGO_MINECRAFT_ID = 1534006899371147304
+CARGO_ROBLOX_ID = 1540858217301549176
 CANAL_STATUS_MINECRAFT_ID = 1538109074779144253
 CANAL_NICKNAMES_MINECRAFT_ID = 1534423515183448155
 CARGO_DESENVOLVIMENTO_ID = 1533625836874498181
-CARGO_BANIMENTOS_ID = 1536734408277491863
 MINECRAFT_HOST = "Rmax-j8Un.aternos.me"
 MINECRAFT_PORTA = 16184
 MINECRAFT_EDICAO = "bedrock"  # servidor atual é Bedrock
@@ -68,11 +68,6 @@ GROQ_MODEL = os.getenv(
     "llama-3.3-70b-versatile"
 ).strip()
 
-CHAVE_IA_ATIVA = "ia_resenha_ativa"
-CHAVE_CANAL_IA = "ia_resenha_canal_id"
-
-CHAVE_IA_CAOS_ATIVO = "ia_caos_ativo"
-CHAVE_IA_CAOS_PROXIMO_ALVO = "ia_caos_proximo_alvo"
 CHAVE_IA_CAOS_ULTIMA_ACAO = "ia_caos_ultima_acao"
 
 # ==========================================================
@@ -116,11 +111,10 @@ MEMORIA_SOCIAL_RESENHA = {
         "apelidos": ["PK"],
         "fatos": [
             "É um dos jogadores de Minecraft mais ativos da Resenha.",
-            "Costuma ficar mais ativo em call do que no chat de texto.",
             "Normalmente leva bem zoeira de resenha.",
         ],
         "piadas": [
-            "Pode zoar dizendo que ele mora na call.",
+            "Existe uma piada interna sobre ele e call, mas só use quando o assunto atual já for call e nunca em respostas próximas.",
         ],
     },
     1467263535972225165: {
@@ -202,56 +196,6 @@ RESPOSTAS_RAPIDAS_IA = {
         "que isso? foto do teu pau? pequena demais, baixa de novo",
     ],
 }
-
-ATUALIZACAO_BOT_ID = "2026-08-21-05"
-ATUALIZACAO_BOT_TITULO = "Atualização da Resenha Máxima"
-
-# Respostas de personagem para recusas genéricas da IA.
-# Alterna entre membros conhecidos da Resenha.
-IA_FALLBACK_MACETANDO = [
-    ("Shelby", 1089629818628349962),
-    ("PK", 595754985875308565),
-    ("Draxz", 927746687605280809),
-]
-
-IA_RECUSAS_GENERICAS = (
-    "desculpe, não posso ajudar",
-    "desculpe, mas não posso ajudar",
-    "não posso ajudar com isso",
-    "nao posso ajudar com isso",
-    "não posso ajudar nesse pedido",
-    "não posso atender",
-    "não posso fazer isso",
-    "não posso continuar com isso",
-)
-
-ATUALIZACAO_NOVIDADES = [
-    "📞 Call de desenvolvimento automática quando o ADM-G entra na call de dev.",
-    "🔇 O bot pode entrar silenciosamente em qualquer call quando solicitado.",
-    "🎵 Playlist opcional para a call de desenvolvimento; sem músicas válidas, o bot permanece em silêncio.",
-    "💬 Comandos naturais para chamar o bot para uma call, além dos comandos /.",
-    "🌐 Comando /site para acesso rápido ao painel da Resenha Máxima.",
-    "🏢 Configuração do servidor do Departamento de Eventos com candidatura e sincronização de cargos.",
-    "🔨 Banimento no servidor principal passa a ser sincronizado com o servidor de Eventos.",
-]
-
-ATUALIZACAO_CORRECOES = [
-    "📝 Notas de atualização voltam a usar o arquivo NOTA_ATUALIZACAO.json como fonte única.",
-    "🧹 Futuras atualizações são removidas por varredura do próprio canal, evitando duplicações.",
-    "🛡️ Painel e sistema de solicitações de Ban/Hackban permanecem vinculados ao canal de aprovação.",
-]
-
-ATUALIZACAO_ALTERACOES = [
-    "🔊 Zoarcall passa a usar no máximo 2 áudios por execução e evita repetir o mesmo áudio em sequência.",
-    "🧠 Quando houver 3 pessoas reais em call, o bot pode processar somente informações leves e relevantes para contexto social.",
-    "🧪 Conta secundária e bot de música não entram na contagem das 3 pessoas.",
-    "👤 No servidor de Eventos, Intruso fica limitado à candidatura até tentar entrar como Aprendiz.",
-    "📊 O canal de hierarquia pode ser preenchido automaticamente com os cargos criados pelo bot.",
-]
-
-ATUALIZACAO_PROBLEMAS_CONHECIDOS = [
-    "🔧 A restauração de movimento, server mute e server deaf depende das permissões concedidas ao bot pelo Discord.",
-]
 
 IA_MEMORIA_MENSAGENS = 10
 IA_MAX_RESPOSTA_CARACTERES = 1600
@@ -348,13 +292,9 @@ PERSONALIDADE:
   Só use emoji quando ele realmente melhorar a piada; nunca coloque por hábito
   no final de toda frase.
 - Às vezes uma simples reação é melhor do que mandar texto.
-- Você agora pode realmente entrar na call do autor para zoar.
-- Quando você DECIDIR que quer entrar na call da pessoa, em vez de só prometer,
-  responda EXATAMENTE no formato:
-  ENTRAR_CALL: texto curto que você quer mandar antes de entrar
-- Use ENTRAR_CALL apenas quando fizer sentido na conversa, principalmente se a pessoa
-  pedir para você entrar, desafiar você, ou se você mesmo estiver ameaçando entrar.
-- Não use ENTRAR_CALL toda hora. Existe cooldown e a ação pode ser recusada pelo sistema.
+- Memória social serve SOMENTE como contexto. Não transforme fatos, apelidos ou piadas internas cadastradas em pauta por conta própria.
+- Reconhecer uma pessoa não é motivo para repetir a piada associada a ela. Responda primeiro ao conteúdo da mensagem atual.
+- Evite reutilizar a mesma estrutura, bordão ou piada em respostas próximas; mude a abordagem de verdade.
 
 LIMITES DE PERSONALIDADE:
 - Não faça ameaças reais de violência.
@@ -382,10 +322,6 @@ FORMATO DE RESPOSTA:
   REAGIR: 😂
 - Para reação, use apenas UM destes emojis:
   😂 💀 🤨 👀 👑 😭 🔥 🤝 😎 🫡 ❤️ 👍 😈 🙄 🤣
-- Se uma figurinha do servidor combinar melhor, responda EXATAMENTE com:
-  STICKER:
-  O bot escolhe a figurinha pelo contexto. Nunca deixe REAGIR: ou STICKER:
-  aparecendo como texto normal para os membros.
 """.strip()
 
 groq_client = (
@@ -400,9 +336,11 @@ _cooldown_ia = {}
 # Menções vazias/repetidas: evita resposta de atendente em loop.
 _ia_mencoes_recentes = {}
 _ia_respostas_rapidas_recentes = {}
+_ia_respostas_textuais_recentes = {}
 IA_MENCAO_REPETIDA_JANELA = 45
 IA_MENCAO_REPETIDA_LIMITE = 2
 IA_RESPOSTAS_RAPIDAS_MEMORIA = 4
+IA_RESPOSTAS_TEXTUAIS_MEMORIA = 6
 
 # Histórico em memória de ofensas insistentes direcionadas ao bot.
 _ia_abuso = {}
@@ -454,11 +392,6 @@ else:
     ARQUIVO_BANCO = BANCO_NOVO
 
 load_dotenv(dotenv_path=ARQUIVO_ENV)
-
-# IDs dos servidores. Mantidos configuráveis por ambiente, com o servidor de Eventos
-# oficial como fallback para evitar confundir o principal com o Departamento.
-GUILD_ID = os.getenv("GUILD_ID", "").strip()
-EVENTOS_GUILD_ID = int(os.getenv("EVENTOS_GUILD_ID", "1541541588122079283") or 1541541588122079283)
 
 
 
@@ -2205,15 +2138,13 @@ def pode_usar_comando_admin(membro):
         return True
 
     return any(
-        cargo.id in {CARGO_DESENVOLVIMENTO_ID, CARGO_BANIMENTOS_ID}
+        cargo.id == CARGO_DESENVOLVIMENTO_ID
         for cargo in membro.roles
     )
 
 
 def pode_usar_sistema_ban(membro):
-    # Qualquer membro humano pode abrir uma solicitação.
-    # Aprovar/negar continua restrito ao sistema administrativo.
-    return isinstance(membro, discord.Member) and not membro.bot
+    return pode_usar_comando_admin(membro)
 
 
 async def negar_se_nao_admin(interaction):
@@ -2898,7 +2829,10 @@ async def processar_negacao(
             False
         )
 
-        # Não existe mais castigo por nickname pendente.
+        if membro is not None:
+            cadastro_nick = buscar_cadastro_nick(guild.id, membro.id)
+            if cadastro_nick and cadastro_nick["castigo_aplicado"]:
+                await aplicar_castigo_nick(membro)
 
     finalizar_solicitacao_ban(
         solicitacao_id,
@@ -4353,10 +4287,10 @@ async def enviar_pergunta_nick(membro, aviso=None):
             "Você recebeu o cargo de Minecraft. Responda **esta DM** com o seu nickname no Minecraft."
         )
     else:
-        # Compatibilidade: não há mais cobrança repetida.
         texto = (
-            "🎮 **Cadastro do Minecraft — Resenha Máxima**\n\n"
-            "Quando puder, responda **esta DM** com o seu nickname no Minecraft."
+            f"⚠️ **Aviso {aviso}/4 — nickname pendente**\n\n"
+            "Responda esta DM com o seu nickname no Minecraft. "
+            "Após o 4º aviso, será aplicado timeout até o cadastro."
         )
     try:
         await membro.send(texto)
@@ -4826,9 +4760,28 @@ async def verificar_nicknames_minecraft():
         except (TypeError, ValueError):
             inicio = agora
 
-        # O pedido do nickname já foi enviado uma vez ao iniciar o cadastro.
-        # Sem lembretes automáticos e sem timeout/castigo.
-        continue
+        horas = (agora - inicio).total_seconds() / 3600
+        enviados = int(cadastro['avisos_enviados'] or 0)
+        proximo = enviados + 1
+
+        if proximo <= 4 and horas >= AVISOS_NICK_HORAS[proximo - 1]:
+            dm = await enviar_pergunta_nick(membro, proximo)
+            atualizar_cadastro_nick(guild.id, membro.id, avisos_enviados=proximo)
+            await enviar_log_dono(
+                f"⚠️ Aviso {proximo}/4 de nickname para {membro} ({membro.id}). "
+                f"DM: {'enviada' if dm else 'falhou/bloqueada'}."
+            )
+            if proximo == 4:
+                ok, erro = await aplicar_castigo_nick(membro)
+                await enviar_log_dono(
+                    f"🔒 Timeout de nickname para {membro}: " + ('aplicado.' if ok else f'falhou — {erro}')
+                )
+
+        atual = buscar_cadastro_nick(guild.id, membro.id)
+        if atual and atual['castigo_aplicado']:
+            limite = getattr(membro, 'timed_out_until', None)
+            if limite is None or limite < agora + timedelta(days=7):
+                await aplicar_castigo_nick(membro)
 
     for cadastro in listar_nicks_por_status('ausente'):
         try:
@@ -5283,52 +5236,8 @@ async def on_invite_delete(
 # MEMBRO COM PEDIDO PENDENTE VOLTA
 # ==========================================================
 
-
-async def aplicar_hierarquia_eventos_ao_entrar(member: discord.Member):
-    """No servidor do Departamento, novos membros começam como Intruso.
-    Somente a aprovação da candidatura promove para Aprendiz. A conta de teste recebe
-    apenas o cargo de teste, sem permissões especiais."""
-    if member.bot:
-        return
-    nomes = {
-        "Chef de Departamento",
-        "Diretor de Eventos",
-        "Gerente de Eventos",
-        "Coordenador de Eventos",
-        "Supervisor de Eventos",
-        "Aprendiz de Eventos",
-        "Intruso",
-    }
-    cargos_eventos = [r for r in member.guild.roles if r.name in nomes]
-    if not cargos_eventos:
-        return
-    try:
-        if member.id == 1532838576256057557:
-            cargo_teste = discord.utils.get(member.guild.roles, id=1536081355711062166)
-            if cargo_teste is not None:
-                remover = [r for r in member.roles if r in cargos_eventos]
-                if remover:
-                    await member.remove_roles(*remover, reason="Conta de teste do Departamento de Eventos")
-                if cargo_teste not in member.roles:
-                    await member.add_roles(cargo_teste, reason="Conta de teste do Departamento de Eventos")
-            return
-
-        if any(r.name in nomes for r in member.roles):
-            return
-
-        intruso = discord.utils.get(member.guild.roles, name="Intruso")
-        if intruso is not None:
-            await member.add_roles(
-                intruso,
-                reason="Novo membro do Departamento de Eventos inicia como Intruso até a aprovação"
-            )
-    except (discord.Forbidden, discord.HTTPException) as erro:
-        print(f"Não consegui aplicar hierarquia de eventos a {member}: {erro}")
-
-
 @bot.event
 async def on_member_join(member: discord.Member):
-    await aplicar_hierarquia_eventos_ao_entrar(member)
     if not member.bot:
         try:
             await registrar_entrada_membro(
@@ -5354,31 +5263,6 @@ async def on_member_join(member: discord.Member):
             print(f'Não consegui reaplicar castigo para {member.id}: {erro}')
 
 
-def localizar_guild_eventos():
-    principal = int(GUILD_ID) if str(GUILD_ID or "").isdigit() else None
-    guild_configurada = bot.get_guild(EVENTOS_GUILD_ID) if EVENTOS_GUILD_ID else None
-    if guild_configurada is not None and (principal is None or guild_configurada.id != principal):
-        return guild_configurada
-    for guild in bot.guilds:
-        if principal and guild.id == principal:
-            continue
-        if discord.utils.get(guild.roles, name="Chef de Departamento") is not None:
-            return guild
-    return None
-
-@bot.event
-async def on_member_ban(guild, user):
-    """Sincroniza banimentos do servidor principal com o Departamento de Eventos."""
-    if str(guild.id) != str(GUILD_ID):
-        return
-    event_guild=localizar_guild_eventos()
-    if event_guild is None: return
-    try:
-        await event_guild.ban(user, reason="Ban sincronizado do servidor principal RESENHA MÁXIMA")
-        print(f"Ban sincronizado para Eventos: {user.id}")
-    except (discord.Forbidden, discord.HTTPException) as erro:
-        print(f"Falha ao sincronizar ban {user.id}: {erro}")
-
 @bot.event
 async def on_member_remove(member: discord.Member):
     cadastro = buscar_cadastro_nick(member.guild.id, member.id)
@@ -5394,12 +5278,178 @@ async def on_member_remove(member: discord.Member):
         )
 
 
+# ==========================================================
+# ROBLOX - VINCULACAO AUTOMATICA POR CARGO
+# ==========================================================
+
+def _requisicao_json_roblox(caminho, metodo="GET", payload=None):
+    """Faz uma chamada interna ao site sem travar o bot."""
+    url = PAINEL_MENU_URL.rstrip("/") + caminho
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "Resenha-Maxima-Bot/1.0",
+    }
+
+    if ROBLOX_VINCULO_SECRET:
+        headers["X-Roblox-Link-Secret"] = ROBLOX_VINCULO_SECRET
+
+    corpo = None
+    if payload is not None:
+        dados = dict(payload)
+        if ROBLOX_VINCULO_SECRET:
+            dados.setdefault("secret", ROBLOX_VINCULO_SECRET)
+        corpo = json.dumps(dados).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    requisicao = urllib.request.Request(
+        url,
+        data=corpo,
+        headers=headers,
+        method=metodo,
+    )
+
+    try:
+        with urllib.request.urlopen(requisicao, timeout=15) as resposta:
+            texto = resposta.read().decode("utf-8")
+            return json.loads(texto or "{}")
+    except urllib.error.HTTPError as erro:
+        try:
+            texto = erro.read().decode("utf-8")
+            dados = json.loads(texto or "{}")
+        except Exception:
+            dados = {}
+        return {
+            "ok": False,
+            "erro": dados.get("erro") or f"Site respondeu HTTP {erro.code}.",
+        }
+    except Exception as erro:
+        return {
+            "ok": False,
+            "erro": f"Não consegui falar com o site: {erro}",
+        }
+
+
+async def buscar_vinculo_roblox(discord_id):
+    return await asyncio.to_thread(
+        _requisicao_json_roblox,
+        f"/api/roblox/vinculo/{discord_id}",
+    )
+
+
+async def criar_link_vinculo_roblox(membro):
+    return await asyncio.to_thread(
+        _requisicao_json_roblox,
+        "/api/roblox/criar-vinculo",
+        "POST",
+        {
+            "discord_id": str(membro.id),
+            "guild_id": str(membro.guild.id),
+            "discord_nome": str(membro),
+        },
+    )
+
+
+async def iniciar_cadastro_roblox(membro):
+    """Envia a DM de login Roblox somente se a conta ainda não estiver vinculada."""
+    if membro.bot:
+        return
+
+    if not ROBLOX_VINCULO_SECRET:
+        print(
+            "⚠️ Roblox: ROBLOX_VINCULO_SECRET não está configurado no bot."
+        )
+        return
+
+    atual = await buscar_vinculo_roblox(membro.id)
+    if atual.get("ok") and atual.get("vinculado"):
+        vinculo = atual.get("vinculo") or {}
+        usuario = vinculo.get("username") or vinculo.get("display_name") or "conta vinculada"
+        print(
+            f"✅ Roblox já vinculado para {membro} ({membro.id}): {usuario}"
+        )
+        return
+
+    resposta = await criar_link_vinculo_roblox(membro)
+    if not resposta.get("ok"):
+        print(
+            "❌ Não consegui criar o link Roblox para "
+            f"{membro} ({membro.id}): {resposta.get('erro', 'erro desconhecido')}"
+        )
+        return
+
+    url = str(resposta.get("url") or "").strip()
+    if not url:
+        print(
+            f"❌ O site não devolveu um link Roblox para {membro} ({membro.id})."
+        )
+        return
+
+    embed = discord.Embed(
+        title="🎮 Cadastro do Roblox — Resenha Máxima",
+        description=(
+            "Você recebeu o cargo de **Roblox**. Para cadastrar sua conta, "
+            "clique no botão abaixo e entre na sua conta pelo login oficial do Roblox.\
+\
+"
+            "O link é temporário e serve apenas para confirmar qual conta Roblox é sua."
+        ),
+        color=discord.Color.blurple(),
+    )
+    embed.set_footer(text="Resenha Máxima • Vinculação Roblox")
+
+    view = discord.ui.View(timeout=None)
+    view.add_item(
+        discord.ui.Button(
+            label="Entrar com Roblox",
+            style=discord.ButtonStyle.link,
+            emoji="🎮",
+            url=url,
+        )
+    )
+
+    try:
+        await membro.send(embed=embed, view=view)
+        print(
+            f"📩 Cadastro Roblox enviado por DM para {membro} ({membro.id})."
+        )
+    except discord.Forbidden:
+        print(
+            f"⚠️ Não consegui enviar DM de cadastro Roblox para {membro} ({membro.id}). DMs fechadas."
+        )
+    except discord.HTTPException as erro:
+        print(
+            f"❌ Erro ao enviar DM Roblox para {membro} ({membro.id}): {erro}"
+        )
+
+
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
-    tinha = any(cargo.id == CARGO_MINECRAFT_ID for cargo in before.roles)
-    tem = any(cargo.id == CARGO_MINECRAFT_ID for cargo in after.roles)
-    if not tinha and tem and not after.bot:
+    if after.bot:
+        return
+
+    tinha_minecraft = any(
+        cargo.id == CARGO_MINECRAFT_ID
+        for cargo in before.roles
+    )
+    tem_minecraft = any(
+        cargo.id == CARGO_MINECRAFT_ID
+        for cargo in after.roles
+    )
+
+    tinha_roblox = any(
+        cargo.id == CARGO_ROBLOX_ID
+        for cargo in before.roles
+    )
+    tem_roblox = any(
+        cargo.id == CARGO_ROBLOX_ID
+        for cargo in after.roles
+    )
+
+    if not tinha_minecraft and tem_minecraft:
         await iniciar_cadastro_nick(after)
+
+    if not tinha_roblox and tem_roblox:
+        await iniciar_cadastro_roblox(after)
 
 
 
@@ -5552,8 +5602,7 @@ def criar_texto_atualizacao_bot(nota=None):
     )
 
     partes = [
-        ("@here\n\n" if nota.get("mencionar_here") is True else "")
-        + "# Notas de atualização",
+        f"# 📝 {nota['titulo']}",
         f"**Versão:** `{versao}`\n**Data:** {data_exibicao}",
     ]
 
@@ -5600,112 +5649,29 @@ def mensagem_e_atualizacao_pendente(mensagem: discord.Message):
     if mensagem.author.id != bot.user.id:
         return False
 
-    linhas = [
-        linha.strip()
-        for linha in str(mensagem.content or "").splitlines()
-        if linha.strip()
-    ]
-    if not linhas:
-        return False
-
+    conteudo = str(mensagem.content or "").casefold()
     marcadores = (
         "futuras atualizações",
         "futuras atualizacoes",
         "próximas atualizações",
         "proximas atualizacoes",
     )
-
-    # Só considera prévia quando o marcador aparece como título/início do
-    # bloco. Assim uma nota real pode citar "Futuras Atualizações" no corpo
-    # sem ser confundida com a própria prévia.
-    for linha in linhas[:3]:
-        normalizada = linha.casefold()
-        if linha.startswith("#") and any(
-            marcador in normalizada
-            for marcador in marcadores
-        ):
-            return True
-
-    primeira = linhas[0].casefold().lstrip("# ").strip()
-    return any(
-        primeira.startswith(marcador)
-        for marcador in marcadores
-    )
+    return any(marcador in conteudo for marcador in marcadores)
 
 
 async def remover_atualizacoes_pendentes(canal):
-    """Remove blocos antigos de Futuras Atualizações e o sticker ligado a eles.
-
-    A busca não depende do arquivo do painel web, porque BOT e SITE podem
-    usar volumes separados na Railway. O marcador textual no Discord é a
-    fonte de verdade para esta limpeza.
-    """
     removidas = 0
-
     try:
-        # Usa uma janela maior para não deixar a prévia escapar em canais
-        # movimentados. history() retorna do mais novo para o mais antigo.
-        mensagens = [
-            mensagem
-            async for mensagem in canal.history(limit=500)
-        ]
-    except (discord.Forbidden, discord.HTTPException):
-        return 0
-
-    if bot.user is None:
-        return 0
-
-    ids_apagados = set()
-
-    for indice, mensagem in enumerate(mensagens):
-        if mensagem.id in ids_apagados:
-            continue
-        if not mensagem_e_atualizacao_pendente(mensagem):
-            continue
-
-        alvo_ids = {mensagem.id}
-        instante_base = mensagem.created_at
-
-        # As partes seguintes da mesma prévia aparecem ANTES deste índice
-        # porque a lista está em ordem reversa. O sticker encerra o bloco.
-        passos = 0
-        pos = indice - 1
-        while pos >= 0 and passos < 12:
-            candidata = mensagens[pos]
-            passos += 1
-
-            if candidata.author.id != bot.user.id:
-                break
-
-            conteudo = str(candidata.content or "").strip()
-
-            # Nunca toca na nota real recém-publicada.
-            primeira_normalizada = conteudo.casefold().lstrip("# ").strip()
-            if primeira_normalizada.startswith("notas de atualização") or primeira_normalizada.startswith("notas de atualizacao"):
-                break
-
-            diferenca = abs((candidata.created_at - instante_base).total_seconds())
-            if diferenca > 45:
-                break
-
-            alvo_ids.add(candidata.id)
-
-            if candidata.stickers and not conteudo:
-                break
-
-            pos -= 1
-
-        # Apaga do mais novo para o mais antigo.
-        for candidata in mensagens:
-            if candidata.id not in alvo_ids or candidata.id in ids_apagados:
+        async for mensagem in canal.history(limit=100):
+            if not mensagem_e_atualizacao_pendente(mensagem):
                 continue
             try:
-                await candidata.delete()
-                ids_apagados.add(candidata.id)
+                await mensagem.delete()
                 removidas += 1
             except (discord.Forbidden, discord.HTTPException):
                 pass
-
+    except (discord.Forbidden, discord.HTTPException):
+        pass
     return removidas
 
 
@@ -5749,7 +5715,7 @@ async def publicar_atualizacao_bot(*, forcar=False):
                 allowed_mentions=discord.AllowedMentions(
                     users=True,
                     roles=False,
-                    everyone=(nota.get("mencionar_here") is True),
+                    everyone=False,
                     replied_user=False,
                 ),
             )
@@ -5842,41 +5808,17 @@ def parece_recusa_generica_ia(
 # ==========================================================
 
 def ia_esta_ativa():
-    remoto = _ia_config_remota.get("ativa")
-    if remoto is not None:
-        return bool(remoto)
-
-    valor = obter_estado(
-        CHAVE_IA_ATIVA
-    )
-
-    if valor is None:
-        return True
-
-    return str(valor) == "1"
+    return bool(_ia_config_remota.get("ativa", True))
 
 
 def canal_ia_configurado():
     remoto = _ia_config_remota.get("canal_id")
-    if remoto not in (None, ""):
-        try:
-            return int(remoto)
-        except (TypeError, ValueError):
-            pass
-
-    valor = obter_estado(
-        CHAVE_CANAL_IA
-    )
-
-    if not valor:
+    if remoto in (None, ""):
         return None
 
     try:
-        return int(valor)
-    except (
-        TypeError,
-        ValueError
-    ):
+        return int(remoto)
+    except (TypeError, ValueError):
         return None
 
 
@@ -6253,22 +6195,27 @@ def contexto_social_ia(
                 []
             ):
                 linhas.append(
-                    f"  FATO: {fato}"
+                    f"  CONTEXTO SILENCIOSO (não mencione sem necessidade): {fato}"
                 )
 
             for piada in ficha.get(
                 "piadas",
                 []
             ):
+                texto_atual = str(message.content or "").casefold()
+                if usuario_id == 595754985875308565 and "call" not in texto_atual:
+                    continue
+                if random.random() > 0.20:
+                    continue
                 linhas.append(
-                    f"  PIADA INTERNA: {piada}"
+                    f"  PIADA INTERNA OPCIONAL E RARA: {piada}"
                 )
 
         linhas.append(
             "Nunca trate PIADA INTERNA como fato real. "
-            "Use essas referências ocasionalmente, sem repetir toda hora. "
-            "Memória social é tempero, não assunto: responda principalmente ao que a pessoa acabou de dizer. "
-            "Não puxe país, cidade, cargo, rotina ou piada cadastrada só porque reconheceu o membro. "
+            "Memória social é contexto silencioso, não pauta: responda principalmente ao que a pessoa acabou de dizer. "
+            "NÃO mencione fatos ou piadas cadastradas só porque reconheceu o membro. "
+            "Só use uma referência quando ela realmente combinar com o assunto atual e não tiver sido usada recentemente. "
             "Para Draxz, não mencione Itália espontaneamente; Angola é uma piada rara e não deve aparecer em respostas próximas."
         )
 
@@ -6283,154 +6230,75 @@ def contexto_social_ia(
     )
 
 
+def extrair_resposta_ia(
+    conteudo
+):
+    """
+    A Groq agora responde em texto normal.
+    Se quiser apenas reagir, ela usa: REAGIR: 😂
+    """
+    conteudo = str(
+        conteudo or ""
+    ).strip()
 
-_STICKERS_CATALOGO_CACHE = None
-_ULTIMOS_STICKERS_IA = deque(maxlen=4)
-
-
-def carregar_stickers_contexto():
-    global _STICKERS_CATALOGO_CACHE
-    if _STICKERS_CATALOGO_CACHE is not None:
-        return _STICKERS_CATALOGO_CACHE
-
-    caminho = Path(__file__).with_name("stickers_contexto.json")
-    try:
-        dados = json.loads(caminho.read_text(encoding="utf-8"))
-        stickers = dados.get("stickers", []) if isinstance(dados, dict) else []
-        _STICKERS_CATALOGO_CACHE = [
-            item for item in stickers
-            if isinstance(item, dict)
-            and item.get("auto_uso") is True
-            and str(item.get("id", "")).isdigit()
-        ]
-    except (OSError, json.JSONDecodeError):
-        _STICKERS_CATALOGO_CACHE = []
-    return _STICKERS_CATALOGO_CACHE
-
-
-def escolher_sticker_contextual(texto):
-    texto_norm = normalizar_texto_ia(str(texto or ""))
-    if not texto_norm:
-        return None
-    tokens = {t for t in re.findall(r"[a-z0-9]{3,}", texto_norm) if len(t) >= 3}
-    candidatos = []
-    for item in carregar_stickers_contexto():
-        sticker_id = str(item.get("id", ""))
-        if sticker_id in _ULTIMOS_STICKERS_IA:
-            continue
-        campos = []
-        campos.extend(item.get("palavras_chave", []) or [])
-        campos.extend(item.get("emocao", []) or [])
-        campos.extend(item.get("usar_quando", []) or [])
-        base = normalizar_texto_ia(" ".join(map(str, campos)))
-        score = sum(2 for token in tokens if token in base)
-        for palavra in item.get("palavras_chave", []) or []:
-            p = normalizar_texto_ia(str(palavra))
-            if p and p in texto_norm:
-                score += 3
-        if score > 0:
-            candidatos.append((score, random.random(), item))
-    if candidatos:
-        candidatos.sort(key=lambda x: (x[0], x[1]), reverse=True)
-        return candidatos[0][2]
-    neutros = [
-        item for item in carregar_stickers_contexto()
-        if str(item.get("id", "")) not in _ULTIMOS_STICKERS_IA
-        and any(
-            termo in normalizar_texto_ia(" ".join(map(str, item.get("emocao", []) or [])))
-            for termo in ("sem reacao", "desconfianca", "confusao", "surpresa")
-        )
-    ]
-    return random.choice(neutros) if neutros else None
-
-
-async def obter_sticker_guild(guild, sticker_id):
-    if guild is None:
-        return None
-    try:
-        sticker_id = int(sticker_id)
-    except (TypeError, ValueError):
-        return None
-    encontrado = discord.utils.get(guild.stickers, id=sticker_id)
-    if encontrado is not None:
-        return encontrado
-    try:
-        stickers = await guild.fetch_stickers()
-    except (discord.Forbidden, discord.HTTPException):
-        return None
-    return discord.utils.get(stickers, id=sticker_id)
-
-
-async def enviar_sticker_contextual(message, texto_contexto, texto_resposta=""):
-    item = escolher_sticker_contextual(texto_contexto)
-    if item is None:
-        return False
-    sticker = await obter_sticker_guild(message.guild, item.get("id"))
-    if sticker is None:
-        return False
-    try:
-        await message.reply(
-            texto_resposta or None,
-            mention_author=False,
-            allowed_mentions=discord.AllowedMentions(
-                users=True, roles=False, everyone=False, replied_user=False
-            ),
-            stickers=[sticker],
-        )
-    except (discord.Forbidden, discord.HTTPException, TypeError):
-        return False
-    _ULTIMOS_STICKERS_IA.append(str(item.get("id")))
-    return True
-
-
-def extrair_resposta_ia(conteudo):
-    """Interpreta instruções internas sem deixar REAGIR/STICKER vazarem no chat."""
-    conteudo = str(conteudo or "").strip()
     if not conteudo:
-        return {"acao": "sticker", "texto": "", "emoji": ""}
+        return {
+            "acao": "reagir",
+            "texto": "",
+            "emoji": "🤨",
+        }
 
     match_call = re.fullmatch(
-        r"ENTRAR_CALL:\s*(.*)", conteudo,
+        r"ENTRAR_CALL:\s*(.*)",
+        conteudo,
         flags=re.IGNORECASE | re.DOTALL
     )
+
     if match_call:
-        return {"acao": "entrar_call", "texto": match_call.group(1).strip()[:500], "emoji": ""}
-
-    match_sticker = re.search(
-        r"(?:^|\n)\s*(?:STICKER|FIGURINHA):\s*([^\n]*)\s*$",
-        conteudo, flags=re.IGNORECASE
-    )
-    if match_sticker:
-        texto = conteudo[:match_sticker.start()].strip()
+        texto_call = match_call.group(1).strip()
         return {
-            "acao": "responder_sticker" if texto else "sticker",
-            "texto": texto[:IA_MAX_RESPOSTA_CARACTERES], "emoji": ""
+            "acao": "entrar_call",
+            "texto": texto_call[:500],
+            "emoji": "",
         }
 
-    match_reagir = re.search(
-        r"(?:^|\n)\s*REAGIR:\s*([^\s\n]*)\s*$",
-        conteudo, flags=re.IGNORECASE
+    match = re.fullmatch(
+        r"REAGIR:\s*(\S+)",
+        conteudo,
+        flags=re.IGNORECASE
     )
-    if match_reagir:
-        texto = conteudo[:match_reagir.start()].strip()
-        valor = match_reagir.group(1).strip()
-        if valor in EMOJIS_REACAO_IA:
+
+    if match:
+        emoji = match.group(1).strip()
+
+        if emoji in EMOJIS_REACAO_IA:
             return {
-                "acao": "responder_reagir" if texto else "reagir",
-                "texto": texto[:IA_MAX_RESPOSTA_CARACTERES], "emoji": valor
+                "acao": "reagir",
+                "texto": "",
+                "emoji": emoji,
             }
-        return {
-            "acao": "responder_sticker" if texto else "sticker",
-            "texto": texto[:IA_MAX_RESPOSTA_CARACTERES], "emoji": ""
-        }
 
-    conteudo = re.sub(r"^```(?:text)?\s*", "", conteudo, flags=re.IGNORECASE)
-    conteudo = re.sub(r"\s*```$", "", conteudo)
+    # Remove cercas de código caso o modelo invente uma.
     conteudo = re.sub(
-        r"(?:^|\n)\s*(?:REAGIR|STICKER|FIGURINHA):\s*$",
-        "", conteudo, flags=re.IGNORECASE
-    ).strip()
-    return {"acao": "responder", "texto": conteudo[:IA_MAX_RESPOSTA_CARACTERES], "emoji": ""}
+        r"^```(?:text)?\s*",
+        "",
+        conteudo,
+        flags=re.IGNORECASE
+    )
+    conteudo = re.sub(
+        r"\s*```$",
+        "",
+        conteudo
+    )
+
+    return {
+        "acao": "responder",
+        "texto": conteudo[
+            :IA_MAX_RESPOSTA_CARACTERES
+        ],
+        "emoji": "",
+    }
+
 
 def mensagem_abusiva_contra_ia(message: discord.Message):
     """Heurística conservadora: conta só ofensa claramente dirigida ao bot."""
@@ -6600,6 +6468,34 @@ def escolher_sem_repetir_ia(usuario_id, opcoes):
     return escolhida
 
 
+def contexto_antirrepeticao_ia(usuario_id):
+    historico = _ia_respostas_textuais_recentes.get(usuario_id)
+    if not historico:
+        return ""
+
+    recentes = list(historico)[-4:]
+    linhas = [
+        "",
+        "ANTI-REPETIÇÃO:",
+        "- Estas foram respostas recentes suas para esta pessoa. Não repita a mesma piada, bordão, estrutura ou ideia:",
+    ]
+    linhas.extend(f"  • {item[:350]}" for item in recentes)
+    linhas.append("- Se o assunto for parecido, responda por outro ângulo e com palavras diferentes.")
+    return "\n".join(linhas)
+
+
+def registrar_resposta_textual_ia(usuario_id, texto):
+    texto = str(texto or "").strip()
+    if not texto:
+        return
+
+    historico = _ia_respostas_textuais_recentes.setdefault(
+        usuario_id,
+        deque(maxlen=IA_RESPOSTAS_TEXTUAIS_MEMORIA)
+    )
+    historico.append(texto)
+
+
 def contar_mencao_repetida_ia(message: discord.Message):
     agora = datetime.now(timezone.utc).timestamp()
     estado = _ia_mencoes_recentes.get(message.author.id, [])
@@ -6718,6 +6614,7 @@ async def enviar_resposta_rapida_ia(message: discord.Message, texto):
         )
     except discord.HTTPException:
         return False
+    registrar_resposta_textual_ia(message.author.id, texto)
     return True
 
 
@@ -6794,6 +6691,10 @@ async def responder_com_ia(
         message
     )
 
+    contexto_antirrepeticao = contexto_antirrepeticao_ia(
+        message.author.id
+    )
+
     pedido_call = mensagem_pede_bot_na_call(
         message.content
     )
@@ -6802,18 +6703,22 @@ async def responder_com_ia(
         canal_call = autor_em_call(message)
         if canal_call is None:
             estado_call = (
-                "\nA pessoa está pedindo para você entrar em call, "
-                "mas ela NÃO está em nenhuma call agora."
+                "\nA pessoa está pedindo/desafiando você a entrar em call, "
+                "mas ela NÃO está em nenhuma call agora. "
+                "NÃO use ENTRAR_CALL; zoe o fato de ela ter chamado sem estar em call."
             )
         else:
             restante_call = restante_cooldown_ia_call(
                 message.author.id
             )
             estado_call = (
-                "\nA pessoa está pedindo para você entrar na call "
+                "\nAÇÃO DE VOZ SOLICITADA NESTA MENSAGEM: "
+                "a pessoa pediu/desafiou você a entrar na call "
                 f"`{canal_call.name}`. "
                 + (
-                    "Você está livre para usar ENTRAR_CALL."
+                    "Se decidir aceitar, responda EXATAMENTE no formato "
+                    "ENTRAR_CALL: texto curto que você quer mandar antes de entrar. "
+                    "Não use esse formato para nenhum outro assunto."
                     if restante_call <= 0
                     else
                     "Você está em cooldown; NÃO use ENTRAR_CALL. "
@@ -6830,6 +6735,7 @@ async def responder_com_ia(
                 f"Mensagem: {pergunta}"
                 f"{contexto_social}"
                 f"{contexto_estilo}"
+                f"{contexto_antirrepeticao}"
                 f"{estado_call}"
             ),
         }
@@ -6882,6 +6788,15 @@ async def responder_com_ia(
         }
     )
 
+    # Segurança de comportamento: mesmo que o modelo invente ENTRAR_CALL,
+    # a ação de voz só é aceita quando a mensagem atual realmente pediu/desafiou.
+    if resultado["acao"] == "entrar_call" and not pedido_call:
+        resultado = {
+            "acao": "responder",
+            "texto": resultado.get("texto") or "fala direito comigo aí kkk",
+            "emoji": "",
+        }
+
     if resultado["acao"] == "entrar_call":
         memoria.append(
             {
@@ -6898,56 +6813,6 @@ async def responder_com_ia(
                 resultado.get("texto", "")
             )
         )
-        return True
-
-    if resultado["acao"] in {"sticker", "responder_sticker"}:
-        texto_sticker = reduzir_emojis_ia(resultado.get("texto", ""))
-        enviado = await enviar_sticker_contextual(
-            message, pergunta,
-            texto_sticker if resultado["acao"] == "responder_sticker" else "",
-        )
-        if not enviado:
-            if texto_sticker:
-                try:
-                    await message.reply(
-                        texto_sticker, mention_author=False,
-                        allowed_mentions=discord.AllowedMentions(
-                            users=True, roles=False, everyone=False, replied_user=False
-                        ),
-                    )
-                except discord.HTTPException:
-                    pass
-            else:
-                try:
-                    await message.add_reaction("🤨")
-                except (discord.Forbidden, discord.HTTPException):
-                    pass
-        memoria.append({
-            "role": "assistant",
-            "content": texto_sticker or "[enviou uma figurinha contextual]",
-        })
-        return True
-
-    if resultado["acao"] == "responder_reagir":
-        texto_reacao = reduzir_emojis_ia(resultado.get("texto", ""))
-        try:
-            await message.add_reaction(resultado["emoji"])
-        except (discord.Forbidden, discord.HTTPException):
-            pass
-        if texto_reacao:
-            try:
-                await message.reply(
-                    texto_reacao, mention_author=False,
-                    allowed_mentions=discord.AllowedMentions(
-                        users=True, roles=False, everyone=False, replied_user=False
-                    ),
-                )
-            except discord.HTTPException:
-                pass
-        memoria.append({
-            "role": "assistant",
-            "content": texto_reacao or f"[reagiu com {resultado['emoji']}]",
-        })
         return True
 
     if resultado["acao"] == "reagir":
@@ -7036,6 +6901,10 @@ async def responder_com_ia(
             "content": texto,
         }
     )
+    registrar_resposta_textual_ia(
+        message.author.id,
+        texto
+    )
 
     return True
 
@@ -7046,18 +6915,7 @@ async def responder_com_ia(
 # ==========================================================
 
 def ia_caos_esta_ativo():
-    remoto = _ia_config_remota.get("caos_ativo")
-    if remoto is not None:
-        return bool(remoto)
-
-    valor = obter_estado(
-        CHAVE_IA_CAOS_ATIVO
-    )
-
-    if valor is None:
-        return True
-
-    return str(valor) == "1"
+    return bool(_ia_config_remota.get("caos_ativo", True))
 
 
 def ia_caos_dentro_do_horario():
@@ -7082,22 +6940,8 @@ def ia_caos_dentro_do_horario():
 
 
 def ia_caos_proximo_alvo_id():
-    valor = obter_estado(
-        CHAVE_IA_CAOS_PROXIMO_ALVO
-    )
-
-    if not valor:
-        return None
-
-    try:
-        return int(
-            valor
-        )
-    except (
-        TypeError,
-        ValueError
-    ):
-        return None
+    # Alvo manual por /ia foi removido. A configuração da IA é exclusiva do site.
+    return None
 
 
 def ia_caos_intervalo_liberado():
@@ -7395,13 +7239,6 @@ async def executar_caos(
         )
     )
 
-    if alvo_manual:
-        # Consome o alvo manual somente quando a zoeira realmente começou.
-        salvar_estado(
-            CHAVE_IA_CAOS_PROXIMO_ALVO,
-            ""
-        )
-
     try:
         for numero_ping in range(
             1,
@@ -7532,6 +7369,8 @@ async def processar_resposta_caos(
     minutes=10
 )
 async def ia_caos_automatico():
+    await atualizar_config_ia_do_painel()
+
     if not ia_esta_ativa():
         return
 
@@ -7556,10 +7395,17 @@ async def ia_caos_automatico():
 
     # Se existe alvo manual, tenta assim que o intervalo liberar.
     # Sem alvo manual, usa chance aleatória para não virar spam.
+    chance = float(
+        _ia_config_remota.get(
+            "caos_chance",
+            IA_CAOS_CHANCE_POR_CICLO
+        )
+    )
+    chance = max(0.0, min(1.0, chance))
+
     if (
         not alvo_manual
-        and random.random()
-        > IA_CAOS_CHANCE_POR_CICLO
+        and random.random() > chance
     ):
         return
 
@@ -7603,307 +7449,390 @@ async def antes_ia_caos_automatico():
 
 
 # ==========================================================
-# /IA — COMANDOS ORGANIZADOS
+# IA — CONFIGURAÇÃO EXCLUSIVA PELO PAINEL WEB
+# ==========================================================
+# Os antigos comandos /ia foram removidos. O bot lê /api/ia-config.
+
+
+
+# ==========================================================
+# ANTISPAM DE MENÇÕES — RAJADAS
+# ==========================================================
+_MENCAO_SPAM_JANELA = 8.0
+_MENCAO_SPAM_BLOQUEIO = 45.0
+_MENCAO_SPAM_MSG_LIMITE = 5
+_MENCAO_SPAM_TOTAL_LIMITE = 8
+_MENCAO_SPAM_ALVO_LIMITE = 4
+_mencao_spam_estado = {}
+_mencao_spam_bloqueados = {}
+_mencao_spam_lock = {}
+
+
+def _ids_mencionados_diretamente(message):
+    texto = str(message.content or "")
+    return [int(x) for x in re.findall(r"<@!?(\\d+)>", texto)]
+
+
+async def processar_antispam_mencoes(message: discord.Message):
+    if message.guild is None or message.author.bot:
+        return False
+    if message.author.id == DONO_ID:
+        return False
+
+    ids = _ids_mencionados_diretamente(message)
+    if not ids:
+        return False
+
+    # A proteção especial da call DEV tem sua própria contagem/aviso.
+    if DONO_ID in ids and dono_esta_na_call_manutencao(message.guild):
+        return False
+
+    agora = time.monotonic()
+    uid = message.author.id
+
+    bloqueado_ate = _mencao_spam_bloqueados.get(uid, 0.0)
+    if agora < bloqueado_ate:
+        try:
+            await message.delete()
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+            pass
+        return True
+
+    estado = _mencao_spam_estado.setdefault(uid, deque())
+    estado.append((agora, message, ids))
+    while estado and agora - estado[0][0] > _MENCAO_SPAM_JANELA:
+        estado.popleft()
+
+    qtd_msgs = len(estado)
+    total_mencoes = sum(len(item[2]) for item in estado)
+    por_alvo = {}
+    for _, _, alvos in estado:
+        for alvo in alvos:
+            por_alvo[alvo] = por_alvo.get(alvo, 0) + 1
+    repeticao_max = max(por_alvo.values(), default=0)
+
+    disparou = (
+        qtd_msgs >= _MENCAO_SPAM_MSG_LIMITE
+        or total_mencoes >= _MENCAO_SPAM_TOTAL_LIMITE
+        or repeticao_max >= _MENCAO_SPAM_ALVO_LIMITE
+    )
+    if not disparou:
+        return False
+
+    # Bloqueia primeiro para impedir novas mensagens enquanto apaga a rajada.
+    _mencao_spam_bloqueados[uid] = agora + _MENCAO_SPAM_BLOQUEIO
+    lock = _mencao_spam_lock.setdefault(uid, asyncio.Lock())
+    if lock.locked():
+        return True
+
+    async with lock:
+        membro = message.author if isinstance(message.author, discord.Member) else None
+        if membro is not None:
+            try:
+                await membro.timeout(
+                    timedelta(minutes=1),
+                    reason="Rajada de menções detectada pelo antispam"
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+
+        mensagens = []
+        vistos = set()
+        for _, msg, _ in list(estado):
+            if msg.id not in vistos:
+                vistos.add(msg.id)
+                mensagens.append(msg)
+        # PartialMessage.delete não aceita reason; não passar reason aqui.
+        for msg in reversed(mensagens):
+            try:
+                await msg.delete()
+            except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                pass
+
+        estado.clear()
+
+    return True
+
+
+# ==========================================================
+# MODO MANUTENÇÃO — CALL DE DESENVOLVIMENTO
 # ==========================================================
 
-ia_grupo = app_commands.Group(
-    name="ia",
-    description="Configura a IA da Resenha Máxima"
-)
+_manutencao_ativa = False
+_manutencao_contadores = {}
+_manutencao_punidos = set()
+_manutencao_respostas_recentes = {}
+
+MANUTENCAO_RESPOSTAS = {
+    1: [
+        "marca não randola, o cara tá me configurando",
+        "deixa o Vini trabalhar, peste, ele tá mexendo em mim",
+        "ô criatura, para de marcar o programador enquanto ele tá me arrumando",
+        "meu parceiro, o homem tá em manutenção comigo. larga ele um minuto kkk",
+        "tu viu que o cara tá trabalhando e pensou: vou marcar ele. gênio demais",
+    ],
+    2: [
+        "já te avisei, desgraça kkk deixa o cara configurar o bot",
+        "segunda marcação já? tu tá fazendo speedrun pra tomar castigo?",
+        "irmão, ele tá ocupado comigo. vai arrumar outra pessoa pra perturbar",
+        "tu ignorou o primeiro aviso com uma confiança impressionante",
+        "continua marcando pra tu ver uma coisa rapidinho kkk",
+    ],
+    3: [
+        "caralho, tu é persistente mesmo. DEIXA O HOMEM TRABALHAR",
+        "terceira vez, animal kkk tua meta é testar meu timeout?",
+        "eu tô contando, viu? depois não mete essa de que não sabia",
+        "tu realmente acordou e escolheu perturbar o programador em manutenção",
+        "mais uma marcação e tua ficha tá ficando bonita aqui, campeão",
+    ],
+    4: [
+        "quarta vez. tu tá praticamente preenchendo o formulário do próprio castigo",
+        "meu deus do céu, tu não aprende nem com desenho né kkk",
+        "último aviso moral: para de marcar o Vini enquanto ele tá me configurando",
+        "tu tá a UMA marcação de descobrir se eu tenho permissão de timeout",
+        "continua, vai. confia no teu potencial kkkkk",
+    ],
+}
+
+MANUTENCAO_POS_TIMEOUT = [
+    "voltou do castigo e ainda quer atenção? deixa o programador trabalhar kkk",
+    "tu já ganhou teu minuto de reflexão nessa manutenção, não força a continuação",
+    "o timeout não era trailer não, campeão. para de marcar o homem",
+    "já tomou o castigo da sessão e segue insistindo. dedicação assustadora",
+]
+
+MANUTENCAO_ZOEIRAS_GERAL = [
+    "{mencao} conseguiu a façanha de tomar 1 minuto de castigo porque não parava de marcar o Vini em manutenção kkkkk",
+    "parabéns {mencao}: 5 marcações no programador em manutenção e um timeout de brinde. promoção encerrada",
+    "{mencao} testou o sistema anti-randola até o fim e descobriu que o botão de timeout funciona kkk",
+    "o cidadão {mencao} foi avisado QUATRO vezes e escolheu a quinta marcação. ganhou 1 minuto pra pensar nas escolhas",
+]
 
 
-async def verificar_admin_ia(
-    interaction: discord.Interaction
-):
-    return not await negar_se_nao_admin(
-        interaction
+def dono_esta_na_call_manutencao(guild):
+    if guild is None:
+        return False
+
+    dono = guild.get_member(DONO_ID)
+    if dono is None or dono.voice is None:
+        return False
+
+    canal = dono.voice.channel
+    return canal is not None and canal.id == CANAL_CALL_MANUTENCAO_ID
+
+
+def resetar_sessao_manutencao():
+    global _manutencao_ativa
+    _manutencao_ativa = False
+    _manutencao_contadores.clear()
+    _manutencao_punidos.clear()
+    _manutencao_respostas_recentes.clear()
+
+
+def iniciar_sessao_manutencao():
+    global _manutencao_ativa
+    _manutencao_contadores.clear()
+    _manutencao_punidos.clear()
+    _manutencao_respostas_recentes.clear()
+    _manutencao_ativa = True
+
+
+def escolher_resposta_manutencao(usuario_id, opcoes):
+    opcoes = list(dict.fromkeys(opcoes))
+    if not opcoes:
+        return "deixa o programador trabalhar"
+
+    historico = _manutencao_respostas_recentes.setdefault(
+        usuario_id,
+        deque(maxlen=2)
+    )
+    disponiveis = [texto for texto in opcoes if texto not in historico] or opcoes
+    escolhida = random.choice(disponiveis)
+    historico.append(escolhida)
+    return escolhida
+
+
+def mensagem_menciona_dono_diretamente(message):
+    # Exige a menção literal de usuário. Cargo, @everyone, @here, reply e nome escrito não contam.
+    return bool(
+        re.search(
+            rf"<@!?{DONO_ID}>",
+            str(message.content or "")
+        )
     )
 
 
-@ia_grupo.command(
-    name="status",
-    description="Mostra as configurações atuais da IA"
-)
-async def ia_status(
-    interaction: discord.Interaction
-):
-    if not await verificar_admin_ia(
-        interaction
-    ):
-        return
+async def obter_chat_geral_fixo(guild):
+    canal = guild.get_channel(CHAT_GERAL_ID)
+    if canal is None:
+        try:
+            canal = await bot.fetch_channel(CHAT_GERAL_ID)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            canal = None
 
-    canal_id = canal_ia_configurado()
+    if isinstance(canal, discord.TextChannel):
+        return canal
 
-    canal_texto = (
-        f"<#{canal_id}>"
-        if canal_id
-        else "Todos os canais"
-    )
+    return await obter_chat_geral(guild)
 
-    alvo_id = ia_caos_proximo_alvo_id()
 
-    await interaction.response.send_message(
-        (
-            "## 🤖 Status da IA\n"
-            f"**Ativa:** {'Sim' if ia_esta_ativa() else 'Não'}\n"
-            f"**Groq configurada:** "
-            f"{'Sim' if bool(GROQ_API_KEY) else 'Não'}\n"
-            f"**Modelo:** `{GROQ_MODEL}`\n"
-            f"**Canal:** {canal_texto}\n"
-            f"**Memória:** últimas "
-            f"{IA_MEMORIA_MENSAGENS} mensagens\n"
-            f"**Modo causando:** "
-            f"{'Ativo' if ia_caos_esta_ativo() else 'Desativado'}\n"
-            f"**Horário causando:** "
-            f"{IA_CAOS_HORA_INICIO:02d}:00–"
-            f"{IA_CAOS_HORA_FIM:02d}:00\n"
-            f"**Canal do causando:** "
-            f"{canal_texto} (somente se o alvo puder falar)\n"
-            f"**Próximo alvo:** "
-            + (
-                f"<@{alvo_id}>"
-                if alvo_id
-                else "Nenhum"
+async def processar_protecao_manutencao(message: discord.Message):
+    if message.guild is None or message.author.bot:
+        return False
+
+    if message.author.id == DONO_ID:
+        return False
+
+    # Mantém o estado correto mesmo se o bot tiver reconectado durante a sessão.
+    global _manutencao_ativa
+    esta_na_call = dono_esta_na_call_manutencao(message.guild)
+
+    if not esta_na_call:
+        if _manutencao_ativa:
+            resetar_sessao_manutencao()
+        return False
+
+    if not _manutencao_ativa:
+        iniciar_sessao_manutencao()
+
+    if not mensagem_menciona_dono_diretamente(message):
+        return False
+
+    usuario_id = message.author.id
+    quantidade = _manutencao_contadores.get(usuario_id, 0) + 1
+    _manutencao_contadores[usuario_id] = quantidade
+
+    if usuario_id in _manutencao_punidos:
+        await message.reply(
+            escolher_resposta_manutencao(
+                usuario_id,
+                MANUTENCAO_POS_TIMEOUT
+            ),
+            mention_author=False,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        return True
+
+    if quantidade < 5:
+        nivel = max(1, min(4, quantidade))
+        await message.reply(
+            escolher_resposta_manutencao(
+                usuario_id,
+                MANUTENCAO_RESPOSTAS[nivel]
+            ),
+            mention_author=False,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        return True
+
+    _manutencao_punidos.add(usuario_id)
+
+    timeout_ok = False
+    if isinstance(message.author, discord.Member):
+        try:
+            await message.author.timeout(
+                timedelta(minutes=1),
+                reason=(
+                    "5 menções diretas ao programador durante "
+                    "sessão de manutenção do bot"
+                )
             )
-        ),
-        ephemeral=True
+            timeout_ok = True
+        except (discord.Forbidden, discord.HTTPException) as erro:
+            print(
+                "Não foi possível aplicar timeout da manutenção | "
+                f"usuario={usuario_id} | erro={erro}"
+            )
+
+    if timeout_ok:
+        resposta = "cinco. CINCO marcações. ganhou 1 minutinho pra refletir sobre a própria insistência kkkkk"
+    else:
+        resposta = "cinco marcações. eu tentei te dar 1 minuto de castigo, mas o Discord protegeu tua carreira dessa vez kkk"
+
+    await message.reply(
+        resposta,
+        mention_author=False,
+        allowed_mentions=discord.AllowedMentions.none(),
     )
 
+    canal_geral = await obter_chat_geral_fixo(message.guild)
+    if canal_geral is not None:
+        try:
+            zoeira = random.choice(MANUTENCAO_ZOEIRAS_GERAL).format(
+                mencao=message.author.mention
+            )
+            await canal_geral.send(
+                zoeira,
+                allowed_mentions=discord.AllowedMentions(
+                    users=True,
+                    roles=False,
+                    everyone=False,
+                )
+            )
+        except discord.HTTPException as erro:
+            print(f"Erro ao enviar zoeira da manutenção no chat geral: {erro}")
 
-@ia_grupo.command(
-    name="ativar",
-    description="Ativa as respostas da IA"
-)
-async def ia_ativar(
-    interaction: discord.Interaction
-):
-    if not await verificar_admin_ia(
-        interaction
-    ):
+    return True
+
+
+
+
+async def entrar_call_dev_automaticamente(guild, canal=None):
+    canal = canal or guild.get_channel(CANAL_CALL_MANUTENCAO_ID)
+    if not isinstance(canal, discord.VoiceChannel):
+        try:
+            buscado = await bot.fetch_channel(CANAL_CALL_MANUTENCAO_ID)
+            canal = buscado if isinstance(buscado, discord.VoiceChannel) else None
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            canal = None
+    if canal is None or canal.guild.id != guild.id:
+        return False, "call DEV não encontrada neste servidor"
+
+    me = guild.me
+    if me is None:
+        return False, "membro do bot não encontrado"
+    perms = canal.permissions_for(me)
+    if not perms.connect:
+        return False, "sem permissão Connect na call DEV"
+
+    try:
+        voice = guild.voice_client
+        if voice is None or not voice.is_connected():
+            voice = await canal.connect(self_mute=False, self_deaf=False)
+        elif voice.channel.id != canal.id:
+            await voice.move_to(canal)
+        try:
+            await guild.change_voice_state(channel=canal, self_mute=False, self_deaf=False)
+        except Exception:
+            pass
+        return True, None
+    except Exception as erro:
+        return False, f"{type(erro).__name__}: {erro}"
+
+
+@bot.event
+async def on_voice_state_update(member, before, after):
+    if member.id != DONO_ID:
         return
 
-    if not GROQ_API_KEY:
-        await interaction.response.send_message(
-            "❌ `GROQ_API_KEY` não foi encontrada "
-            "nas variáveis do bot.",
-            ephemeral=True
-        )
-        return
-
-    salvar_estado(
-        CHAVE_IA_ATIVA,
-        "1"
+    antes_manutencao = (
+        before.channel is not None
+        and before.channel.id == CANAL_CALL_MANUTENCAO_ID
+    )
+    depois_manutencao = (
+        after.channel is not None
+        and after.channel.id == CANAL_CALL_MANUTENCAO_ID
     )
 
-    await interaction.response.send_message(
-        "🤖 IA da Resenha Máxima ativada.",
-        ephemeral=True
-    )
-
-
-@ia_grupo.command(
-    name="desativar",
-    description="Desativa as respostas da IA"
-)
-async def ia_desativar(
-    interaction: discord.Interaction
-):
-    if not await verificar_admin_ia(
-        interaction
-    ):
-        return
-
-    salvar_estado(
-        CHAVE_IA_ATIVA,
-        "0"
-    )
-
-    await interaction.response.send_message(
-        "😴 IA da Resenha Máxima desativada.",
-        ephemeral=True
-    )
-
-
-@ia_grupo.command(
-    name="canal",
-    description="Define um canal exclusivo para conversar com a IA"
-)
-@app_commands.describe(
-    canal="Canal em que a IA poderá responder"
-)
-async def ia_canal(
-    interaction: discord.Interaction,
-    canal: discord.TextChannel
-):
-    if not await verificar_admin_ia(
-        interaction
-    ):
-        return
-
-    salvar_estado(
-        CHAVE_CANAL_IA,
-        str(canal.id)
-    )
-
-    await interaction.response.send_message(
-        f"✅ A IA agora responde somente em "
-        f"{canal.mention}.",
-        ephemeral=True
-    )
-
-
-@ia_grupo.command(
-    name="todososcanais",
-    description="Libera a IA para responder em qualquer canal"
-)
-async def ia_todos_os_canais(
-    interaction: discord.Interaction
-):
-    if not await verificar_admin_ia(
-        interaction
-    ):
-        return
-
-    salvar_estado(
-        CHAVE_CANAL_IA,
-        ""
-    )
-
-    await interaction.response.send_message(
-        "🌐 A IA pode responder em qualquer canal "
-        "quando for mencionada ou receber reply.",
-        ephemeral=True
-    )
-
-
-@ia_grupo.command(
-    name="limparmemoria",
-    description="Apaga a memória curta das conversas da IA"
-)
-async def ia_limpar_memoria(
-    interaction: discord.Interaction
-):
-    if not await verificar_admin_ia(
-        interaction
-    ):
-        return
-
-    _memoria_ia.clear()
-
-    await interaction.response.send_message(
-        "🧠 Memória curta da IA apagada.",
-        ephemeral=True
-    )
-
-
-@ia_grupo.command(
-    name="causando",
-    description="Ativa ou desativa o modo IA causando"
-)
-@app_commands.describe(
-    ativar="True para ativar, False para desativar"
-)
-async def ia_causando(
-    interaction: discord.Interaction,
-    ativar: bool
-):
-    if not await verificar_admin_ia(
-        interaction
-    ):
-        return
-
-    salvar_estado(
-        CHAVE_IA_CAOS_ATIVO,
-        "1" if ativar else "0"
-    )
-
-    if not ativar:
-        task = _ia_caos_estado.get(
-            "task"
-        )
-
-        if (
-            task is not None
-            and not task.done()
-        ):
-            task.cancel()
-
-        limpar_estado_caos()
-
-    await interaction.response.send_message(
-        (
-            "😈 Modo **IA causando** ativado. "
-            f"Horário: {IA_CAOS_HORA_INICIO:02d}:00–"
-            f"{IA_CAOS_HORA_FIM:02d}:00."
-            if ativar
-            else "😴 Modo **IA causando** desativado."
-        ),
-        ephemeral=True
-    )
-
-
-@ia_grupo.command(
-    name="proximoalvo",
-    description="Escolhe manualmente o próximo alvo do modo causando"
-)
-@app_commands.describe(
-    membro="Membro que será o próximo alvo"
-)
-async def ia_proximo_alvo(
-    interaction: discord.Interaction,
-    membro: discord.Member
-):
-    if not await verificar_admin_ia(
-        interaction
-    ):
-        return
-
-    if membro.bot:
-        await interaction.response.send_message(
-            "❌ Escolha uma pessoa, não outro bot 😂",
-            ephemeral=True
-        )
-        return
-
-    salvar_estado(
-        CHAVE_IA_CAOS_PROXIMO_ALVO,
-        str(membro.id)
-    )
-
-    await interaction.response.send_message(
-        f"🎯 Próximo alvo: {membro.mention}. "
-        "Quando estiver online e o modo puder agir... já era 💀",
-        ephemeral=True
-    )
-
-
-@ia_grupo.command(
-    name="limparalvo",
-    description="Remove o próximo alvo manual do modo causando"
-)
-async def ia_limpar_alvo(
-    interaction: discord.Interaction
-):
-    if not await verificar_admin_ia(
-        interaction
-    ):
-        return
-
-    salvar_estado(
-        CHAVE_IA_CAOS_PROXIMO_ALVO,
-        ""
-    )
-
-    await interaction.response.send_message(
-        "🧹 Alvo manual removido. "
-        "O próximo volta a ser sorteado.",
-        ephemeral=True
-    )
-
-
-bot.tree.add_command(
-    ia_grupo
-)
+    if not antes_manutencao and depois_manutencao:
+        iniciar_sessao_manutencao()
+        print("Modo manutenção: ATIVO — nova sessão iniciada.")
+        ok, erro = await entrar_call_dev_automaticamente(member.guild, after.channel)
+        if not ok:
+            print(f"Falha ao entrar automaticamente na call DEV: {erro}")
+    elif antes_manutencao and not depois_manutencao:
+        resetar_sessao_manutencao()
+        print("Modo manutenção: ENCERRADO — contadores zerados.")
 
 
 @bot.event
@@ -7972,13 +7901,17 @@ async def on_message(
                     )
                     return
 
-    # A proteção da DEV tem prioridade absoluta sobre IA, comandos e antispam.
-    tratado_manutencao = await processar_protecao_manutencao(message)
-    if tratado_manutencao:
-        return
-
     bloqueou_spam_mencoes = await processar_antispam_mencoes(message)
     if bloqueou_spam_mencoes:
+        await bot.process_commands(message)
+        return
+
+    tratado_manutencao = await processar_protecao_manutencao(
+        message
+    )
+
+    if tratado_manutencao:
+        await bot.process_commands(message)
         return
 
     await processar_aviso_limpeza_por_mensagem(
@@ -7988,16 +7921,6 @@ async def on_message(
     puniu_por_abuso = await processar_autodefesa_ia(
         message
     )
-
-    # Comandos naturais de call para o dono: não dependem do slash command.
-    if message.guild and message.author.id == DONO_ID:
-        texto_cf = message.content.casefold().strip()
-        if re.search(r"\bentra na call e fica (?:de boa|quieto|em silêncio|em silencio)\b", texto_cf) or re.search(r"\bentra na call\b.*\bfica (?:de boa|quieto|em silêncio|em silencio)\b", texto_cf):
-            canal = autor_em_call(message)
-            if canal:
-                ok, erro = await entrar_call_silencioso(message.guild, canal, tocar_playlist=(canal.id == DEV_CALL_ID))
-                await message.reply("🔇 entrei e tô de boa.", mention_author=False) if ok else await message.reply(f"❌ não consegui entrar: {erro}", mention_author=False)
-                return
 
     caiu_na_pegadinha = await processar_resposta_caos(
         message
@@ -8235,21 +8158,55 @@ FUNCOES_ATUAIS_CATEGORIAS = {
         "🟢 Status Online / Offline do Aternos",
         "📝 Cadastro e tabela única de nicknames",
         "⚠️ Nick pendente — até 4 avisos em 48h",
-        "👤 Cadastro manual pela equipe",
-        "🔄 Solicitação de novo nickname",
-        "📩 Aviso no chat quando a DM estiver fechada",
+        "👤 Cadastro manual e solicitação de novo nickname",
+        "📩 Aviso quando a DM estiver fechada",
         "⏳ Remoção do nick após 48h fora do servidor",
     ],
+    "🤖 IA": [
+        "💬 IA da Resenha por menção/reply no canal configurado",
+        "🧠 Memória curta e memória social usada somente como contexto",
+        "🎭 Respostas com variação e proteção contra repetição próxima",
+        "😈 Modo IA causando com horário, intervalo e chance pelo painel",
+        "🌐 Configuração da IA feita exclusivamente pelo painel web",
+    ],
+    "🔊 Voz e zoeira": [
+        "🎙️ /zoarcall com seleção/autocomplete dos áudios da pasta audios_call",
+        "🎲 Reprodução de áudios aleatórios em call",
+        "🔉 A IA pode entrar na call quando o usuário realmente pedir/desafiar",
+        "⏱️ Cooldown de entrada automática em call por usuário",
+        "✅ O bot espera os áudios terminarem antes de sair da call",
+    ],
+    "🌙 Eventos": [
+        "👑 Evento Rei da Madrugada",
+        "⏰ Rodadas automáticas durante a madrugada",
+        "🏆 Registro de respostas e ranking do evento",
+    ],
+    "🚪 Entradas": [
+        "🔗 Controle de entrada por convites do Discord",
+        "📈 Ranking de quem trouxe mais membros",
+        "🧾 Histórico de entradas e origem do convite",
+    ],
+    "🌐 Painel web": [
+        "📋 Menus configurados por canal",
+        "🤖 Configuração remota da IA",
+        "📢 Central de atualizações",
+        "🔐 Permissões administrativas e do Departamento de Eventos",
+    ],
     "🛡️ Moderação": [
-        "🔨 Sistema de Ban e Hackban",
+        "🔨 Sistema de Ban e Hackban com aprovação",
+        "⏳ Castigo/timeout enquanto pedido de ban está pendente",
         "📊 Criação e gerenciamento de enquetes",
+        "🛡️ Autodefesa da IA contra insistência abusiva",
     ],
     "⚙️ Administração": [
-        "🧹 Limpeza automática do canal de comandos à meia-noite",
-        "🧽 Limpeza manual do canal de comandos",
+        "🧹 Limpeza automática e manual do canal de comandos",
         "🔐 Comandos administrativos com controle de permissão",
+        "🛠️ Modo manutenção pela call de desenvolvimento",
+        "🚫 Proteção contra menções diretas ao programador durante manutenção",
+        "📝 Nota de atualização automática por ID com proteção persistente em /data",
     ],
 }
+
 
 
 FUNCOES_REMOVIDAS = [
@@ -8678,13 +8635,13 @@ async def atualizacao_definir_canal(interaction: discord.Interaction, canal: dis
 
 @atualizacao_grupo.command(
     name="publicar",
-    description="Publica novamente o changelog da versão atual"
+    description="Publica a nota atual se o ID ainda não tiver sido publicado"
 )
 async def atualizacao_publicar(interaction: discord.Interaction):
     if await negar_se_nao_admin(interaction):
         return
     await interaction.response.defer(ephemeral=True)
-    publicado, mensagem = await publicar_atualizacao_bot(forcar=True)
+    publicado, mensagem = await publicar_atualizacao_bot(forcar=False)
     await interaction.followup.send(("✅ " if publicado else "❌ ") + mensagem, ephemeral=True)
 
 
@@ -8696,12 +8653,18 @@ async def atualizacao_status(interaction: discord.Interaction):
     if await negar_se_nao_admin(interaction):
         return
     canal_id = obter_canal_atualizacoes_id()
-    ultima = obter_estado(CHAVE_ULTIMA_ATUALIZACAO_PUBLICADA)
+    nota = carregar_nota_atualizacao()
+    estado = carregar_estado_notas()
+    nota_id = nota.get("id") if nota else "Nenhuma nota encontrada"
+    versao = (nota.get("versao") or nota_id) if nota else "-"
+    ultima = estado.get("ultimo_id_publicado") or "Nenhuma"
     await interaction.response.send_message(
         "## 📢 Atualizações do Bot\n"
         f"**Canal:** {f'<#{canal_id}>' if canal_id else 'Não configurado'}\n"
-        f"**Versão atual:** `{ATUALIZACAO_BOT_ID}`\n"
-        f"**Última versão publicada:** `{ultima or 'Nenhuma'}`",
+        f"**Nota atual:** `{nota_id}`\n"
+        f"**Versão:** `{versao}`\n"
+        f"**Último ID publicado:** `{ultima}`\n"
+        f"**Estado persistente:** `{ARQUIVO_ESTADO_NOTAS}`",
         ephemeral=True
     )
 
@@ -9562,401 +9525,16 @@ async def tocar_audio_na_call(
 
 
 
-
-# ==========================================================
-# PROTEÇÃO DE MENÇÕES — CALL DEV
-# ==========================================================
-_dev_mencao_contadores = {}
-_dev_mencao_punidos = set()
-
-
-_dev_frases_recentes = {}
-
-DEV_FRASES_MENCAO = {
-    1: [
-        "O Vini tá na call DEV trabalhando 😭 marcação 1/5 — deixa o homem trabalhar.",
-        "Pegou o Vini no modo trabalho 👀 1/5. Deixa ele terminar o que tá fazendo.",
-        "O homem entrou na DEV pra trabalhar e já veio marcação KKK. 1/5.",
-        "Vini tá ocupado na call DEV. Primeira marcação: 1/5.",
-        "Chamou o Vini justo na hora do trabalho 😭 1/5. Dá uma folga pro homem.",
-        "Call DEV ativa. O Vini tá trabalhando por lá — marcação 1/5.",
-        "Começou cedo KKK. Vini tá na DEV trabalhando: 1/5.",
-        "O Vini tá resolvendo as coisas na DEV 👀 1/5. Segura a marcação aí.",
-    ],
-    2: [
-        "De novo? KKK o Vini ainda tá trabalhando. Marcação 2/5.",
-        "Segunda chamada pro homem ocupado 😭 2/5.",
-        "Tu realmente tentou de novo 👀 2/5. Deixa o Vini trabalhar.",
-        "A call DEV continua ocupada e você continua marcando KKK. 2/5.",
-        "Vini ainda tá na DEV, guerreiro. Essa foi 2/5.",
-        "Dois pings no homem trabalhando 😭 2/5. Calma aí.",
-        "Segunda marcação registrada. O Vini segue trabalhando: 2/5.",
-        "Tá testando o sistema já? KKK 2/5. O Vini tá ocupado.",
-    ],
-    3: [
-        "Terceira já KKKK. O Vini tá trabalhando, meu parceiro — 3/5.",
-        "3/5 👀 agora já virou insistência.",
-        "Meu mano, ele ainda tá na call DEV 😭 marcação 3/5.",
-        "O Vini não saiu da DEV desde a última marcação KKK. 3/5.",
-        "Três vezes no homem ocupado é dedicação demais 😭 3/5.",
-        "Metade do caminho pro castigo já foi KKK. 3/5.",
-        "Terceira chamada registrada: 3/5. Deixa o homem trabalhar.",
-        "A call é DEV, não campainha KKKK. Marcação 3/5.",
-    ],
-    4: [
-        "4/5 👀 essa é a última antes do minutinho de reflexão.",
-        "Quarta marcação KKK. Mais uma e o bot te dá férias de 1 minuto.",
-        "Tu tá muito perto de descobrir o que acontece na quinta 😭 4/5.",
-        "Último aviso: o Vini tá trabalhando e essa foi 4/5.",
-        "Quatro vezes já, guerreiro 💀 4/5. A próxima tem timeout.",
-        "O bot tá contando, viu? KKKK 4/5.",
-        "Mais uma marcação e vem o descanso obrigatório 😭 4/5.",
-        "Quarta registrada. Agora é melhor deixar o Vini em paz 👀 4/5.",
-    ],
-}
-
-DEV_FRASES_TIMEOUT = [
-    "Cinco marcações KKKKK. Ganhou 1 minutinho pra refletir.",
-    "A quinta chegou 💀 1 minuto de descanso obrigatório.",
-    "Tu conseguiu KKKK. Cinco marcações = 1 minuto de timeout.",
-    "Parabéns pela persistência 😭 agora descansa 1 minutinho.",
-    "O bot avisou quatro vezes 👀 na quinta veio 1 minuto de férias.",
-    "Cinco pings no homem trabalhando é talento KKK. 1 minuto de timeout.",
-    "Missão concluída: 5/5 💀 prêmio: 1 minuto sem mandar mensagem.",
-    "A quinta não perdoou KKKK. Vai ali respirar por 1 minuto.",
-]
-
-
-def escolher_frase_dev(uid, etapa):
-    opcoes = DEV_FRASES_TIMEOUT if etapa >= 5 else DEV_FRASES_MENCAO.get(etapa, DEV_FRASES_MENCAO[1])
-    recentes = _dev_frases_recentes.setdefault(uid, deque(maxlen=4))
-    disponiveis = [frase for frase in opcoes if frase not in recentes] or list(opcoes)
-    escolhida = random.choice(disponiveis)
-    recentes.append(escolhida)
-    return escolhida
-
-
-def dono_esta_na_call_manutencao(guild):
-    if guild is None:
-        return False
-    dono = guild.get_member(DONO_ID)
-    return bool(dono and dono.voice and dono.voice.channel and dono.voice.channel.id == DEV_CALL_ID)
-
-
-def mensagem_menciona_dono_diretamente(message):
-    return bool(re.search(rf"<@!?{DONO_ID}>", str(message.content or "")))
-
-
-async def processar_protecao_manutencao(message: discord.Message):
-    if message.guild is None or message.author.bot or message.author.id == DONO_ID:
-        return False
-    if not dono_esta_na_call_manutencao(message.guild):
-        _dev_mencao_contadores.clear()
-        _dev_mencao_punidos.clear()
-        return False
-    if not mensagem_menciona_dono_diretamente(message):
-        return False
-
-    # Prioridade máxima: remove a marcação antes de qualquer resposta/IA/comando.
-    # O Discord só dispara on_message após a mensagem existir, portanto o bot não
-    # consegue impedir o envio na origem; a ação mais rápida possível é deletá-la
-    # imediatamente ao receber o evento.
-    canal = message.channel
-    autor = message.author
-    try:
-        await message.delete()
-    except (discord.Forbidden, discord.NotFound, discord.HTTPException):
-        # Mesmo sem permissão para apagar, continua a proteção/contagem.
-        pass
-
-    uid = autor.id
-    qtd = _dev_mencao_contadores.get(uid, 0) + 1
-    _dev_mencao_contadores[uid] = qtd
-
-    if uid in _dev_mencao_punidos:
-        try:
-            await canal.send(
-                escolher_frase_dev(uid, 5),
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
-        except discord.HTTPException:
-            pass
-        return True
-
-    if qtd < 5:
-        try:
-            await canal.send(
-                escolher_frase_dev(uid, qtd),
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
-        except discord.HTTPException:
-            pass
-        return True
-
-    _dev_mencao_punidos.add(uid)
-    if isinstance(autor, discord.Member):
-        try:
-            await autor.timeout(
-                timedelta(minutes=1),
-                reason="5 menções ao programador durante call DEV",
-            )
-        except (discord.Forbidden, discord.HTTPException):
-            pass
-
-    try:
-        await canal.send(
-            escolher_frase_dev(uid, 5),
-            allowed_mentions=discord.AllowedMentions.none(),
-        )
-    except discord.HTTPException:
-        pass
-    return True
-
-
-
-# ==========================================================
-# ANTISPAM DE MENÇÕES — RAJADAS
-# ==========================================================
-_MENCAO_SPAM_JANELA = 8.0
-_MENCAO_SPAM_BLOQUEIO = 45.0
-_MENCAO_SPAM_MSG_LIMITE = 5
-_MENCAO_SPAM_TOTAL_LIMITE = 8
-_MENCAO_SPAM_ALVO_LIMITE = 4
-_mencao_spam_estado = {}
-_mencao_spam_bloqueados = {}
-_mencao_spam_lock = {}
-
-
-def _ids_mencionados_diretamente(message):
-    texto = str(message.content or "")
-    return [int(x) for x in re.findall(r"<@!?(\\d+)>", texto)]
-
-
-async def processar_antispam_mencoes(message: discord.Message):
-    if message.guild is None or message.author.bot:
-        return False
-    if message.author.id == DONO_ID:
-        return False
-
-    ids = _ids_mencionados_diretamente(message)
-    if not ids:
-        return False
-
-    # A proteção especial da call DEV tem sua própria contagem/aviso.
-    if DONO_ID in ids and dono_esta_na_call_manutencao(message.guild):
-        return False
-
-    agora = time.monotonic()
-    uid = message.author.id
-
-    bloqueado_ate = _mencao_spam_bloqueados.get(uid, 0.0)
-    if agora < bloqueado_ate:
-        try:
-            await message.delete()
-        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
-            pass
-        return True
-
-    estado = _mencao_spam_estado.setdefault(uid, deque())
-    estado.append((agora, message, ids))
-    while estado and agora - estado[0][0] > _MENCAO_SPAM_JANELA:
-        estado.popleft()
-
-    qtd_msgs = len(estado)
-    total_mencoes = sum(len(item[2]) for item in estado)
-    por_alvo = {}
-    for _, _, alvos in estado:
-        for alvo in alvos:
-            por_alvo[alvo] = por_alvo.get(alvo, 0) + 1
-    repeticao_max = max(por_alvo.values(), default=0)
-
-    disparou = (
-        qtd_msgs >= _MENCAO_SPAM_MSG_LIMITE
-        or total_mencoes >= _MENCAO_SPAM_TOTAL_LIMITE
-        or repeticao_max >= _MENCAO_SPAM_ALVO_LIMITE
-    )
-    if not disparou:
-        return False
-
-    # Bloqueia primeiro para impedir novas mensagens enquanto apaga a rajada.
-    _mencao_spam_bloqueados[uid] = agora + _MENCAO_SPAM_BLOQUEIO
-    lock = _mencao_spam_lock.setdefault(uid, asyncio.Lock())
-    if lock.locked():
-        return True
-
-    async with lock:
-        membro = message.author if isinstance(message.author, discord.Member) else None
-        if membro is not None:
-            try:
-                await membro.timeout(
-                    timedelta(minutes=1),
-                    reason="Rajada de menções detectada pelo antispam"
-                )
-            except (discord.Forbidden, discord.HTTPException):
-                pass
-
-        mensagens = []
-        vistos = set()
-        for _, msg, _ in list(estado):
-            if msg.id not in vistos:
-                vistos.add(msg.id)
-                mensagens.append(msg)
-        # PartialMessage.delete não aceita reason; não passar reason aqui.
-        for msg in reversed(mensagens):
-            try:
-                await msg.delete()
-            except (discord.Forbidden, discord.NotFound, discord.HTTPException):
-                pass
-
-        estado.clear()
-
-    return True
-
-
-# ==========================================================
-# CONTROLE GERAL DE CALLS / CALL DE DESENVOLVIMENTO
-# ==========================================================
-
-def playlist_dev():
-    try:
-        if not CALL_DEV_PLAYLIST_FILE.exists():
-            return []
-        data=json.loads(CALL_DEV_PLAYLIST_FILE.read_text(encoding="utf-8"))
-        if not isinstance(data, list):
-            return []
-        resultado=[]
-        for item in data:
-            if isinstance(item, str):
-                arquivo=localizar_audio_call(item)
-                if arquivo: resultado.append(arquivo)
-        return resultado
-    except Exception as erro:
-        print(f"Erro na playlist da call de dev: {erro}")
-        return []
-
-async def entrar_call_silencioso(guild, canal, *, tocar_playlist=False):
-    eu=guild.me
-    if eu is None: return False, "bot não encontrado"
-    perms=canal.permissions_for(eu)
-    if not perms.connect: return False, "sem permissão para entrar"
-    try:
-        voice=guild.voice_client
-        if voice is None or not voice.is_connected():
-            voice=await canal.connect(self_deaf=False, self_mute=False)
-        elif voice.channel != canal:
-            await voice.move_to(canal)
-        try:
-            await voice.guild.change_voice_state(channel=canal, self_mute=False, self_deaf=False)
-        except Exception:
-            pass
-        if tocar_playlist:
-            arquivos=playlist_dev()
-            if arquivos and not voice.is_playing():
-                for arquivo in arquivos:
-                    fonte=await discord.FFmpegOpusAudio.from_probe(str(arquivo), executable=FFMPEG_BIN, method="fallback", options="-vn")
-                    voice.play(fonte)
-                    while voice.is_playing(): await asyncio.sleep(0.25)
-                    await asyncio.sleep(0.25)
-        return True, None
-    except Exception as erro:
-        return False, f"{type(erro).__name__}: {erro}"
-
-async def chamar_bot_para_call(interaction, canal, *, dev=False):
-    if interaction.user.id != DONO_ID:
-        await interaction.response.send_message("❌ Só o responsável pode chamar o bot para uma call.", ephemeral=True); return
-    ok, erro=await entrar_call_silencioso(interaction.guild, canal, tocar_playlist=dev)
-    if ok:
-        await interaction.response.send_message(f"🔇 Entrei em {canal.mention} e vou ficar em silêncio.", ephemeral=True)
-    else:
-        await interaction.response.send_message(f"❌ Não consegui entrar: {erro}", ephemeral=True)
-
-@bot.tree.command(name="chamarcall", description="Chama o bot para uma call e deixa ele em silêncio")
-@app_commands.describe(canal="Call onde o bot deve entrar")
-async def chamarcall(interaction, canal: discord.VoiceChannel):
-    await chamar_bot_para_call(interaction, canal, dev=(canal.id == DEV_CALL_ID))
-
-async def monitorar_call_dev_member(member, antes, depois):
-    if member.id != DONO_ID: return
-    guild=member.guild
-    antes_id=getattr(antes.channel, "id", None)
-    depois_id=getattr(depois.channel, "id", None)
-    if depois_id == DEV_CALL_ID and antes_id != DEV_CALL_ID:
-        _dev_call_guilds[guild.id]=datetime.now(timezone.utc).timestamp()
-        canal=depois.channel
-        ok, erro=await entrar_call_silencioso(guild, canal, tocar_playlist=True)
-        if not ok: print(f"Falha ao entrar na call de dev: {erro}")
-    elif antes_id == DEV_CALL_ID and depois_id != DEV_CALL_ID:
-        _dev_call_guilds[guild.id]=datetime.now(timezone.utc).timestamp()
-        _dev_mencao_contadores.clear()
-        _dev_mencao_punidos.clear()
-
-@bot.event
-async def on_voice_state_update(member, antes, depois):
-    try:
-        await monitorar_call_dev_member(member, antes, depois)
-        # Enquanto o dono estiver na call de dev, impedir mudanças administrativas no estado dele.
-        if member.id == DONO_ID and depois.channel and depois.channel.id == DEV_CALL_ID:
-            guild=member.guild; me=guild.me
-            if me and me.guild_permissions.move_members:
-                if depois.self_mute is False and depois.self_deaf is False:
-                    # Não força mute/deaf do usuário; somente evita ações do bot contra ele.
-                    pass
-        # Conta pessoas reais na call: bots de música e conta secundária não entram na contagem.
-        canal=depois.channel or antes.channel
-        if isinstance(canal, discord.VoiceChannel):
-            pessoas=[m for m in canal.members if not m.bot and m.id not in {DONO_ID, CONTA_SECUNDARIA_ID}]
-            if len(pessoas) >= 3:
-                await processar_informacoes_importantes_call(guild=member.guild, membros=pessoas)
-    except Exception as erro:
-        print(f"Erro no monitor de voz: {type(erro).__name__}: {erro}")
-
-async def processar_informacoes_importantes_call(guild, membros):
-    """Guarda apenas fatos explícitos e não sensíveis que a própria pessoa escreveu."""
-    padroes=(
-        r"\bme chama(?:m)? de\s+([\wÀ-ÿ0-9_-]{2,32})",
-        r"\bsou conhecido(?:\s+como)?\s+([\wÀ-ÿ0-9_-]{2,32})",
-        r"\bmeu apelido é\s+([\wÀ-ÿ0-9_-]{2,32})",
-    )
-    try:
-        mensagens=[]
-        for canal in guild.text_channels:
-            if not canal.permissions_for(guild.me).read_message_history: continue
-            async for msg in canal.history(limit=30):
-                if msg.author.id in {m.id for m in membros} and not msg.author.bot:
-                    mensagens.append(msg)
-                if len(mensagens)>=80: break
-            if len(mensagens)>=80: break
-        for msg in mensagens:
-            texto=msg.content.strip()
-            for padrao in padroes:
-                match=re.search(padrao, texto, re.I)
-                if match:
-                    apelido=match.group(1)
-                    ficha=MEMORIA_SOCIAL_RESENHA.setdefault(msg.author.id, {"apelidos":[],"fatos":[],"piadas":[]})
-                    if apelido.casefold() not in {str(x).casefold() for x in ficha.get("apelidos",[])}:
-                        ficha.setdefault("apelidos",[]).append(apelido)
-                        ficha.setdefault("fatos",[]).append("O próprio membro informou este apelido no chat.")
-                    break
-    except Exception as erro:
-        print(f"Erro ao processar informações da call: {erro}")
-
 # ==========================================================
 # IA NA CALL — CUMPRE A AMEAÇA
 # ==========================================================
-
 
 IA_CALL_COOLDOWN_MINUTOS = int(
     os.getenv("IA_CALL_COOLDOWN_MINUTOS", "10")
 )
 IA_CALL_QUANTIDADE_AUDIOS = int(
-    os.getenv("IA_CALL_QUANTIDADE_AUDIOS", "2")
+    os.getenv("IA_CALL_QUANTIDADE_AUDIOS", "3")
 )
-CALL_AUDIO_COOLDOWN_MINUTOS = int(os.getenv("CALL_AUDIO_COOLDOWN_MINUTOS", "90"))
-CALL_DEV_TOLERANCIA_SEGUNDOS = int(os.getenv("CALL_DEV_TOLERANCIA_SEGUNDOS", "300"))
-CALL_DEV_PLAYLIST_FILE = AUDIO_CALL_DIR / "PLAYLIST.json"
-_call_audio_ultimo_uso = {}
-_dev_call_guilds = {}
-
 
 _ia_call_ultimo_uso = {}
 
@@ -10008,13 +9586,16 @@ def mensagem_pede_bot_na_call(texto):
     texto = str(texto or "").casefold()
 
     padroes = (
-        r"\bentra (?:na|no|aqui na) call\b",
-        r"\bvem (?:pra|para) call\b",
-        r"\bcola (?:na|aqui na) call\b",
-        r"\bentra ai na call\b",
-        r"\bentra aí na call\b",
+        r"\bentra (?:na|no|aqui na|minha) call\b",
+        r"\bvem (?:pra|para|na|minha) call\b",
+        r"\bcola (?:na|aqui na|minha) call\b",
+        r"\bentra a[ií] na call\b",
         r"\bvai entrar na call\b",
         r"\bentra call\b",
+        r"\bduvido (?:vc|você|tu|o bot)?\s*(?:de )?entrar (?:na|minha) call\b",
+        r"\bduvido (?:vc|você|tu|o bot)?\s*(?:vir|vim) (?:pra|para|na|minha) call\b",
+        r"\bquero (?:que )?(?:vc|você|tu|o bot)?\s*entre (?:na|minha) call\b",
+        r"\btem coragem de entrar (?:na|minha) call\b",
     )
 
     return any(
@@ -10133,13 +9714,10 @@ async def executar_ia_na_call(
         len(audios)
     )
 
-    agora_ts = datetime.now(timezone.utc).timestamp()
-    disponiveis = [a for a in audios if agora_ts - _call_audio_ultimo_uso.get((message.guild.id, a.name), 0) >= CALL_AUDIO_COOLDOWN_MINUTOS * 60]
-    if not disponiveis:
-        disponiveis = audios
-    escolhidos = random.sample(disponiveis, min(quantidade, len(disponiveis)))
-    for arquivo in escolhidos:
-        _call_audio_ultimo_uso[(message.guild.id, arquivo.name)] = agora_ts
+    escolhidos = random.sample(
+        audios,
+        quantidade
+    )
 
     texto_antes = str(texto_antes or "").strip()
     if texto_antes:
@@ -10453,40 +10031,26 @@ async def antes_zoeira_call_automatica():
 # ONLINE
 # ==========================================================
 
-async def avisar_retorno_manutencao_manual():
-    if str(obter_estado("manutencao_manual_pendente_retorno") or "")!="1": return
-    canal=None; canal_id=obter_estado("canal_chat_geral_id")
-    if canal_id:
-        try: canal=bot.get_channel(int(canal_id)) or await bot.fetch_channel(int(canal_id))
-        except Exception: canal=None
-    if canal is None:
-        for guild in bot.guilds:
-            for candidato in guild.text_channels:
-                if candidato.permissions_for(guild.me).send_messages: canal=candidato; break
-            if canal: break
-    if canal:
-        try:
-            await canal.send("EU TO DE VOLTA PORRAA"); salvar_estado("manutencao_manual_pendente_retorno","0")
-        except discord.HTTPException: pass
-
 @bot.event
 async def on_ready():
-    # Se reiniciou/deployou com o dono já na DEV-ROOM, reconecta automaticamente.
-    for guild in bot.guilds:
-        dono = guild.get_member(DONO_ID)
-        if dono and dono.voice and dono.voice.channel and dono.voice.channel.id == DEV_CALL_ID:
-            ok, erro = await entrar_call_silencioso(guild, dono.voice.channel, tocar_playlist=True)
-            if not ok:
-                print(f"Falha ao restaurar call DEV: {erro}")
-            break
     if not gerenciar_rei_madrugada.is_running():
         gerenciar_rei_madrugada.start()
 
     if not zoeira_call_automatica.is_running():
         zoeira_call_automatica.start()
-    if not getattr(bot,"_retorno_manual_verificado",False):
-        bot._retorno_manual_verificado=True
-        await avisar_retorno_manutencao_manual()
+
+    # Se o bot reiniciar enquanto o programador já estiver na call de manutenção,
+    # inicia uma nova sessão em memória sem emitir aviso público de retorno.
+    if not getattr(bot, "_manutencao_inicial_verificada", False):
+        bot._manutencao_inicial_verificada = True
+        for guild in bot.guilds:
+            if dono_esta_na_call_manutencao(guild):
+                iniciar_sessao_manutencao()
+                ok, erro = await entrar_call_dev_automaticamente(guild)
+                if not ok:
+                    print(f"Falha ao restaurar conexão na call DEV: {erro}")
+                break
+
     if not getattr(
         bot,
         "_cache_convites_inicializado",
@@ -10505,14 +10069,14 @@ async def on_ready():
                     f"{guild.name}: {erro}"
                 )
 
-    # Publica a nota atual automaticamente uma única vez. O estado persistente
-    # impede duplicação da mesma versão mesmo após reinícios/deploys.
-    try:
-        publicado, mensagem_nota = await publicar_atualizacao_automatica()
-        if publicado:
-            print(f"Notas de atualização: {mensagem_nota}")
-    except Exception as erro:
-        print(f"Erro ao publicar notas de atualização: {erro}")
+    # Publica a nota do pacote uma única vez por ID. O controle fica em /data,
+    # então reconexões podem tentar novamente sem risco de duplicar uma nota já registrada.
+    publicado, detalhe = await publicar_atualizacao_automatica()
+    print(f"Nota de atualização | {detalhe}")
+
+    # Busca a configuração remota da IA já na inicialização.
+    await atualizar_config_ia_do_painel(force=True)
+
     if not ia_caos_automatico.is_running():
         ia_caos_automatico.start()
 
@@ -11198,32 +10762,6 @@ async def erro_slash(
     except discord.HTTPException:
         pass
 
-
-# ==========================================================
-# /SITE — ACESSO AO PAINEL
-# ==========================================================
-
-@bot.tree.command(name="site", description="Abre o painel da Resenha Máxima")
-async def site(interaction: discord.Interaction):
-    # A conta precisa existir no painel; a consulta é feita no endpoint público do SITE.
-    url = f"{SITE_PUBLIC_URL}/api/site-account/{interaction.user.id}"
-    existe = False
-    try:
-        async with aiohttp.ClientSession() as sess:
-            async with sess.get(url, timeout=aiohttp.ClientTimeout(total=6)) as resp:
-                if resp.status == 200:
-                    dados = await resp.json(content_type=None)
-                    existe = bool(dados.get("exists"))
-    except Exception as erro:
-        print(f"Falha ao verificar conta do SITE: {erro}")
-    if existe:
-        await interaction.response.send_message(f"🌐 **Seu acesso ao SITE foi encontrado.**\n{SITE_PUBLIC_URL}", ephemeral=True)
-    else:
-        await interaction.response.send_message("❌ Você ainda não possui uma conta criada no SITE. O responsável foi avisado.", ephemeral=True)
-        try:
-            await enviar_log_dono(f"🌐 <@{interaction.user.id}> — {interaction.user} tentou usar /site sem ter uma conta no SITE.")
-        except Exception:
-            pass
 
 # ==========================================================
 # TOKEN

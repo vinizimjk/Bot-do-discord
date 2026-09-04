@@ -1,19 +1,17 @@
 {
-  "id": "2026-09-03-ban-livre-nick-sem-castigo",
-  "versao": "2026.09.03-ban-livre-nick-sem-castigo",
-  "data": "03/09/2026",
-  "titulo": "## Solicitações de ban e cadastro de nickname",
-  "mencionar_here": true,
+  "id": "2026-09-04-call-dev-falar-como-bot",
+  "versao": "2026.09.04-call-dev-falar-como-bot",
+  "data": "04/09/2026",
+  "titulo": "## Call DEV ",
+  "mencionar_here": false,
   "novidades": [
-    "🔨 Agora qualquer membro do servidor pode solicitar um ban para análise."
+    
+    "🎵 A Call DEV agora toca automaticamente os áudios disponíveis enquanto o Dono estiver na call."
   ],
   "correcoes": [
-    "📩 O bot ainda pede o nickname por DM, mas agora pede apenas uma vez.",
-    "🎮 Castigo após não informar o username/nickname removido.\n\n## Motivo da remoção\nAs donzelas aparentemente não sabem o que significa “responder a DM” 😂"
+    "🔊 A pasta audios_call agora é localizada a partir do próprio bot.py, evitando erro de caminho no Railway."
   ],
-  "alteracoes": [
-    "⚖️ Qualquer pessoa pode solicitar um ban; aprovar ou negar continua protegido."
-  ],
+  
   "problemas_conhecidos": [],
-  "resumo": "Solicitação de ban liberada e castigo por nickname pendente removido."
+  "resumo": "Música automática na Call DEV e envio de mensagens como o bot."
 }
