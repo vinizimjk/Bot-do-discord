@@ -1,0 +1,2 @@
+Coloque aqui os arquivos MP3, WAV, OGG, M4A ou FLAC.
+A pasta precisa ficar ao lado do bot.py dentro do repositório do bot.
