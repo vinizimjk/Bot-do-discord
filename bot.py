@@ -9621,6 +9621,183 @@ def zoeira_call_auto_ativa():
     ).strip() == "1"
 
 
+ZOARCALL6_REPETICOES = 6
+ZOARCALL6_AUDIO_ALEATORIO = "__aleatorio__"
+
+
+async def _zoarcall6_liberar_mute(
+    guild: discord.Guild,
+    canal: discord.VoiceChannel
+):
+    """Tenta manter o próprio bot com microfone/fone ligados durante o /zoarcall6."""
+    try:
+        await guild.change_voice_state(
+            channel=canal,
+            self_mute=False,
+            self_deaf=False
+        )
+    except Exception:
+        pass
+
+    # Se alguém aplicou mute/deaf de servidor, tenta remover também.
+    # Isso só funciona quando o bot possui as permissões necessárias.
+    me = guild.me
+    estado = getattr(me, "voice", None) if me is not None else None
+    if me is not None and estado is not None:
+        kwargs = {}
+        if getattr(estado, "mute", False):
+            kwargs["mute"] = False
+        if getattr(estado, "deaf", False):
+            kwargs["deafen"] = False
+        if kwargs:
+            try:
+                await me.edit(
+                    reason="RESENHA MÁXIMA: proteção exclusiva do /zoarcall6",
+                    **kwargs
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+
+
+async def _zoarcall6_garantir_conexao(
+    guild: discord.Guild,
+    canal: discord.VoiceChannel
+):
+    voice = guild.voice_client
+
+    if voice is None or not voice.is_connected():
+        try:
+            voice = await canal.connect(
+                self_mute=False,
+                self_deaf=False,
+                reconnect=True
+            )
+        except Exception as erro:
+            return None, f"{type(erro).__name__}: {erro}"
+    elif voice.channel != canal:
+        try:
+            await voice.move_to(canal)
+        except Exception as erro:
+            return None, f"{type(erro).__name__}: {erro}"
+
+    await _zoarcall6_liberar_mute(guild, canal)
+    return voice, None
+
+
+async def tocar_audio_6x_na_call(
+    guild: discord.Guild,
+    canal: discord.VoiceChannel,
+    arquivo: Path
+):
+    """Toca o MESMO áudio 6 vezes e tenta voltar à call se cair durante a execução."""
+    if not arquivo.exists():
+        return False, "O arquivo de áudio não existe."
+
+    eu = guild.me
+    if eu is None:
+        return False, "Não encontrei o usuário do bot no servidor."
+
+    permissoes = canal.permissions_for(eu)
+    if not permissoes.connect:
+        return False, "Não tenho permissão para entrar nessa call."
+    if not permissoes.speak:
+        return False, "Não tenho permissão para falar nessa call."
+
+    voice_existente = guild.voice_client
+    conectado_por_este_comando = not (
+        voice_existente is not None
+        and voice_existente.is_connected()
+    )
+
+    try:
+        voice, erro = await _zoarcall6_garantir_conexao(guild, canal)
+        if voice is None:
+            return False, erro
+
+        if voice.is_playing() or voice.is_paused():
+            return False, "Já estou tocando outro áudio."
+
+        for repeticao in range(1, ZOARCALL6_REPETICOES + 1):
+            tentativas_reconexao = 0
+
+            while True:
+                voice, erro = await _zoarcall6_garantir_conexao(guild, canal)
+                if voice is None:
+                    tentativas_reconexao += 1
+                    if tentativas_reconexao >= 3:
+                        return False, (
+                            f"Não consegui voltar para a call na repetição {repeticao}: {erro}"
+                        )
+                    await asyncio.sleep(1.0)
+                    continue
+
+                try:
+                    fonte = await discord.FFmpegOpusAudio.from_probe(
+                        str(arquivo),
+                        executable=FFMPEG_BIN,
+                        method="fallback",
+                        options="-vn"
+                    )
+                    voice.play(fonte)
+                    print(
+                        "ZoarCall6 | "
+                        f"guild={guild.id} | canal={canal.id} | "
+                        f"audio={arquivo.name} | repeticao={repeticao}/6"
+                    )
+                except Exception as erro_play:
+                    return False, f"{type(erro_play).__name__}: {erro_play}"
+
+                caiu = False
+                ultimo_desmute = 0.0
+                while True:
+                    voice_atual = guild.voice_client
+                    if voice_atual is None or not voice_atual.is_connected():
+                        caiu = True
+                        break
+
+                    agora = time.monotonic()
+                    if agora - ultimo_desmute >= 1.0:
+                        await _zoarcall6_liberar_mute(guild, canal)
+                        ultimo_desmute = agora
+
+                    if not (voice_atual.is_playing() or voice_atual.is_paused()):
+                        break
+                    await asyncio.sleep(0.20)
+
+                if caiu:
+                    tentativas_reconexao += 1
+                    if tentativas_reconexao >= 3:
+                        return False, (
+                            f"A conexão caiu várias vezes durante a repetição {repeticao}."
+                        )
+                    await asyncio.sleep(0.8)
+                    # Repete esta mesma execução desde o começo após reconectar.
+                    continue
+
+                break
+
+            # Pequena pausa entre as repetições para não cortar o final do áudio.
+            await asyncio.sleep(0.25)
+
+        await asyncio.sleep(1.0)
+        return True, None
+
+    except Exception as erro:
+        return False, f"{type(erro).__name__}: {erro}"
+
+    finally:
+        voice_atual = guild.voice_client
+        if (
+            conectado_por_este_comando
+            and voice_atual is not None
+            and voice_atual.is_connected()
+        ):
+            try:
+                await voice_atual.disconnect(force=True)
+            except Exception:
+                pass
+
+
 async def tocar_audio_na_call(
     guild: discord.Guild,
     canal: discord.VoiceChannel,
@@ -10086,6 +10263,118 @@ async def zoarcall(
     else:
         await interaction.followup.send(
             f"❌ Não consegui zoar a call: {erro}",
+            ephemeral=True
+        )
+
+
+async def autocomplete_audio_zoarcall6(
+    interaction: discord.Interaction,
+    atual: str
+):
+    atual_cf = str(atual or "").casefold()
+    opcoes = []
+
+    if not atual_cf or "aleatorio" in atual_cf or "aleatório" in atual_cf:
+        opcoes.append(
+            app_commands.Choice(
+                name="🎲 Áudio aleatório",
+                value=ZOARCALL6_AUDIO_ALEATORIO
+            )
+        )
+
+    for arquivo in listar_audios_call():
+        nome = arquivo.name
+        if atual_cf and atual_cf not in nome.casefold():
+            continue
+        opcoes.append(
+            app_commands.Choice(
+                name=nome[:100],
+                value=nome[:100]
+            )
+        )
+        if len(opcoes) >= 25:
+            break
+
+    return opcoes[:25]
+
+
+@bot.tree.command(
+    name="zoarcall6",
+    description="Dono: toca o mesmo áudio 6x e tenta voltar para a call se cair"
+)
+@app_commands.describe(
+    canal="Call onde o bot vai entrar",
+    audio="Escolha um áudio ou use Áudio aleatório"
+)
+@app_commands.autocomplete(
+    audio=autocomplete_audio_zoarcall6
+)
+async def zoarcall6(
+    interaction: discord.Interaction,
+    canal: discord.VoiceChannel,
+    audio: str | None = ZOARCALL6_AUDIO_ALEATORIO
+):
+    # Exclusivo do dono/programador. Cargos administrativos NÃO recebem acesso.
+    if interaction.user.id != DONO_ID:
+        await interaction.response.send_message(
+            "❌ Esse comando é exclusivo do dono do bot.",
+            ephemeral=True
+        )
+        return
+
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "❌ Use esse comando dentro do servidor.",
+            ephemeral=True
+        )
+        return
+
+    audios = listar_audios_call()
+    if not audios:
+        await interaction.response.send_message(
+            "❌ A pasta `audios_call` está vazia. "
+            "Coloque arquivos MP3, WAV, OGG, M4A ou FLAC nela.",
+            ephemeral=True
+        )
+        return
+
+    audio_escolhido = str(audio or "").strip()
+    if (
+        not audio_escolhido
+        or audio_escolhido == ZOARCALL6_AUDIO_ALEATORIO
+        or audio_escolhido.casefold() in {"aleatorio", "aleatório"}
+    ):
+        arquivo = random.choice(audios)
+    else:
+        arquivo = localizar_audio_call(audio_escolhido)
+
+    if arquivo is None:
+        await interaction.response.send_message(
+            "❌ Não encontrei esse áudio. Escolha um nome da lista ou Áudio aleatório.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(
+        ephemeral=True,
+        thinking=True
+    )
+
+    ok, erro = await tocar_audio_6x_na_call(
+        interaction.guild,
+        canal,
+        arquivo
+    )
+
+    if ok:
+        await interaction.followup.send(
+            f"😈 **ZoarCall6 concluído:** `{arquivo.name}` foi tocado "
+            f"**6 vezes seguidas** em **{canal.name}**.",
+            ephemeral=True
+        )
+    else:
+        await interaction.followup.send(
+            f"❌ O `/zoarcall6` falhou: {erro}",
             ephemeral=True
         )
 

@@ -1,0 +1,22 @@
+{
+  "id": "2026-09-06-zoarcall6-dono",
+  "versao": "2026.09.06-zoarcall6-dono",
+  "data": "06/09/2026",
+  "titulo": "## Novo /zoarcall6 exclusivo do Dono",
+  "mencionar_here": false,
+  "novidades": [
+    "🔊 Adicionado /zoarcall6: escolha uma call e um áudio específico ou aleatório para tocar o mesmo áudio 6 vezes seguidas.",
+    "👑 O novo comando é exclusivo do DONO_ID."
+  ],
+  "correcoes": [
+    "🔁 Durante o /zoarcall6, o bot tenta reconectar sozinho à call se a conexão cair.",
+    "🎙️ Durante a execução, o bot tenta manter o próprio microfone e fone ligados e remover mute/deaf de servidor quando tiver permissão."
+  ],
+  "alteracoes": [
+    "🧩 O /zoarcall original e a playlist da Call DEV continuam separados e sem mudança no funcionamento normal."
+  ],
+  "problemas_conhecidos": [
+    "Mute/deaf de servidor só pode ser removido automaticamente se o bot tiver as permissões necessárias no Discord."
+  ],
+  "resumo": "Novo /zoarcall6 exclusivo do Dono com repetição 6x, áudio aleatório e tentativa de reconexão/desmute."
+}
