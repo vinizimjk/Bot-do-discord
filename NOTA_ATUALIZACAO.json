@@ -1,9 +1,16 @@
 {
-  "titulo": "Limpeza manual de castigos",
-  "versao": "V6",
-  "itens": [
-    "Adicionado /removercastigosbot, exclusivo do dono.",
-    "O comando remove timeouts que ficaram registrados como aplicados pelo bot.",
-    "Também limpa os registros antigos para evitar que esses castigos fiquem presos no sistema."
-  ]
+  "id": "2026-09-06-ia-corrigida-v7",
+  "versao": "2026.09.06-v7",
+  "data": "06/09/2026",
+  "titulo": "## IA corrigida",
+  "mencionar_here": false,
+  "novidades": [],
+  "correcoes": [
+    "🤖 Corrigida uma falha que interrompia a resposta da IA após a resposta da Groq."
+  ],
+  "alteracoes": [
+    "🛡️ O tratamento de recusas da IA agora possui fallback seguro e não depende de variáveis ausentes."
+  ],
+  "problemas_conhecidos": [],
+  "resumo": "IA voltou a responder normalmente."
 }

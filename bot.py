@@ -330,6 +330,12 @@ groq_client = (
     else None
 )
 
+print(
+    "IA Groq | chave configurada="
+    + ("sim" if GROQ_API_KEY else "não")
+    + f" | modelo={GROQ_MODEL}"
+)
+
 _memoria_ia = {}
 _cooldown_ia = {}
 
@@ -5828,22 +5834,21 @@ async def publicar_atualizacao_automatica():
     return await publicar_atualizacao_bot(forcar=False)
 
 
+# Frases usadas apenas para identificar recusas muito genéricas da IA.
+# Mantidas locais para a IA nunca quebrar por variável ausente.
+IA_RECUSAS_GENERICAS = (
+    "não posso ajudar",
+    "nao posso ajudar",
+    "não consigo ajudar",
+    "nao consigo ajudar",
+    "não posso atender",
+    "nao posso atender",
+)
+
+
 def resposta_recusa_personagem():
-    nome, usuario_id = random.choice(
-        IA_FALLBACK_MACETANDO
-    )
-
-    # Na maior parte das vezes só usa o nome para não notificar a galera
-    # a cada recusa. Ocasionalmente menciona de verdade.
-    alvo = (
-        f"<@{usuario_id}>"
-        if random.random() < 0.30
-        else nome
-    )
-
-    return (
-        f"agora não dá, tô macetando o {alvo}"
-    )
+    # Fallback seguro: não depende de IDs ou listas externas.
+    return "agora não dá, tô ocupado kkk"
 
 
 def parece_recusa_generica_ia(
