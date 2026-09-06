@@ -10198,6 +10198,73 @@ async def falar(
 
 
 @bot.tree.command(
+    name="chamarcall",
+    description="Chama o bot para uma call e deixa ele conectado em silêncio"
+)
+@app_commands.describe(
+    canal="Call onde o bot deve entrar"
+)
+async def chamarcall(
+    interaction: discord.Interaction,
+    canal: discord.VoiceChannel
+):
+    if await negar_se_nao_admin(interaction):
+        return
+
+    guild = interaction.guild
+    if guild is None:
+        await interaction.response.send_message(
+            "❌ Use esse comando dentro do servidor.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(
+        ephemeral=True,
+        thinking=True
+    )
+
+    try:
+        voice = guild.voice_client
+
+        if voice is not None and voice.is_connected():
+            if voice.channel is None or voice.channel.id != canal.id:
+                await voice.move_to(canal)
+        else:
+            voice = await canal.connect(
+                self_deaf=False,
+                self_mute=False,
+                timeout=20.0,
+                reconnect=True
+            )
+
+        # Garante que o bot não fique com self-mute/self-deaf.
+        try:
+            await guild.change_voice_state(
+                channel=canal,
+                self_mute=False,
+                self_deaf=False
+            )
+        except Exception:
+            pass
+
+        await interaction.followup.send(
+            f"🔊 Entrei em **{canal.name}** e vou ficar por aqui em silêncio.",
+            ephemeral=True
+        )
+    except asyncio.TimeoutError:
+        await interaction.followup.send(
+            "❌ O Discord demorou demais para conectar o bot nessa call.",
+            ephemeral=True
+        )
+    except Exception as erro:
+        await interaction.followup.send(
+            f"❌ Não consegui entrar na call: {erro}",
+            ephemeral=True
+        )
+
+
+@bot.tree.command(
     name="zoarcall",
     description="Entra em uma call, toca um áudio e sai"
 )
