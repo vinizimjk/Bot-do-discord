@@ -2829,10 +2829,7 @@ async def processar_negacao(
             False
         )
 
-        if membro is not None:
-            cadastro_nick = buscar_cadastro_nick(guild.id, membro.id)
-            if cadastro_nick and cadastro_nick["castigo_aplicado"]:
-                await aplicar_castigo_nick(membro)
+        # Castigo por nickname foi removido. Não reaplicar timeout de nickname.
 
     finalizar_solicitacao_ban(
         solicitacao_id,
@@ -4281,21 +4278,14 @@ async def responder_nick_invalido(
     )
 
 async def enviar_pergunta_nick(membro, aviso=None):
-    if aviso is None:
-        texto = (
-            "🎮 **Cadastro do Minecraft — Resenha Máxima**\n\n"
-            "Você recebeu o cargo de Minecraft. Responda **esta DM** com o seu nickname no Minecraft."
-        )
-    else:
-        texto = (
-            f"⚠️ **Aviso {aviso}/4 — nickname pendente**\n\n"
-            "Responda esta DM com o seu nickname no Minecraft. "
-            "Após o 4º aviso, será aplicado timeout até o cadastro."
-        )
+    """Pede o nickname uma única vez. Não envia cobranças nem ameaça castigo."""
+    texto = (
+        "🎮 **Cadastro do Minecraft — Resenha Máxima**\n\n"
+        "Você recebeu o cargo de Minecraft. Responda **esta DM** com o seu nickname no Minecraft."
+    )
     try:
         await membro.send(texto)
         return True
-
     except (
         discord.Forbidden,
         discord.HTTPException
@@ -4555,6 +4545,58 @@ async def aplicar_castigo_nick(membro):
         return False, str(erro)
 
 
+async def remover_castigos_nickname_legados():
+    """Remove timeouts antigos aplicados apenas por falta de nickname."""
+    removidos = 0
+    for guild in bot.guilds:
+        for cadastro in listar_nicks_por_status('pendente'):
+            if cadastro['guild_id'] != guild.id:
+                continue
+            if not cadastro['castigo_aplicado']:
+                continue
+
+            membro = guild.get_member(cadastro['usuario_id'])
+            if membro is None:
+                atualizar_cadastro_nick(
+                    guild.id,
+                    cadastro['usuario_id'],
+                    castigo_aplicado=0
+                )
+                continue
+
+            # Se houver castigo de solicitação de ban, ele continua valendo.
+            if tem_ban_pendente_com_castigo(guild.id, membro.id):
+                atualizar_cadastro_nick(
+                    guild.id,
+                    membro.id,
+                    castigo_aplicado=0
+                )
+                continue
+
+            try:
+                await membro.timeout(
+                    None,
+                    reason='Castigo por nickname removido do sistema.'
+                )
+                removidos += 1
+            except (discord.Forbidden, discord.HTTPException) as erro:
+                print(
+                    'Não consegui remover timeout antigo de nickname | '
+                    f'{membro.id}: {erro}'
+                )
+                continue
+
+            atualizar_cadastro_nick(
+                guild.id,
+                membro.id,
+                castigo_aplicado=0,
+                avisos_enviados=0
+            )
+
+    if removidos:
+        print(f'Castigos antigos de nickname removidos: {removidos}')
+
+
 async def concluir_nickname(
     membro,
     nickname,
@@ -4747,41 +4789,11 @@ async def varrer_membros_minecraft():
 
 @tasks.loop(minutes=INTERVALO_NICKS_MINUTOS)
 async def verificar_nicknames_minecraft():
+    """Mantém apenas a limpeza de quem saiu; pendências de nickname não geram castigo nem novos avisos."""
     agora = datetime.now(timezone.utc)
 
-    for cadastro in listar_nicks_por_status('pendente'):
-        guild = bot.get_guild(cadastro['guild_id'])
-        membro = guild.get_member(cadastro['usuario_id']) if guild else None
-        if membro is None:
-            continue
-
-        try:
-            inicio = datetime.fromisoformat(cadastro['pendente_desde'])
-        except (TypeError, ValueError):
-            inicio = agora
-
-        horas = (agora - inicio).total_seconds() / 3600
-        enviados = int(cadastro['avisos_enviados'] or 0)
-        proximo = enviados + 1
-
-        if proximo <= 4 and horas >= AVISOS_NICK_HORAS[proximo - 1]:
-            dm = await enviar_pergunta_nick(membro, proximo)
-            atualizar_cadastro_nick(guild.id, membro.id, avisos_enviados=proximo)
-            await enviar_log_dono(
-                f"⚠️ Aviso {proximo}/4 de nickname para {membro} ({membro.id}). "
-                f"DM: {'enviada' if dm else 'falhou/bloqueada'}."
-            )
-            if proximo == 4:
-                ok, erro = await aplicar_castigo_nick(membro)
-                await enviar_log_dono(
-                    f"🔒 Timeout de nickname para {membro}: " + ('aplicado.' if ok else f'falhou — {erro}')
-                )
-
-        atual = buscar_cadastro_nick(guild.id, membro.id)
-        if atual and atual['castigo_aplicado']:
-            limite = getattr(membro, 'timed_out_until', None)
-            if limite is None or limite < agora + timedelta(days=7):
-                await aplicar_castigo_nick(membro)
+    # IMPORTANTE: quem ainda não respondeu fica apenas como pendente.
+    # Não repetimos DM, não aplicamos timeout e não renovamos timeout por nickname.
 
     for cadastro in listar_nicks_por_status('ausente'):
         try:
@@ -4793,7 +4805,12 @@ async def verificar_nicknames_minecraft():
 
         guild = bot.get_guild(cadastro['guild_id'])
         if guild and guild.get_member(cadastro['usuario_id']):
-            atualizar_cadastro_nick(cadastro['guild_id'], cadastro['usuario_id'], status='ativo', saiu_em=None)
+            atualizar_cadastro_nick(
+                cadastro['guild_id'],
+                cadastro['usuario_id'],
+                status='ativo',
+                saiu_em=None
+            )
             continue
 
         await enviar_log_dono(
@@ -4808,9 +4825,13 @@ async def verificar_nicknames_minecraft():
         )
 
         if guild is not None:
-            await atualizar_tabela_nicknames(
-                guild
-            )
+            try:
+                await atualizar_tabela_nicknames(guild)
+            except Exception as erro:
+                print(
+                    "Erro ao atualizar tabela após remover nickname | "
+                    f"{type(erro).__name__}: {erro}"
+                )
 
 
 @verificar_nicknames_minecraft.before_loop
@@ -5349,16 +5370,16 @@ async def criar_link_vinculo_roblox(membro):
     )
 
 
-async def iniciar_cadastro_roblox(membro):
-    """Envia a DM de login Roblox somente se a conta ainda não estiver vinculada."""
+async def iniciar_cadastro_roblox(membro, forcar=False):
+    """Envia por DM o link oficial para vincular a conta Roblox."""
     if membro.bot:
-        return
+        return False
 
     if not ROBLOX_VINCULO_SECRET:
         print(
             "⚠️ Roblox: ROBLOX_VINCULO_SECRET não está configurado no bot."
         )
-        return
+        return False
 
     atual = await buscar_vinculo_roblox(membro.id)
     if atual.get("ok") and atual.get("vinculado"):
@@ -5367,7 +5388,21 @@ async def iniciar_cadastro_roblox(membro):
         print(
             f"✅ Roblox já vinculado para {membro} ({membro.id}): {usuario}"
         )
-        return
+        return True
+
+    # A varredura de inicialização pode reenviar para quem ficou sem link,
+    # mas evita mandar várias vezes no mesmo dia. Ao receber o cargo agora,
+    # forcar=True ignora esse bloqueio e manda imediatamente.
+    chave_ultimo = f"roblox_link_dm_ultimo_{membro.guild.id}_{membro.id}"
+    if not forcar:
+        ultimo = obter_estado(chave_ultimo)
+        if ultimo:
+            try:
+                ultimo_dt = datetime.fromisoformat(ultimo)
+                if datetime.now(timezone.utc) - ultimo_dt < timedelta(hours=24):
+                    return False
+            except (TypeError, ValueError):
+                pass
 
     resposta = await criar_link_vinculo_roblox(membro)
     if not resposta.get("ok"):
@@ -5375,22 +5410,20 @@ async def iniciar_cadastro_roblox(membro):
             "❌ Não consegui criar o link Roblox para "
             f"{membro} ({membro.id}): {resposta.get('erro', 'erro desconhecido')}"
         )
-        return
+        return False
 
     url = str(resposta.get("url") or "").strip()
     if not url:
         print(
             f"❌ O site não devolveu um link Roblox para {membro} ({membro.id})."
         )
-        return
+        return False
 
     embed = discord.Embed(
         title="🎮 Cadastro do Roblox — Resenha Máxima",
         description=(
             "Você recebeu o cargo de **Roblox**. Para cadastrar sua conta, "
-            "clique no botão abaixo e entre na sua conta pelo login oficial do Roblox.\
-\
-"
+            "clique no botão abaixo e entre na sua conta pelo login oficial do Roblox.\n\n"
             "O link é temporário e serve apenas para confirmar qual conta Roblox é sua."
         ),
         color=discord.Color.blurple(),
@@ -5409,9 +5442,14 @@ async def iniciar_cadastro_roblox(membro):
 
     try:
         await membro.send(embed=embed, view=view)
+        salvar_estado(
+            chave_ultimo,
+            datetime.now(timezone.utc).isoformat()
+        )
         print(
             f"📩 Cadastro Roblox enviado por DM para {membro} ({membro.id})."
         )
+        return True
     except discord.Forbidden:
         print(
             f"⚠️ Não consegui enviar DM de cadastro Roblox para {membro} ({membro.id}). DMs fechadas."
@@ -5420,6 +5458,29 @@ async def iniciar_cadastro_roblox(membro):
         print(
             f"❌ Erro ao enviar DM Roblox para {membro} ({membro.id}): {erro}"
         )
+    return False
+
+
+async def varrer_membros_roblox_sem_vinculo():
+    """Recupera quem já tinha o cargo Roblox e ficou sem receber o link."""
+    total = 0
+    for guild in bot.guilds:
+        cargo = guild.get_role(CARGO_ROBLOX_ID)
+        if cargo is None:
+            continue
+        for membro in cargo.members:
+            if membro.bot:
+                continue
+            try:
+                enviado = await iniciar_cadastro_roblox(membro, forcar=False)
+                if enviado:
+                    total += 1
+            except Exception as erro:
+                print(
+                    "Erro ao verificar vínculo Roblox | "
+                    f"{membro.id}: {type(erro).__name__}: {erro}"
+                )
+    print(f"Varredura Roblox concluída | links/vínculos processados: {total}")
 
 
 @bot.event
@@ -5449,7 +5510,7 @@ async def on_member_update(before: discord.Member, after: discord.Member):
         await iniciar_cadastro_nick(after)
 
     if not tinha_roblox and tem_roblox:
-        await iniciar_cadastro_roblox(after)
+        await iniciar_cadastro_roblox(after, forcar=True)
 
 
 
@@ -10619,6 +10680,11 @@ async def antes_zoeira_call_automatica():
 
 @bot.event
 async def on_ready():
+    if not getattr(bot, "_correcoes_regressao_v5", False):
+        bot._correcoes_regressao_v5 = True
+        await remover_castigos_nickname_legados()
+        asyncio.create_task(varrer_membros_roblox_sem_vinculo())
+
     if not gerenciar_rei_madrugada.is_running():
         gerenciar_rei_madrugada.start()
 

@@ -1,17 +1,19 @@
 {
-  "id": "2026-09-06-restauracao-antispam-chamarcall",
-  "versao": "2026.09.06-v4-restauracao",
+  "id": "2026-09-06-v5-roblox-nick-sem-castigo",
+  "versao": "2026.09.06-v5",
   "data": "06/09/2026",
-  "titulo": "## Funções restauradas",
+  "titulo": "## Correção do cadastro Roblox e nickname Minecraft",
   "mencionar_here": false,
-  "novidades": [],
+  "novidades": [
+    "🎮 O bot volta a enviar por DM o link para vincular a conta Roblox quando o cargo Roblox é recebido."
+  ],
   "correcoes": [
-    "🛡️ Antispam de rajadas de menções mantido/restaurado no bot.",
-    "🔊 O comando /chamarcall voltou: escolha uma call e o bot entra e permanece conectado em silêncio."
+    "🛠️ O bot também recupera usuários que já tinham o cargo Roblox e ficaram sem receber o link.",
+    "✅ Removidos novamente os avisos repetidos e o castigo por não informar o nickname Minecraft."
   ],
   "alteracoes": [
-    "😈 /zoarcall6 continua disponível sem alterar o /zoarcall normal."
+    "🔒 Castigos ligados a solicitações de ban continuam separados e não foram removidos."
   ],
   "problemas_conhecidos": [],
-  "resumo": "Antispam e /chamarcall restaurados sem remover as funções novas."
+  "resumo": "Cadastro Roblox restaurado e castigo de nickname removido novamente."
 }
