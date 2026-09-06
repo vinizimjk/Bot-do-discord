@@ -10508,6 +10508,96 @@ async def zoarcall6(
 
 
 @bot.tree.command(
+    name="removercastigosbot",
+    description="Dono: remove de uma vez os castigos que ficaram registrados pelo bot"
+)
+async def removercastigosbot(interaction: discord.Interaction):
+    if interaction.user.id != DONO_ID:
+        await interaction.response.send_message(
+            "❌ Esse comando é exclusivo do dono do bot.",
+            ephemeral=True
+        )
+        return
+
+    guild = interaction.guild
+    if guild is None:
+        await interaction.response.send_message(
+            "❌ Use esse comando dentro do servidor.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+
+    # Junta somente usuários que o próprio banco do bot marcou com castigo.
+    usuarios = set()
+    nicks_marcados = []
+    for status in ("pendente", "ativo", "ausente"):
+        for cadastro in listar_nicks_por_status(status):
+            if cadastro['guild_id'] == guild.id and cadastro['castigo_aplicado']:
+                usuarios.add(int(cadastro['usuario_id']))
+                nicks_marcados.append(cadastro)
+
+    bans_marcados = []
+    for pendente in buscar_castigos_pendentes():
+        if pendente['guild_id'] == guild.id:
+            usuarios.add(int(pendente['usuario_id']))
+            bans_marcados.append(pendente)
+
+    removidos = 0
+    ja_sem_timeout = 0
+    falhas = []
+
+    for usuario_id in sorted(usuarios):
+        membro = guild.get_member(usuario_id)
+        if membro is None:
+            try:
+                membro = await guild.fetch_member(usuario_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                membro = None
+
+        if membro is None:
+            # O usuário não está mais no servidor; limpamos apenas o registro.
+            continue
+
+        try:
+            if membro.timed_out_until is not None:
+                await membro.timeout(
+                    None,
+                    reason=f"Limpeza geral de castigos do bot solicitada pelo dono {interaction.user.id}."
+                )
+                removidos += 1
+            else:
+                ja_sem_timeout += 1
+        except (discord.Forbidden, discord.HTTPException) as erro:
+            falhas.append(f"{membro} ({membro.id}): {erro}")
+
+    # Só limpa os registros depois da tentativa. Assim o bot não volta a tratar
+    # esses castigos antigos como se ainda estivessem aplicados.
+    for cadastro in nicks_marcados:
+        atualizar_cadastro_nick(
+            guild.id,
+            int(cadastro['usuario_id']),
+            castigo_aplicado=0,
+            avisos_enviados=0
+        )
+
+    for pendente in bans_marcados:
+        marcar_castigo(int(pendente['id']), False)
+
+    texto = (
+        "✅ **Limpeza de castigos do bot concluída.**\n"
+        f"🔓 Timeouts removidos: **{removidos}**\n"
+        f"👌 Já estavam sem timeout: **{ja_sem_timeout}**\n"
+        f"🧾 Registros encontrados pelo bot: **{len(usuarios)}**"
+    )
+    if falhas:
+        texto += f"\n⚠️ Não consegui remover **{len(falhas)}** castigo(s) por permissão/hierarquia."
+
+    await interaction.followup.send(texto, ephemeral=True)
+
+
+@bot.tree.command(
     name="listaraudios",
     description="Lista os áudios disponíveis para zoar calls"
 )

@@ -1,19 +1,9 @@
 {
-  "id": "2026-09-06-v5-roblox-nick-sem-castigo",
-  "versao": "2026.09.06-v5",
-  "data": "06/09/2026",
-  "titulo": "## Correção do cadastro Roblox e nickname Minecraft",
-  "mencionar_here": false,
-  "novidades": [
-    "🎮 O bot volta a enviar por DM o link para vincular a conta Roblox quando o cargo Roblox é recebido."
-  ],
-  "correcoes": [
-    "🛠️ O bot também recupera usuários que já tinham o cargo Roblox e ficaram sem receber o link.",
-    "✅ Removidos novamente os avisos repetidos e o castigo por não informar o nickname Minecraft."
-  ],
-  "alteracoes": [
-    "🔒 Castigos ligados a solicitações de ban continuam separados e não foram removidos."
-  ],
-  "problemas_conhecidos": [],
-  "resumo": "Cadastro Roblox restaurado e castigo de nickname removido novamente."
+  "titulo": "Limpeza manual de castigos",
+  "versao": "V6",
+  "itens": [
+    "Adicionado /removercastigosbot, exclusivo do dono.",
+    "O comando remove timeouts que ficaram registrados como aplicados pelo bot.",
+    "Também limpa os registros antigos para evitar que esses castigos fiquem presos no sistema."
+  ]
 }
