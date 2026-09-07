@@ -40,6 +40,13 @@ CHAVE_MENSAGEM_VERIFICACAO_ROBLOX = "roblox_verificacao_mensagem_id"
 CANAL_STATUS_MINECRAFT_ID = 1538109074779144253
 CANAL_NICKNAMES_MINECRAFT_ID = 1534423515183448155
 CARGO_DESENVOLVIMENTO_ID = 1533625836874498181
+
+# Conta de teste: estes dois cargos são permanentes e nunca serão removidos.
+CONTA_TESTE_ID = 1532838576256057557
+CARGOS_FIXOS_CONTA_TESTE = {1532614113346453724, 1536081355711062166}
+TEMPO_CARGO_TESTE_SEGUNDOS = 60 * 60
+CHAVE_CARGOS_TEMPORARIOS_TESTE = "cargos_temporarios_conta_teste_v11"
+
 MINECRAFT_HOST = "Rmax-j8Un.aternos.me"
 MINECRAFT_PORTA = 16184
 MINECRAFT_EDICAO = "bedrock"  # servidor atual é Bedrock
@@ -2151,8 +2158,30 @@ def pode_usar_comando_admin(membro):
     )
 
 
-def pode_usar_sistema_ban(membro):
-    return pode_usar_comando_admin(membro)
+def pode_usar_sistema_ban(membro, interaction=None):
+    if not isinstance(membro, discord.Member) or membro.bot:
+        return False
+
+    # Dono e Desenvolvimento continuam podendo usar em qualquer canal.
+    if pode_usar_comando_admin(membro):
+        return True
+
+    # Para os demais, só libera dentro de canal privado.
+    # O painel já fica em um canal onde @everyone não consegue ver.
+    if interaction is None or interaction.guild is None:
+        return False
+
+    canal = interaction.channel
+    if canal is None:
+        return False
+
+    try:
+        everyone = interaction.guild.default_role
+        privado = not canal.permissions_for(everyone).view_channel
+        membro_consegue_ver = canal.permissions_for(membro).view_channel
+        return privado and membro_consegue_ver
+    except Exception:
+        return False
 
 
 async def negar_se_nao_admin(interaction):
@@ -2986,7 +3015,8 @@ async def preparar_e_enviar_solicitacao(
         return
 
     if not pode_usar_sistema_ban(
-        interaction.user
+        interaction.user,
+        interaction
     ):
         await interaction.response.send_message(
             "❌ Você não possui autorização "
@@ -3297,7 +3327,8 @@ class MotivoEscritoModal(
         interaction: discord.Interaction
     ):
         if not pode_usar_sistema_ban(
-            interaction.user
+            interaction.user,
+            interaction
         ):
             await interaction.response.send_message(
                 "❌ Você não possui autorização.",
@@ -3371,7 +3402,8 @@ class EscolherMotivoSelect(
         interaction: discord.Interaction
     ):
         if not pode_usar_sistema_ban(
-            interaction.user
+            interaction.user,
+            interaction
         ):
             await interaction.response.send_message(
                 "❌ Você não possui autorização.",
@@ -3442,7 +3474,8 @@ class SelecionarUsuarioBan(
         interaction: discord.Interaction
     ):
         if not pode_usar_sistema_ban(
-            interaction.user
+            interaction.user,
+            interaction
         ):
             await interaction.response.send_message(
                 "❌ Você não possui autorização.",
@@ -3516,7 +3549,8 @@ class HackbanIdModal(
         interaction: discord.Interaction
     ):
         if not pode_usar_sistema_ban(
-            interaction.user
+            interaction.user,
+            interaction
         ):
             await interaction.response.send_message(
                 "❌ Você não possui autorização.",
@@ -3579,7 +3613,8 @@ class PainelBanView(
         button: discord.ui.Button
     ):
         if not pode_usar_sistema_ban(
-            interaction.user
+            interaction.user,
+            interaction
         ):
             await interaction.response.send_message(
                 "❌ Você não possui autorização "
@@ -3610,7 +3645,8 @@ class PainelBanView(
         button: discord.ui.Button
     ):
         if not pode_usar_sistema_ban(
-            interaction.user
+            interaction.user,
+            interaction
         ):
             await interaction.response.send_message(
                 "❌ Você não possui autorização "
@@ -5381,6 +5417,15 @@ async def criar_link_vinculo_roblox(membro):
     )
 
 
+async def limpar_todos_vinculos_roblox():
+    return await asyncio.to_thread(
+        _requisicao_json_roblox,
+        "/api/roblox/limpar-vinculos",
+        "POST",
+        {"confirmar": True},
+    )
+
+
 async def iniciar_cadastro_roblox(membro, forcar=False):
     """Envia por DM o link oficial para vincular a conta Roblox."""
     if membro.bot:
@@ -5630,6 +5675,14 @@ async def varrer_membros_roblox_sem_vinculo():
 
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
+    # Conta de teste: cargos extras duram no máximo 1 hora.
+    if after.id == CONTA_TESTE_ID:
+        antes_ids = {cargo.id for cargo in before.roles}
+        for cargo in after.roles:
+            if cargo.id not in antes_ids and _cargo_teste_deve_ser_temporario(cargo):
+                registrar_cargo_temporario_teste(after.guild.id, cargo.id)
+        await garantir_cargos_fixos_conta_teste(after.guild)
+
     if after.bot:
         return
 
@@ -9426,6 +9479,52 @@ async def antes_rei_madrugada():
 
 
 # ==========================================================
+# ROBLOX — LIMPEZA DE VÍNCULOS
+# ==========================================================
+
+@bot.tree.command(
+    name="limparvinculosroblox",
+    description="Apaga todos os vínculos Discord ↔ Roblox cadastrados"
+)
+async def limparvinculosroblox(interaction: discord.Interaction):
+    if interaction.user.id != DONO_ID:
+        await interaction.response.send_message(
+            "❌ Apenas o dono autorizado pode limpar os vínculos Roblox.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+
+    if not ROBLOX_VINCULO_SECRET:
+        await interaction.followup.send(
+            "❌ ROBLOX_VINCULO_SECRET não está configurado no bot.",
+            ephemeral=True,
+        )
+        return
+
+    resposta = await limpar_todos_vinculos_roblox()
+    if not resposta.get("ok"):
+        await interaction.followup.send(
+            "❌ Não consegui limpar os vínculos. "
+            f"Motivo: {resposta.get('erro', 'erro desconhecido')}",
+            ephemeral=True,
+        )
+        return
+
+    removidos = int(resposta.get("vinculos_removidos") or 0)
+    pendentes = int(resposta.get("pendentes_removidos") or 0)
+    await interaction.followup.send(
+        "✅ Cadastros Roblox limpos.\n"
+        f"Vínculos removidos: **{removidos}**\n"
+        f"Verificações pendentes removidas: **{pendentes}**\n\n"
+        "Agora todos deverão usar novamente o painel de verificação.\n"
+        "✅ Os nicknames do Minecraft NÃO são alterados por este comando.",
+        ephemeral=True,
+    )
+
+
+# ==========================================================
 # EVENTO ÚNICO — REI DA MADRUGADA
 # ==========================================================
 
@@ -9898,6 +9997,11 @@ async def tocar_audio_6x_na_call(
     if not arquivo.exists():
         return False, "O arquivo de áudio não existe."
 
+    # Proteção da Call DEV: enquanto o Dono estiver nela, nenhuma rotina
+    # de zoeira/IA pode tirar o bot da Call DEV ou interferir na sessão.
+    if dono_esta_na_call_manutencao(guild) and canal.id != CANAL_CALL_MANUTENCAO_ID:
+        return False, "Call DEV protegida enquanto o Dono estiver nela."
+
     eu = guild.me
     if eu is None:
         return False, "Não encontrei o usuário do bot no servidor."
@@ -10010,6 +10114,11 @@ async def tocar_audio_na_call(
 ):
     if not arquivo.exists():
         return False, "O arquivo de áudio não existe."
+
+    # Proteção da Call DEV: enquanto o Dono estiver nela, nenhuma rotina
+    # de zoeira/IA pode tirar o bot da Call DEV ou interferir na sessão.
+    if dono_esta_na_call_manutencao(guild) and canal.id != CANAL_CALL_MANUTENCAO_ID:
+        return False, "Call DEV protegida enquanto o Dono estiver nela."
 
     eu = guild.me
     if eu is None:
@@ -10167,6 +10276,11 @@ async def tocar_sequencia_na_call(
 
     if not arquivos:
         return False, "Não encontrei áudios disponíveis."
+
+    # Proteção da Call DEV: enquanto o Dono estiver nela, nenhuma rotina
+    # de zoeira/IA pode tirar o bot da Call DEV ou interferir na sessão.
+    if dono_esta_na_call_manutencao(guild) and canal.id != CANAL_CALL_MANUTENCAO_ID:
+        return False, "Call DEV protegida enquanto o Dono estiver nela."
 
     eu = guild.me
     if eu is None:
@@ -10653,7 +10767,7 @@ async def zoarcall6(
 
 @bot.tree.command(
     name="removercastigosbot",
-    description="Dono: remove de uma vez os castigos que ficaram registrados pelo bot"
+    description="Dono: remove todos os timeouts ativos do servidor"
 )
 async def removercastigosbot(interaction: discord.Interaction):
     if interaction.user.id != DONO_ID:
@@ -10673,51 +10787,43 @@ async def removercastigosbot(interaction: discord.Interaction):
 
     await interaction.response.defer(ephemeral=True, thinking=True)
 
-    # Junta somente usuários que o próprio banco do bot marcou com castigo.
-    usuarios = set()
+    # Procura os timeouts REAIS do Discord, não só os registros do banco.
+    membros = {m.id: m for m in guild.members}
+    try:
+        async for membro in guild.fetch_members(limit=None):
+            membros[membro.id] = membro
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+
+    agora = datetime.now(timezone.utc)
+    ativos = []
+    for membro in membros.values():
+        ate = getattr(membro, "timed_out_until", None)
+        if ate is not None and ate > agora:
+            ativos.append(membro)
+
+    removidos = 0
+    falhas = []
+    for membro in ativos:
+        try:
+            await membro.timeout(
+                None,
+                reason=(
+                    "Limpeza geral de castigos solicitada pelo dono "
+                    f"{interaction.user.id}."
+                )
+            )
+            removidos += 1
+        except (discord.Forbidden, discord.HTTPException) as erro:
+            falhas.append(f"{membro} ({membro.id}): {erro}")
+
+    # Limpa também as marcações internas para o bot não reaplicar castigos antigos.
     nicks_marcados = []
     for status in ("pendente", "ativo", "ausente"):
         for cadastro in listar_nicks_por_status(status):
             if cadastro['guild_id'] == guild.id and cadastro['castigo_aplicado']:
-                usuarios.add(int(cadastro['usuario_id']))
                 nicks_marcados.append(cadastro)
 
-    bans_marcados = []
-    for pendente in buscar_castigos_pendentes():
-        if pendente['guild_id'] == guild.id:
-            usuarios.add(int(pendente['usuario_id']))
-            bans_marcados.append(pendente)
-
-    removidos = 0
-    ja_sem_timeout = 0
-    falhas = []
-
-    for usuario_id in sorted(usuarios):
-        membro = guild.get_member(usuario_id)
-        if membro is None:
-            try:
-                membro = await guild.fetch_member(usuario_id)
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                membro = None
-
-        if membro is None:
-            # O usuário não está mais no servidor; limpamos apenas o registro.
-            continue
-
-        try:
-            if membro.timed_out_until is not None:
-                await membro.timeout(
-                    None,
-                    reason=f"Limpeza geral de castigos do bot solicitada pelo dono {interaction.user.id}."
-                )
-                removidos += 1
-            else:
-                ja_sem_timeout += 1
-        except (discord.Forbidden, discord.HTTPException) as erro:
-            falhas.append(f"{membro} ({membro.id}): {erro}")
-
-    # Só limpa os registros depois da tentativa. Assim o bot não volta a tratar
-    # esses castigos antigos como se ainda estivessem aplicados.
     for cadastro in nicks_marcados:
         atualizar_cadastro_nick(
             guild.id,
@@ -10726,17 +10832,25 @@ async def removercastigosbot(interaction: discord.Interaction):
             avisos_enviados=0
         )
 
+    bans_marcados = [
+        p for p in buscar_castigos_pendentes()
+        if p['guild_id'] == guild.id
+    ]
     for pendente in bans_marcados:
         marcar_castigo(int(pendente['id']), False)
 
     texto = (
-        "✅ **Limpeza de castigos do bot concluída.**\n"
+        "✅ **Limpeza geral concluída.**\n"
+        f"🔎 Timeouts ativos encontrados no Discord: **{len(ativos)}**\n"
         f"🔓 Timeouts removidos: **{removidos}**\n"
-        f"👌 Já estavam sem timeout: **{ja_sem_timeout}**\n"
-        f"🧾 Registros encontrados pelo bot: **{len(usuarios)}**"
+        f"🧾 Registros internos de Ban limpos: **{len(bans_marcados)}**\n"
+        f"🎮 Registros internos de Minecraft ajustados: **{len(nicks_marcados)}**"
     )
     if falhas:
-        texto += f"\n⚠️ Não consegui remover **{len(falhas)}** castigo(s) por permissão/hierarquia."
+        texto += (
+            f"\n⚠️ Não consegui remover **{len(falhas)}** timeout(s) "
+            "por permissão/hierarquia."
+        )
 
     await interaction.followup.send(texto, ephemeral=True)
 
@@ -10912,6 +11026,146 @@ async def antes_zoeira_call_automatica():
 # ONLINE
 # ==========================================================
 
+# ==========================================================
+# CONTA DE TESTE — CARGOS TEMPORÁRIOS POR 1 HORA
+# ==========================================================
+
+def _carregar_timers_cargos_teste():
+    bruto = obter_estado(CHAVE_CARGOS_TEMPORARIOS_TESTE)
+    if not bruto:
+        return {}
+    try:
+        dados = json.loads(bruto)
+        return dados if isinstance(dados, dict) else {}
+    except Exception:
+        return {}
+
+
+def _salvar_timers_cargos_teste(dados):
+    salvar_estado(
+        CHAVE_CARGOS_TEMPORARIOS_TESTE,
+        json.dumps(dados, ensure_ascii=False)
+    )
+
+
+def _cargo_teste_deve_ser_temporario(cargo):
+    if cargo is None:
+        return False
+    if cargo.id in CARGOS_FIXOS_CONTA_TESTE:
+        return False
+    if cargo.is_default() or cargo.managed:
+        return False
+    return True
+
+
+def registrar_cargo_temporario_teste(guild_id, role_id):
+    dados = _carregar_timers_cargos_teste()
+    chave = f"{guild_id}:{role_id}"
+    if chave not in dados:
+        dados[chave] = datetime.now(timezone.utc).timestamp()
+        _salvar_timers_cargos_teste(dados)
+
+
+async def garantir_cargos_fixos_conta_teste(guild):
+    membro = guild.get_member(CONTA_TESTE_ID)
+    if membro is None:
+        try:
+            membro = await guild.fetch_member(CONTA_TESTE_ID)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return
+
+    faltando = []
+    atuais = {r.id for r in membro.roles}
+    for role_id in CARGOS_FIXOS_CONTA_TESTE:
+        if role_id not in atuais:
+            cargo = guild.get_role(role_id)
+            if cargo is not None:
+                faltando.append(cargo)
+    if faltando:
+        try:
+            await membro.add_roles(
+                *faltando,
+                reason="RESENHA MÁXIMA: cargos permanentes da conta de teste"
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+
+
+@tasks.loop(minutes=1)
+async def limpar_cargos_temporarios_conta_teste():
+    dados = _carregar_timers_cargos_teste()
+    agora = datetime.now(timezone.utc).timestamp()
+    alterou = False
+
+    for guild in bot.guilds:
+        await garantir_cargos_fixos_conta_teste(guild)
+
+        membro = guild.get_member(CONTA_TESTE_ID)
+        if membro is None:
+            continue
+
+        # Qualquer cargo extra da conta de teste entra no relógio de 1 hora.
+        for cargo in membro.roles:
+            if not _cargo_teste_deve_ser_temporario(cargo):
+                continue
+            chave = f"{guild.id}:{cargo.id}"
+            if chave not in dados:
+                dados[chave] = agora
+                alterou = True
+
+        for chave, inicio in list(dados.items()):
+            try:
+                guild_id_str, role_id_str = chave.split(":", 1)
+                guild_id = int(guild_id_str)
+                role_id = int(role_id_str)
+                inicio = float(inicio)
+            except Exception:
+                dados.pop(chave, None)
+                alterou = True
+                continue
+
+            if guild_id != guild.id:
+                continue
+
+            cargo = guild.get_role(role_id)
+            if cargo is None or cargo not in membro.roles:
+                dados.pop(chave, None)
+                alterou = True
+                continue
+
+            if role_id in CARGOS_FIXOS_CONTA_TESTE:
+                dados.pop(chave, None)
+                alterou = True
+                continue
+
+            if agora - inicio < TEMPO_CARGO_TESTE_SEGUNDOS:
+                continue
+
+            try:
+                await membro.remove_roles(
+                    cargo,
+                    reason="RESENHA MÁXIMA: cargo temporário da conta de teste expirou após 1 hora"
+                )
+                dados.pop(chave, None)
+                alterou = True
+                print(
+                    f"Conta de teste: cargo temporário removido | "
+                    f"guild={guild.id} | role={cargo.id}"
+                )
+            except (discord.Forbidden, discord.HTTPException) as erro:
+                print(
+                    f"Conta de teste: não consegui remover cargo {role_id}: {erro}"
+                )
+
+    if alterou:
+        _salvar_timers_cargos_teste(dados)
+
+
+@limpar_cargos_temporarios_conta_teste.before_loop
+async def antes_limpar_cargos_temporarios_conta_teste():
+    await bot.wait_until_ready()
+
+
 @bot.event
 async def on_ready():
     if not getattr(bot, "_correcoes_regressao_v5", False):
@@ -10922,6 +11176,9 @@ async def on_ready():
     if not getattr(bot, "_painel_verificacao_roblox_pronto", False):
         bot._painel_verificacao_roblox_pronto = True
         await garantir_painel_verificacao_roblox()
+
+    if not limpar_cargos_temporarios_conta_teste.is_running():
+        limpar_cargos_temporarios_conta_teste.start()
 
     if not gerenciar_rei_madrugada.is_running():
         gerenciar_rei_madrugada.start()
@@ -11260,8 +11517,7 @@ async def painelban(
 
     embed.set_footer(
         text=(
-            "Somente a Equipe de Desenvolvimento e o dono autorizado "
-            "podem utilizar este painel."
+            "Quem possui acesso a este canal privado pode utilizar este painel."
         )
     )
 
@@ -11289,7 +11545,8 @@ async def solicitarban(
     motivo: str
 ):
     if not pode_usar_sistema_ban(
-        interaction.user
+        interaction.user,
+        interaction
     ):
         await interaction.response.send_message(
             "❌ Você não possui autorização.",

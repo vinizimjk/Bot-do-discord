@@ -1,16 +1,15 @@
 {
-  "id": "2026-09-06-ia-corrigida-v7",
-  "versao": "2026.09.06-v7",
-  "data": "06/09/2026",
-  "titulo": "## IA corrigida",
-  "mencionar_here": false,
-  "novidades": [],
-  "correcoes": [
-    "🤖 Corrigida uma falha que interrompia a resposta da IA após a resposta da Groq."
-  ],
+  "versao": "V11",
+  "data": "07/09/2026",
+  "titulo": "Correções gerais — Ban, castigos, Roblox, conta de teste e Call DEV",
   "alteracoes": [
-    "🛡️ O tratamento de recusas da IA agora possui fallback seguro e não depende de variáveis ausentes."
-  ],
-  "problemas_conhecidos": [],
-  "resumo": "IA voltou a responder normalmente."
+    "Painel de Ban liberado para membros que realmente conseguem visualizar o canal privado do painel.",
+    "Comando /removercastigosbot agora procura timeouts ativos diretamente no Discord e remove todos os encontrados.",
+    "Limpeza de vínculos Roblox não altera nicknames do Minecraft.",
+    "Conta de teste 1532838576256057557 remove cargos extras após 1 hora.",
+    "Cargos 1532614113346453724 e 1536081355711062166 são permanentes na conta de teste.",
+    "Call DEV fica protegida contra rotinas de zoeira/IA enquanto o Dono estiver nela.",
+    "Verificação Roblox continua no canal 1546448551700201482.",
+    "Site mantém callback Roblox no domínio novo do Railway."
+  ]
 }
