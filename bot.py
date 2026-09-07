@@ -30,7 +30,7 @@ DONO_ID = 1455937306400653344
 CANAL_APROVACAO_ID = 1536073451633254420
 CANAL_CALL_MANUTENCAO_ID = 1540578640020897862
 CHAT_GERAL_ID = 1532792216047849673
-PAINEL_MENU_URL = "https://resenha-maxima.up.railway.app"
+PAINEL_MENU_URL = "https://painel-menu-bot-production.up.railway.app"
 ROBLOX_VINCULO_SECRET = os.getenv("ROBLOX_VINCULO_SECRET", "").strip()
 
 CARGO_MINECRAFT_ID = 1534006899371147304
@@ -204,7 +204,7 @@ IA_GERACAO_TIMEOUT_SEGUNDOS = 18
 
 # Configuração remota da IA pelo painel web.
 # Se o painel estiver indisponível, o bot continua usando os valores locais.
-IA_PAINEL_URL = os.getenv("IA_PAINEL_URL", "https://resenha-maxima.up.railway.app").rstrip("/")
+IA_PAINEL_URL = os.getenv("IA_PAINEL_URL", "https://painel-menu-bot-production.up.railway.app").rstrip("/")
 IA_CONFIG_ENDPOINT = f"{IA_PAINEL_URL}/api/ia-config"
 IA_CONFIG_REFRESH_SEGUNDOS = 60
 _ia_config_remota = {}
