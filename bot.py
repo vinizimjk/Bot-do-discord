@@ -35,6 +35,8 @@ ROBLOX_VINCULO_SECRET = os.getenv("ROBLOX_VINCULO_SECRET", "").strip()
 
 CARGO_MINECRAFT_ID = 1534006899371147304
 CARGO_ROBLOX_ID = 1540858217301549176
+CANAL_VERIFICACAO_ROBLOX_ID = 1546448551700201482
+CHAVE_MENSAGEM_VERIFICACAO_ROBLOX = "roblox_verificacao_mensagem_id"
 CANAL_STATUS_MINECRAFT_ID = 1538109074779144253
 CANAL_NICKNAMES_MINECRAFT_ID = 1534423515183448155
 CARGO_DESENVOLVIMENTO_ID = 1533625836874498181
@@ -4866,6 +4868,9 @@ class MeuBot(commands.Bot):
         self.add_view(
             PainelBanView()
         )
+        self.add_view(
+            RobloxVerificationView()
+        )
         # --------------------------------------------------
         # RESTAURAR ENQUETES
         # --------------------------------------------------
@@ -5465,6 +5470,140 @@ async def iniciar_cadastro_roblox(membro, forcar=False):
             f"❌ Erro ao enviar DM Roblox para {membro} ({membro.id}): {erro}"
         )
     return False
+
+
+class RobloxVerificationView(discord.ui.View):
+    """Painel fixo do canal de vinculação Roblox."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Vincular Roblox",
+        style=discord.ButtonStyle.blurple,
+        emoji="🎮",
+        custom_id="resenha_maxima:roblox:vincular",
+    )
+    async def vincular_roblox(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message(
+                "❌ Use este botão dentro do servidor da RESENHA MÁXIMA.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        membro = interaction.user
+
+        if not ROBLOX_VINCULO_SECRET:
+            await interaction.followup.send(
+                "❌ A vinculação Roblox está temporariamente indisponível. Avise a equipe.",
+                ephemeral=True,
+            )
+            return
+
+        atual = await buscar_vinculo_roblox(membro.id)
+        if atual.get("ok") and atual.get("vinculado"):
+            vinculo = atual.get("vinculo") or {}
+            usuario = (
+                vinculo.get("username")
+                or vinculo.get("display_name")
+                or "sua conta Roblox"
+            )
+            await interaction.followup.send(
+                f"✅ Seu Discord já está vinculado a **{usuario}**.",
+                ephemeral=True,
+            )
+            return
+
+        resposta = await criar_link_vinculo_roblox(membro)
+        if not resposta.get("ok"):
+            await interaction.followup.send(
+                "❌ Não consegui criar o link de verificação agora. "
+                f"Motivo: {resposta.get('erro', 'erro desconhecido')}",
+                ephemeral=True,
+            )
+            return
+
+        url = str(resposta.get("url") or "").strip()
+        if not url:
+            await interaction.followup.send(
+                "❌ O site não devolveu o link de verificação. Avise a equipe.",
+                ephemeral=True,
+            )
+            return
+
+        view = discord.ui.View(timeout=300)
+        view.add_item(
+            discord.ui.Button(
+                label="Entrar com Roblox",
+                style=discord.ButtonStyle.link,
+                emoji="🎮",
+                url=url,
+            )
+        )
+
+        await interaction.followup.send(
+            "Clique abaixo para entrar no Roblox e concluir o vínculo. "
+            "Este link é pessoal e temporário.",
+            view=view,
+            ephemeral=True,
+        )
+
+
+async def garantir_painel_verificacao_roblox():
+    """Cria ou atualiza o card fixo de verificação no canal configurado."""
+    canal = bot.get_channel(CANAL_VERIFICACAO_ROBLOX_ID)
+
+    if canal is None:
+        try:
+            canal = await bot.fetch_channel(CANAL_VERIFICACAO_ROBLOX_ID)
+        except Exception as erro:
+            print(
+                "❌ Não consegui localizar o canal de verificação Roblox "
+                f"{CANAL_VERIFICACAO_ROBLOX_ID}: {erro}"
+            )
+            return
+
+    if not isinstance(canal, discord.TextChannel):
+        print("❌ O canal configurado para verificação Roblox não é um canal de texto.")
+        return
+
+    embed = discord.Embed(
+        title="🎮 Verificação Roblox",
+        description=(
+            "Vincule sua conta do **Discord** à sua conta do **Roblox** para o jogo "
+            "reconhecer seu perfil e sincronizar seus cargos.\n\n"
+            "Clique em **Vincular Roblox** abaixo. O link gerado é pessoal e temporário."
+        ),
+        color=discord.Color.blurple(),
+    )
+    embed.set_footer(text="RESENHA MÁXIMA • Verificação oficial")
+
+    mensagem_id = obter_estado(CHAVE_MENSAGEM_VERIFICACAO_ROBLOX)
+    if mensagem_id:
+        try:
+            mensagem = await canal.fetch_message(int(mensagem_id))
+            await mensagem.edit(embed=embed, view=RobloxVerificationView())
+            print(
+                f"✅ Painel de verificação Roblox atualizado em #{canal.name}."
+            )
+            return
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
+            pass
+
+    try:
+        mensagem = await canal.send(embed=embed, view=RobloxVerificationView())
+        salvar_estado(CHAVE_MENSAGEM_VERIFICACAO_ROBLOX, str(mensagem.id))
+        print(
+            f"✅ Painel de verificação Roblox criado em #{canal.name}."
+        )
+    except Exception as erro:
+        print(f"❌ Erro ao criar painel de verificação Roblox: {erro}")
 
 
 async def varrer_membros_roblox_sem_vinculo():
@@ -10779,6 +10918,10 @@ async def on_ready():
         bot._correcoes_regressao_v5 = True
         await remover_castigos_nickname_legados()
         asyncio.create_task(varrer_membros_roblox_sem_vinculo())
+
+    if not getattr(bot, "_painel_verificacao_roblox_pronto", False):
+        bot._painel_verificacao_roblox_pronto = True
+        await garantir_painel_verificacao_roblox()
 
     if not gerenciar_rei_madrugada.is_running():
         gerenciar_rei_madrugada.start()
