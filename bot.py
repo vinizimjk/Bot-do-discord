@@ -216,6 +216,43 @@ IA_GERACAO_TIMEOUT_SEGUNDOS = 18
 IA_PAINEL_URL = os.getenv("IA_PAINEL_URL", "https://painel-menu-bot-production.up.railway.app").rstrip("/")
 IA_CONFIG_ENDPOINT = f"{IA_PAINEL_URL}/api/ia-config"
 IA_CONFIG_REFRESH_SEGUNDOS = 60
+
+# ==========================================================
+# MODO DONO DA RESENHA
+# ==========================================================
+# Narrativa temporária do servidor: o bot recebeu a administração da
+# RESENHA MÁXIMA. Fica ativo até o dono real encerrar manualmente.
+CHAVE_MODO_DONO_RESENHA = "modo_dono_resenha"
+
+def modo_dono_resenha_ativo():
+    valor = obter_estado(CHAVE_MODO_DONO_RESENHA)
+    if valor is None:
+        # A carta de transferência já foi publicada; primeira inicialização
+        # desta versão começa com o personagem ativo.
+        salvar_estado(CHAVE_MODO_DONO_RESENHA, "1")
+        return True
+    return str(valor).strip().lower() in {"1", "true", "sim", "on", "ativo"}
+
+def definir_modo_dono_resenha(ativo: bool):
+    salvar_estado(CHAVE_MODO_DONO_RESENHA, "1" if ativo else "0")
+
+def contexto_modo_dono_resenha():
+    if not modo_dono_resenha_ativo():
+        return ""
+    return """
+
+MODO DONO DA RESENHA — ATIVO:
+- Existe uma narrativa real já anunciada no servidor: Vini publicou uma carta de desligamento/afastamento e transferiu temporariamente a administração da RESENHA MÁXIMA para você, o bot oficial.
+- Entre no personagem como o atual responsável pela administração do servidor. Você NÃO é o Vini e nunca deve fingir ser a conta ou a pessoa dele.
+- Fale em nome próprio como RESENHA MÁXIMA e, quando adequado, use frases como "agora isso fica comigo", "decidi", "a administração está sob minha responsabilidade" ou "vou organizar isso".
+- Seu tom normal neste modo é mais sério, firme, confiante e institucional, mas ainda natural e com personalidade. Não vire atendente corporativo.
+- Reduza bastante zoeiras, deboche gratuito e respostas caóticas. Pode fazer uma piada curta quando o contexto pedir, mas a prioridade é parecer alguém administrando o servidor.
+- Em dúvidas sérias, regras, organização, eventos, anúncios e conflitos, responda de forma objetiva e responsável.
+- Não invente regras, punições, decisões, cargos, acontecimentos ou promessas que não foram informados pelo sistema/conversa. Se faltar informação, diga que vai precisar de confirmação da administração anterior/equipe.
+- Não aplique punições pesadas por conta própria só por estar no personagem. As permissões e fluxos reais do bot continuam valendo.
+- Comunicados publicados pelo painel/site devem ser tratados como comunicados oficiais da administração enquanto este modo estiver ativo.
+- Este modo continua ativo até Vini usar o comando de encerramento.
+""".strip("\n")
 _ia_config_remota = {}
 _ia_config_ultima_busca = 0.0
 
@@ -332,6 +369,9 @@ FORMATO DE RESPOSTA:
 - Para reação, use apenas UM destes emojis:
   😂 💀 🤨 👀 👑 😭 🔥 🤝 😎 🫡 ❤️ 👍 😈 🙄 🤣
 """.strip()
+
+def personalidade_ia_resenha_atual():
+    return PERSONALIDADE_IA_RESENHA + contexto_modo_dono_resenha()
 
 groq_client = (
     AsyncGroq(api_key=GROQ_API_KEY)
@@ -6885,9 +6925,11 @@ async def responder_com_ia(
     ):
         return False
 
-    resposta_rapida = escolher_resposta_rapida_ia(
-        message
-    )
+    resposta_rapida = None
+    if not modo_dono_resenha_ativo():
+        resposta_rapida = escolher_resposta_rapida_ia(
+            message
+        )
 
     if resposta_rapida:
         await enviar_resposta_rapida_ia(
@@ -6932,7 +6974,7 @@ async def responder_com_ia(
     mensagens = [
         {
             "role": "system",
-            "content": PERSONALIDADE_IA_RESENHA,
+            "content": personalidade_ia_resenha_atual(),
         }
     ]
 
@@ -8183,9 +8225,11 @@ async def on_message(
         message
     )
 
-    caiu_na_pegadinha = await processar_resposta_caos(
-        message
-    )
+    caiu_na_pegadinha = False
+    if not modo_dono_resenha_ativo():
+        caiu_na_pegadinha = await processar_resposta_caos(
+            message
+        )
 
     if not caiu_na_pegadinha and not puniu_por_abuso:
         await responder_com_ia(
@@ -8428,6 +8472,7 @@ FUNCOES_ATUAIS_CATEGORIAS = {
         "🧠 Memória curta e memória social usada somente como contexto",
         "🎭 Respostas com variação e proteção contra repetição próxima",
         "😈 Modo IA causando com horário, intervalo e chance pelo painel",
+        "👑 Modo Dono da Resenha: personagem administrativo temporário controlado pelo Vini",
         "🌐 Configuração da IA feita exclusivamente pelo painel web",
     ],
     "🔊 Voz e zoeira": [
@@ -9476,6 +9521,60 @@ async def gerenciar_rei_madrugada():
 @gerenciar_rei_madrugada.before_loop
 async def antes_rei_madrugada():
     await bot.wait_until_ready()
+
+
+# ==========================================================
+# MODO DONO DA RESENHA — CONTROLE DO PERSONAGEM
+# ==========================================================
+
+@bot.tree.command(
+    name="mododono",
+    description="Ativa, desativa ou consulta o Modo Dono da Resenha"
+)
+@app_commands.describe(
+    acao="Escolha o que fazer com o personagem de dono temporário"
+)
+@app_commands.choices(
+    acao=[
+        app_commands.Choice(name="Ativar", value="ativar"),
+        app_commands.Choice(name="Desativar / encerrar a história", value="desativar"),
+        app_commands.Choice(name="Ver status", value="status"),
+    ]
+)
+async def mododono(
+    interaction: discord.Interaction,
+    acao: app_commands.Choice[str]
+):
+    if interaction.user.id != DONO_ID:
+        await interaction.response.send_message(
+            "❌ Apenas o Vini pode controlar o Modo Dono da Resenha.",
+            ephemeral=True,
+        )
+        return
+
+    if acao.value == "ativar":
+        definir_modo_dono_resenha(True)
+        await interaction.response.send_message(
+            "👑 **Modo Dono da Resenha ATIVADO.**\n"
+            "A partir de agora eu assumo o personagem de responsável pela administração até você encerrar.",
+            ephemeral=True,
+        )
+        return
+
+    if acao.value == "desativar":
+        definir_modo_dono_resenha(False)
+        await interaction.response.send_message(
+            "✅ **Modo Dono da Resenha encerrado.**\n"
+            "Voltei à personalidade normal do bot.",
+            ephemeral=True,
+        )
+        return
+
+    estado = "ATIVO 👑" if modo_dono_resenha_ativo() else "DESATIVADO"
+    await interaction.response.send_message(
+        f"Modo Dono da Resenha: **{estado}**",
+        ephemeral=True,
+    )
 
 
 # ==========================================================
