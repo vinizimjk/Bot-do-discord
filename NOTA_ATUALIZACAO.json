@@ -1,15 +1,13 @@
 {
-  "versao": "V11",
-  "data": "07/09/2026",
-  "titulo": "Correções gerais — Ban, castigos, Roblox, conta de teste e Call DEV",
+  "versao": "V13",
+  "data": "08/09/2026",
+  "titulo": "Correções de conversa e novo painel de mensagens",
   "alteracoes": [
-    "Painel de Ban liberado para membros que realmente conseguem visualizar o canal privado do painel.",
-    "Comando /removercastigosbot agora procura timeouts ativos diretamente no Discord e remove todos os encontrados.",
-    "Limpeza de vínculos Roblox não altera nicknames do Minecraft.",
-    "Conta de teste 1532838576256057557 remove cargos extras após 1 hora.",
-    "Cargos 1532614113346453724 e 1536081355711062166 são permanentes na conta de teste.",
-    "Call DEV fica protegida contra rotinas de zoeira/IA enquanto o Dono estiver nela.",
-    "Verificação Roblox continua no canal 1546448551700201482.",
-    "Site mantém callback Roblox no domínio novo do Railway."
+    "Avisos de DM fechada agora são enviados somente no chat geral 1532792216047849673.",
+    "O modo perturbado da IA agora usa somente o chat geral 1532792216047849673 e não procura canais aleatórios.",
+    "Novo /painelfalar permite enviar várias mensagens seguidas pelo bot sem repetir o comando.",
+    "O painel permite trocar o canal e escrever novas mensagens enquanto permanecer aberto.",
+    "Mensagens enviadas por /falar e /painelfalar agora entram no contexto da IA para ela entender respostas recebidas depois.",
+    "Mantidas as correções e sistemas anteriores do bot."
   ]
 }

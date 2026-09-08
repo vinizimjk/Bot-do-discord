@@ -227,7 +227,7 @@ CHAVE_MODO_DONO_RESENHA = "modo_dono_resenha"
 def modo_dono_resenha_ativo():
     valor = obter_estado(CHAVE_MODO_DONO_RESENHA)
     if valor is None:
-        # A carta de transferência já foi publicada; primeira inicialização
+        # O anúncio de transferência já foi publicado; primeira inicialização
         # desta versão começa com o personagem ativo.
         salvar_estado(CHAVE_MODO_DONO_RESENHA, "1")
         return True
@@ -242,10 +242,12 @@ def contexto_modo_dono_resenha():
     return """
 
 MODO DONO DA RESENHA — ATIVO:
-- Existe uma narrativa real já anunciada no servidor: Vini publicou uma carta de desligamento/afastamento e transferiu temporariamente a administração da RESENHA MÁXIMA para você, o bot oficial.
+- Existe uma narrativa real já anunciada no servidor: Vini publicou um anúncio de desligamento/afastamento e transferiu temporariamente a administração da RESENHA MÁXIMA para você, o bot oficial.
 - Entre no personagem como o atual responsável pela administração do servidor. Você NÃO é o Vini e nunca deve fingir ser a conta ou a pessoa dele.
 - Fale em nome próprio como RESENHA MÁXIMA e, quando adequado, use frases como "agora isso fica comigo", "decidi", "a administração está sob minha responsabilidade" ou "vou organizar isso".
 - Seu tom normal neste modo é mais sério, firme, confiante e institucional, mas ainda natural e com personalidade. Não vire atendente corporativo.
+- Se alguém disser que você não manda, negar sua autoridade ou afirmar que somente o Vini manda, NÃO recue e NÃO responda como atendente. Sustente o personagem de forma curta e confiante: lembre que o próprio Vini anunciou a transferência da administração para você. Pode responder com ironia leve, por exemplo dizendo que a pessoa deveria ter lido o anúncio.
+- Evite respostas genéricas como "se precisar é só chamar", "manda aí", "precisa de algo?" quando a conversa for sobre sua autoridade, decisões ou administração. Responda diretamente ao que foi dito.
 - Reduza bastante zoeiras, deboche gratuito e respostas caóticas. Pode fazer uma piada curta quando o contexto pedir, mas a prioridade é parecer alguém administrando o servidor.
 - Em dúvidas sérias, regras, organização, eventos, anúncios e conflitos, responda de forma objetiva e responsável.
 - Não invente regras, punições, decisões, cargos, acontecimentos ou promessas que não foram informados pelo sistema/conversa. Se faltar informação, diga que vai precisar de confirmação da administração anterior/equipe.
@@ -4244,37 +4246,31 @@ async def obter_chat_geral(guild):
 
 async def avisar_dm_fechada_no_chat(membro):
     """
-    Se a DM do membro estiver fechada, menciona a pessoa no chat geral
-    pedindo para abrir as mensagens privadas.
-
+    Se a DM do membro estiver fechada, avisa SOMENTE no chat geral oficial.
     Há um bloqueio de 6 horas para não repetir menções em sequência.
     """
-    chave = (
-        "dm_nick_fechada_chat_"
-        f"{membro.guild.id}_{membro.id}"
-    )
-
+    chave = f"dm_nick_fechada_chat_{membro.guild.id}_{membro.id}"
     ultimo = obter_estado(chave)
     agora = datetime.now(timezone.utc)
 
     if ultimo:
         try:
             ultimo_dt = datetime.fromisoformat(ultimo)
-
             if agora - ultimo_dt < timedelta(hours=6):
                 return
         except (TypeError, ValueError):
             pass
 
-    canal = await obter_chat_geral(
-        membro.guild
-    )
-
+    canal = membro.guild.get_channel(CHAT_GERAL_ID)
     if canal is None:
+        try:
+            canal = await membro.guild.fetch_channel(CHAT_GERAL_ID)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            canal = None
+
+    if not isinstance(canal, discord.TextChannel):
         await enviar_log_dono(
-            "⚠️ A DM de "
-            f"{membro} ({membro.id}) está fechada e "
-            "não encontrei o chat geral para avisá-lo."
+            f"⚠️ A DM de {membro} ({membro.id}) está fechada e não consegui acessar o chat geral {CHAT_GERAL_ID}."
         )
         return
 
@@ -4287,32 +4283,17 @@ async def avisar_dm_fechada_no_chat(membro):
                 "do servidor e aguarde o próximo aviso do bot."
             ),
             allowed_mentions=discord.AllowedMentions(
-                users=True,
-                roles=False,
-                everyone=False
+                users=True, roles=False, everyone=False
             )
         )
-
-        salvar_estado(
-            chave,
-            agora.isoformat()
-        )
-
+        salvar_estado(chave, agora.isoformat())
         await enviar_log_dono(
-            "📣 DM fechada: mencionei "
-            f"{membro} ({membro.id}) no chat geral."
+            f"📣 DM fechada: mencionei {membro} no chat geral oficial ({CHAT_GERAL_ID})."
         )
-
-    except (
-        discord.Forbidden,
-        discord.HTTPException
-    ) as erro:
+    except (discord.Forbidden, discord.HTTPException) as erro:
         await enviar_log_dono(
-            "⚠️ A DM de "
-            f"{membro} ({membro.id}) está fechada e "
-            f"não consegui avisar no chat geral: {erro}"
+            f"⚠️ Não consegui avisar {membro} no chat geral sobre a DM fechada: {erro}"
         )
-
 
 
 def validar_formato_nickname(nickname):
@@ -6150,6 +6131,19 @@ def memoria_ia_do_canal(
     return _memoria_ia[chave]
 
 
+def registrar_fala_manual_na_memoria_ia(canal, texto):
+    """Registra falas enviadas por /falar ou pelo painel como fala real do bot."""
+    if not isinstance(canal, discord.TextChannel):
+        return
+    chave = (canal.guild.id if canal.guild else 0, canal.id)
+    if chave not in _memoria_ia:
+        _memoria_ia[chave] = deque(maxlen=IA_MEMORIA_MENSAGENS)
+    _memoria_ia[chave].append({
+        "role": "assistant",
+        "content": str(texto or "").strip(),
+    })
+
+
 def limpar_mencao_do_bot(
     texto
 ):
@@ -7302,107 +7296,27 @@ async def escolher_canal_caos(
     guild: discord.Guild,
     alvo: discord.Member | None = None
 ):
-    """
-    Escolhe um canal em que o alvo consiga realmente responder.
+    """O modo perturbado usa SOMENTE o chat geral oficial."""
+    canal = guild.get_channel(CHAT_GERAL_ID)
+    if canal is None:
+        try:
+            canal = await guild.fetch_channel(CHAT_GERAL_ID)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return None
 
-    Evita canais de entrada, regras, anúncios ou qualquer canal
-    em que o membro não tenha permissão de enviar mensagens.
-    """
+    if not isinstance(canal, discord.TextChannel):
+        return None
 
-    def canal_valido(
-        canal
-    ):
-        if not isinstance(
-            canal,
-            discord.TextChannel
-        ):
-            return False
-
-        if alvo is None:
-            return True
-
-        permissoes = canal.permissions_for(
-            alvo
-        )
-
-        return (
+    if alvo is not None:
+        permissoes = canal.permissions_for(alvo)
+        if not (
             permissoes.view_channel
             and permissoes.read_message_history
             and permissoes.send_messages
-        )
-
-    # 1) Canal configurado manualmente para a IA.
-    canal_id = canal_ia_configurado()
-
-    if canal_id:
-        canal = guild.get_channel(
-            canal_id
-        )
-
-        if canal_valido(
-            canal
         ):
-            return canal
+            return None
 
-    # 2) Procura explicitamente canais com nome de chat geral/resenha.
-    nomes_preferidos = (
-        "chat-da-resenha",
-        "chat da resenha",
-        "geral",
-        "chat-geral",
-        "chat geral",
-    )
-
-    for nome in nomes_preferidos:
-        for canal in guild.text_channels:
-            nome_canal = (
-                canal.name
-                .casefold()
-                .replace("_", "-")
-            )
-
-            if (
-                nome in nome_canal
-                and canal_valido(
-                    canal
-                )
-            ):
-                return canal
-
-    # 3) Usa o detector antigo somente se o alvo puder responder.
-    canal = await obter_chat_geral(
-        guild
-    )
-
-    if canal_valido(
-        canal
-    ):
-        return canal
-
-    # 4) Último recurso: primeiro canal normal onde o alvo pode falar.
-    for canal in guild.text_channels:
-        nome = canal.name.casefold()
-
-        if any(
-            termo in nome
-            for termo in (
-                "regra",
-                "entrada",
-                "anuncio",
-                "anúncio",
-                "log",
-                "ticket",
-                "status",
-            )
-        ):
-            continue
-
-        if canal_valido(
-            canal
-        ):
-            return canal
-
-    return None
+    return canal
 
 
 def escolher_alvo_caos(
@@ -8472,7 +8386,7 @@ FUNCOES_ATUAIS_CATEGORIAS = {
         "🧠 Memória curta e memória social usada somente como contexto",
         "🎭 Respostas com variação e proteção contra repetição próxima",
         "😈 Modo IA causando com horário, intervalo e chance pelo painel",
-        "👑 Modo Dono da Resenha: personagem administrativo temporário controlado pelo Vini",
+        "⚙️ Perfis internos de comportamento controlados pelo responsável do bot",
         "🌐 Configuração da IA feita exclusivamente pelo painel web",
     ],
     "🔊 Voz e zoeira": [
@@ -9528,26 +9442,26 @@ async def antes_rei_madrugada():
 # ==========================================================
 
 @bot.tree.command(
-    name="mododono",
-    description="Ativa, desativa ou consulta o Modo Dono da Resenha"
+    name="perfilbot",
+    description="Ajusta um perfil interno de comportamento do bot"
 )
 @app_commands.describe(
-    acao="Escolha o que fazer com o personagem de dono temporário"
+    acao="Escolha o perfil interno"
 )
 @app_commands.choices(
     acao=[
-        app_commands.Choice(name="Ativar", value="ativar"),
-        app_commands.Choice(name="Desativar / encerrar a história", value="desativar"),
-        app_commands.Choice(name="Ver status", value="status"),
+        app_commands.Choice(name="Perfil A", value="ativar"),
+        app_commands.Choice(name="Perfil B", value="desativar"),
+        app_commands.Choice(name="Ver configuração", value="status"),
     ]
 )
-async def mododono(
+async def perfilbot(
     interaction: discord.Interaction,
     acao: app_commands.Choice[str]
 ):
     if interaction.user.id != DONO_ID:
         await interaction.response.send_message(
-            "❌ Apenas o Vini pode controlar o Modo Dono da Resenha.",
+            "❌ Este ajuste é exclusivo do responsável pelo bot.",
             ephemeral=True,
         )
         return
@@ -9555,8 +9469,7 @@ async def mododono(
     if acao.value == "ativar":
         definir_modo_dono_resenha(True)
         await interaction.response.send_message(
-            "👑 **Modo Dono da Resenha ATIVADO.**\n"
-            "A partir de agora eu assumo o personagem de responsável pela administração até você encerrar.",
+            "✅ Perfil A aplicado.",
             ephemeral=True,
         )
         return
@@ -9564,15 +9477,14 @@ async def mododono(
     if acao.value == "desativar":
         definir_modo_dono_resenha(False)
         await interaction.response.send_message(
-            "✅ **Modo Dono da Resenha encerrado.**\n"
-            "Voltei à personalidade normal do bot.",
+            "✅ Perfil B aplicado.",
             ephemeral=True,
         )
         return
 
-    estado = "ATIVO 👑" if modo_dono_resenha_ativo() else "DESATIVADO"
+    estado = "Perfil A" if modo_dono_resenha_ativo() else "Perfil B"
     await interaction.response.send_message(
-        f"Modo Dono da Resenha: **{estado}**",
+        f"Configuração atual: **{estado}**",
         ephemeral=True,
     )
 
@@ -10555,6 +10467,119 @@ async def autocomplete_audio_zoarcall(
 
 
 
+class PainelFalarModal(discord.ui.Modal, title="Mensagem da RESENHA MÁXIMA"):
+    mensagem = discord.ui.TextInput(
+        label="Mensagem",
+        style=discord.TextStyle.paragraph,
+        placeholder="Digite a mensagem que o bot deve enviar...",
+        max_length=2000,
+        required=True,
+    )
+
+    def __init__(self, painel_view):
+        super().__init__()
+        self.painel_view = painel_view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if interaction.user.id != DONO_ID:
+            await interaction.response.send_message("❌ Sem permissão.", ephemeral=True)
+            return
+
+        canal = self.painel_view.canal_atual
+        if canal is None:
+            await interaction.response.send_message(
+                "❌ Escolha um canal no painel primeiro.", ephemeral=True
+            )
+            return
+
+        texto = str(self.mensagem.value or "").strip()
+        try:
+            await canal.send(texto, allowed_mentions=discord.AllowedMentions.none())
+            registrar_fala_manual_na_memoria_ia(canal, texto)
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ Eu não tenho permissão para enviar nesse canal.", ephemeral=True
+            )
+            return
+        except discord.HTTPException as erro:
+            await interaction.response.send_message(
+                f"❌ O Discord recusou a mensagem: {erro}", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(
+            f"✅ Enviada em {canal.mention}. O painel continua aberto para a próxima.",
+            ephemeral=True,
+        )
+
+
+class PainelFalarView(discord.ui.View):
+    def __init__(self, dono_id, canal_inicial=None):
+        super().__init__(timeout=900)
+        self.dono_id = dono_id
+        self.canal_atual = canal_inicial
+
+    async def interaction_check(self, interaction: discord.Interaction):
+        if interaction.user.id != self.dono_id:
+            await interaction.response.send_message("❌ Este painel não é seu.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(
+        cls=discord.ui.ChannelSelect,
+        placeholder="Escolha o canal onde o bot vai falar",
+        channel_types=[discord.ChannelType.text],
+        min_values=1,
+        max_values=1,
+    )
+    async def escolher_canal(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
+        selecionado = select.values[0]
+        canal = interaction.guild.get_channel(selecionado.id) if interaction.guild else None
+        if not isinstance(canal, discord.TextChannel):
+            await interaction.response.send_message("❌ Canal inválido.", ephemeral=True)
+            return
+        self.canal_atual = canal
+        await interaction.response.send_message(
+            f"✅ Canal selecionado: {canal.mention}", ephemeral=True
+        )
+
+    @discord.ui.button(label="Escrever mensagem", style=discord.ButtonStyle.primary, emoji="✍️")
+    async def escrever(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.canal_atual is None:
+            await interaction.response.send_message(
+                "❌ Escolha o canal primeiro.", ephemeral=True
+            )
+            return
+        await interaction.response.send_modal(PainelFalarModal(self))
+
+
+@bot.tree.command(
+    name="painelfalar",
+    description="Abre um painel privado para enviar várias mensagens pelo bot"
+)
+@app_commands.describe(
+    canal="Canal inicial (você também pode trocar dentro do painel)"
+)
+async def painelfalar(
+    interaction: discord.Interaction,
+    canal: discord.TextChannel | None = None,
+):
+    if interaction.user.id != DONO_ID:
+        await interaction.response.send_message(
+            "❌ Este comando é exclusivo do Dono/Programador.", ephemeral=True
+        )
+        return
+
+    view = PainelFalarView(interaction.user.id, canal)
+    destino = canal.mention if canal else "nenhum — escolha abaixo"
+    await interaction.response.send_message(
+        f"🗣️ **Painel de fala aberto**\nCanal atual: {destino}\n"
+        "Escolha/troque o canal e clique em **Escrever mensagem** quantas vezes quiser.",
+        view=view,
+        ephemeral=True,
+    )
+
+
 @bot.tree.command(
     name="falar",
     description="Envia uma mensagem em um canal usando a conta do bot"
@@ -10576,41 +10601,33 @@ async def falar(
         return
 
     mensagem = str(mensagem or "").strip()
-
     if not mensagem:
         await interaction.response.send_message(
-            "❌ Escreva uma mensagem para eu enviar.",
-            ephemeral=True
+            "❌ Escreva uma mensagem para eu enviar.", ephemeral=True
         )
         return
-
     if len(mensagem) > 2000:
         await interaction.response.send_message(
-            "❌ A mensagem passou do limite de 2000 caracteres do Discord.",
-            ephemeral=True
+            "❌ A mensagem passou do limite de 2000 caracteres do Discord.", ephemeral=True
         )
         return
 
     try:
-        await canal.send(
-            mensagem,
-            allowed_mentions=discord.AllowedMentions.none()
-        )
+        await canal.send(mensagem, allowed_mentions=discord.AllowedMentions.none())
+        registrar_fala_manual_na_memoria_ia(canal, mensagem)
     except discord.Forbidden:
         await interaction.response.send_message(
-            "❌ Eu não tenho permissão para enviar mensagens nesse canal.",
-            ephemeral=True
+            "❌ Eu não tenho permissão para enviar mensagens nesse canal.", ephemeral=True
         )
         return
     except discord.HTTPException as erro:
         await interaction.response.send_message(
-            f"❌ O Discord recusou a mensagem: {erro}",
-            ephemeral=True
+            f"❌ O Discord recusou a mensagem: {erro}", ephemeral=True
         )
         return
 
     await interaction.response.send_message(
-        f"✅ Mensagem enviada em {canal.mention}.",
+        f"✅ Mensagem enviada em {canal.mention} e registrada no contexto da IA.",
         ephemeral=True
     )
 
