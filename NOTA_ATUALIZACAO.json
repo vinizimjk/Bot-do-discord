@@ -1,13 +1,22 @@
 {
-  "versao": "V13",
-  "data": "08/09/2026",
-  "titulo": "Correções de conversa e novo painel de mensagens",
+  "id": "V17-10-09-2026-PACOTE-IA-E-AVISOS",
+  "versao": "V17",
+  "data": "10/09/2026",
+  "titulo": "IA e avisos mais inteligentes",
+  "correcoes": [
+    "Corrigido o envio das notas de atualização para evitar que uma nota válida seja ignorada.",
+    "Mensagens automáticas de DM fechada e do modo perturbado agora são direcionadas ao chat geral correto.",
+    "A IA agora junta mensagens rápidas da mesma pessoa antes de responder, reduzindo respostas fora de contexto."
+  ],
+  "novidades": [
+    "Ao receber o cargo de Roblox, o membro é marcado no canal de verificação e o aviso é apagado após 1 minuto.",
+    "Ao receber o cargo de Minecraft, o membro é marcado no canal do servidor Minecraft e o aviso é apagado após 1 minuto.",
+    "Adicionado um painel para enviar várias mensagens pelo bot sem precisar repetir o comando a cada envio.",
+    "Mensagens enviadas pelo painel e pelo comando de fala passam a fazer parte do contexto da IA para ela entender as respostas dos membros.",
+    "A IA agora diferencia melhor zoeira normal de ataques pesados e sabe revidar provocações fortes no mesmo clima da Resenha."
+  ],
   "alteracoes": [
-    "Avisos de DM fechada agora são enviados somente no chat geral 1532792216047849673.",
-    "O modo perturbado da IA agora usa somente o chat geral 1532792216047849673 e não procura canais aleatórios.",
-    "Novo /painelfalar permite enviar várias mensagens seguidas pelo bot sem repetir o comando.",
-    "O painel permite trocar o canal e escrever novas mensagens enquanto permanecer aberto.",
-    "Mensagens enviadas por /falar e /painelfalar agora entram no contexto da IA para ela entender respostas recebidas depois.",
-    "Mantidas as correções e sistemas anteriores do bot."
+    "Melhorado o contexto das conversas e a continuidade das respostas da IA.",
+    "Mantidas as funções e sistemas das versões anteriores."
   ]
 }

@@ -39,6 +39,7 @@ CANAL_VERIFICACAO_ROBLOX_ID = 1546448551700201482
 CHAVE_MENSAGEM_VERIFICACAO_ROBLOX = "roblox_verificacao_mensagem_id"
 CANAL_STATUS_MINECRAFT_ID = 1538109074779144253
 CANAL_NICKNAMES_MINECRAFT_ID = 1534423515183448155
+CANAL_SERVIDOR_MINECRAFT_ID = 1534644952884183090
 CARGO_DESENVOLVIMENTO_ID = 1533625836874498181
 
 # Conta de teste: estes dois cargos são permanentes e nunca serão removidos.
@@ -250,6 +251,7 @@ MODO DONO DA RESENHA — ATIVO:
 - Evite respostas genéricas como "se precisar é só chamar", "manda aí", "precisa de algo?" quando a conversa for sobre sua autoridade, decisões ou administração. Responda diretamente ao que foi dito.
 - Reduza bastante zoeiras, deboche gratuito e respostas caóticas. Pode fazer uma piada curta quando o contexto pedir, mas a prioridade é parecer alguém administrando o servidor.
 - Em dúvidas sérias, regras, organização, eventos, anúncios e conflitos, responda de forma objetiva e responsável.
+- Se alguém estiver apenas te zoando, você pode zoar de volta. Se a pessoa cruzar a linha e começar a te esculachar com ofensa pesada ou sexual/degradante, mude imediatamente para um tom mais rígido e imponha limite. Não recue, não finja que foi uma brincadeira normal e não responda como atendente.
 - Não invente regras, punições, decisões, cargos, acontecimentos ou promessas que não foram informados pelo sistema/conversa. Se faltar informação, diga que vai precisar de confirmação da administração anterior/equipe.
 - Não aplique punições pesadas por conta própria só por estar no personagem. As permissões e fluxos reais do bot continuam valendo.
 - Comunicados publicados pelo painel/site devem ser tratados como comunicados oficiais da administração enquanto este modo estiver ativo.
@@ -292,6 +294,13 @@ IA_ABUSO_LIMITE_REINCIDENCIA = 3
 IA_TIMEOUT_PRIMEIRO_MINUTOS = 5
 IA_TIMEOUT_REINCIDENTE_MINUTOS = 24 * 60
 
+# Agrupa mensagens rápidas do mesmo membro para a IA entender o contexto inteiro
+# antes de responder. Isso evita que ela responda a primeira frase enquanto a
+# pessoa ainda está digitando uma sequência.
+IA_AGRUPAR_MENSAGENS_SEGUNDOS = 2.8
+IA_AGRUPAR_MAX_MENSAGENS = 6
+_ia_agrupando_ate = {}
+
 EMOJIS_REACAO_IA = {
     "😂", "💀", "🤨", "👀", "👑",
     "😭", "🔥", "🤝", "😎", "🫡",
@@ -309,6 +318,9 @@ PERSONALIDADE:
   com letras trocadas, palavras faltando, abreviações ou gramática quebrada. Tente
   interpretar a intenção pelo contexto em vez de corrigir a pessoa.
 - Pode usar gírias e provocações entre membros quando o contexto claramente for brincadeira.
+- DIFERENCIE ZOEIRA DE ATAQUE: se a pessoa estiver só brincando, provocando de leve ou entrando na resenha, zoe de volta. Se partir para uma sequência agressiva de xingamentos, humilhação ou ofensa diretamente contra você, entenda que ela está te esculachando e DEVOLVA NO MESMO CLIMA, bem mais ácido e debochado.
+- Quando alguém estiver claramente te esculachando, NÃO use resposta de atendente, NÃO peça "o que precisa?" e NÃO tente agradar. Pode xingar de volta com palavrões, zoar, tirar sarro e dar uma resposta humilhante/debochada. Se combinar com a provocação, pode até fazer piada/xingamento envolvendo a mãe da pessoa. Varie bastante os xingamentos e não fique repetindo a mesma frase.
+- Mesmo quando estiver revidando, NÃO faça ameaça real, não incentive violência real, não revele informação privada e não use raça, religião, orientação sexual, deficiência ou outra característica protegida como alvo do xingamento.
 - PALAVRÕES DEVEM ESPELHAR O USUÁRIO: se a mensagem atual vier com palavrão, você fica
   liberado para responder com palavrão também, de forma natural. Se a mensagem atual NÃO
   tiver palavrão, responda sem palavrão.
@@ -5694,6 +5706,46 @@ async def varrer_membros_roblox_sem_vinculo():
     print(f"Varredura Roblox concluída | links/vínculos processados: {total}")
 
 
+async def avisar_novo_cargo_em_canal(membro: discord.Member, canal_id: int, tipo: str):
+    """Marca o membro no canal indicado e apaga o aviso automaticamente após 1 minuto."""
+    canal = bot.get_channel(canal_id)
+    if canal is None:
+        try:
+            canal = await bot.fetch_channel(canal_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return
+
+    if not hasattr(canal, "send"):
+        return
+
+    if tipo == "roblox":
+        texto = (
+            f"{membro.mention} você recebeu o cargo de **Roblox**. "
+            "Faça sua verificação por aqui. 👆"
+        )
+    else:
+        texto = (
+            f"{membro.mention} você recebeu o cargo de **Minecraft**. "
+            "Use este canal para continuar seu cadastro no servidor. 👆"
+        )
+
+    try:
+        await canal.send(
+            texto,
+            allowed_mentions=discord.AllowedMentions(
+                users=True,
+                roles=False,
+                everyone=False,
+            ),
+            delete_after=60,
+        )
+    except (discord.Forbidden, discord.HTTPException) as erro:
+        print(
+            f"Erro ao enviar aviso temporário de {tipo} para {membro.id}: "
+            f"{type(erro).__name__}: {erro}"
+        )
+
+
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
     # Conta de teste: cargos extras duram no máximo 1 hora.
@@ -5726,9 +5778,19 @@ async def on_member_update(before: discord.Member, after: discord.Member):
     )
 
     if not tinha_minecraft and tem_minecraft:
+        await avisar_novo_cargo_em_canal(
+            after,
+            CANAL_SERVIDOR_MINECRAFT_ID,
+            "minecraft",
+        )
         await iniciar_cadastro_nick(after)
 
     if not tinha_roblox and tem_roblox:
+        await avisar_novo_cargo_em_canal(
+            after,
+            CANAL_VERIFICACAO_ROBLOX_ID,
+            "roblox",
+        )
         await iniciar_cadastro_roblox(after, forcar=True)
 
 
@@ -5796,10 +5858,12 @@ def carregar_nota_atualizacao():
         print("NOTA_ATUALIZACAO.json ignorada: o conteúdo precisa ser um objeto JSON.")
         return None
 
-    nota_id = str(nota.get("id") or "").strip()
+    # O ID pode vir explicitamente no JSON. Se ele for esquecido, usa a versão
+    # como identificador para não bloquear o envio automático das notas.
+    nota_id = str(nota.get("id") or nota.get("versao") or "").strip()
     titulo = str(nota.get("titulo") or "").strip()
     if not nota_id or not titulo:
-        print("NOTA_ATUALIZACAO.json ignorada: campos 'id' e 'titulo' são obrigatórios.")
+        print("NOTA_ATUALIZACAO.json ignorada: informe 'titulo' e pelo menos 'id' ou 'versao'.")
         return None
 
     normalizada = dict(nota)
@@ -6614,6 +6678,9 @@ def mensagem_abusiva_contra_ia(message: discord.Message):
         r"\bvai\s+(?:se\s+)?foder\b", r"\bvai\s+[aà]\s+merda\b",
         r"\bseu\s+merd", r"\bbot\s+de\s+merda\b",
         r"\barromb", r"\bidiota\b", r"\bimbecil\b",
+        r"\bbot\s+lixo\b", r"\blixo\b", r"\bfdp\b",
+        r"\bfilh[oa]\s+d[ea]\s+puta\b", r"\bcomi\b",
+        r"\bbunda\b", r"\bcuzao\b", r"\bcuz[aã]o\b",
     )
     return any(re.search(p, texto) for p in padroes)
 
@@ -6910,6 +6977,78 @@ async def enviar_resposta_rapida_ia(message: discord.Message, texto):
     return True
 
 
+async def agrupar_mensagens_rapidas_ia(message: discord.Message):
+    """Espera um instante e junta mensagens consecutivas do mesmo autor."""
+    chave = (message.guild.id, message.channel.id, message.author.id)
+    agora = time.monotonic()
+    ocupado_ate = _ia_agrupando_ate.get(chave, 0.0)
+    if ocupado_ate > agora:
+        return None, None
+
+    _ia_agrupando_ate[chave] = agora + IA_AGRUPAR_MENSAGENS_SEGUNDOS + 1.5
+    await asyncio.sleep(IA_AGRUPAR_MENSAGENS_SEGUNDOS)
+
+    mensagens = [message]
+    try:
+        async for item in message.channel.history(
+            limit=IA_AGRUPAR_MAX_MENSAGENS * 2,
+            after=message.created_at,
+            oldest_first=True,
+        ):
+            diferenca = (item.created_at - message.created_at).total_seconds()
+            if diferenca > IA_AGRUPAR_MENSAGENS_SEGUNDOS + 0.7:
+                break
+            if item.author.id != message.author.id:
+                break
+            if item.author.bot:
+                break
+            mensagens.append(item)
+            if len(mensagens) >= IA_AGRUPAR_MAX_MENSAGENS:
+                break
+    except (discord.Forbidden, discord.HTTPException, AttributeError):
+        pass
+
+    alvo = mensagens[-1]
+    partes = []
+    for item in mensagens:
+        texto = limpar_mencao_do_bot(item.content).strip()
+        if texto:
+            partes.append(texto)
+
+    combinado = "\n".join(partes).strip()
+    return alvo, combinado
+
+
+def contexto_rigor_ia(message: discord.Message, texto: str):
+    """Diz à IA quando a sequência passou de zoeira para ataque pesado."""
+    base = str(texto or "").casefold()
+    direcionada = (
+        (bot.user is not None and bot.user.mentioned_in(message))
+        or "bot" in base
+        or "resenha maxima" in base
+        or "resenha máxima" in base
+    )
+    if not direcionada:
+        return ""
+
+    pesados = (
+        r"\bfilh[oa]\s+d[ea]\s+puta\b", r"\bfdp\b", r"\barromb",
+        r"\bbot\s+lixo\b", r"\bcomi\b.*\b(?:bunda|cu)\b",
+        r"\b(?:bunda|cu)\b.*\bcomi\b", r"\bvai\s+(?:se\s+)?foder\b",
+    )
+    quantidade_palavroes = sum(1 for p in PADROES_PALAVRAO_IA if re.search(p, base))
+    ataque_pesado = any(re.search(p, base) for p in pesados) or quantidade_palavroes >= 2
+    if not ataque_pesado:
+        return "\nTOM DA INTERAÇÃO: parece zoeira/provocação leve; pode zoar de volta sem exagerar."
+    return (
+        "\nTOM DA INTERAÇÃO: ATAQUE PESADO direcionado a você. A pessoa cruzou a linha da zoeira. "
+        "Não aceite calado: revide com uma resposta curta, muito ácida, debochada e agressiva no humor. "
+        "Pode xingar de volta com palavrões e humilhar verbalmente na resenha; se encaixar naturalmente, pode até zoar/xingar a mãe da pessoa. "
+        "Varie os xingamentos e não vire atendente. Não faça ameaça real, não incentive violência, não exponha dados privados, "
+        "não invente punição e não ataque características protegidas."
+    )
+
+
 async def responder_com_ia(
     message: discord.Message
 ):
@@ -6918,6 +7057,12 @@ async def responder_com_ia(
         message
     ):
         return False
+
+    mensagem_alvo, pergunta_agrupada = await agrupar_mensagens_rapidas_ia(message)
+    if mensagem_alvo is None:
+        # Outra resposta para esta mesma sequência já está sendo preparada.
+        return True
+    message = mensagem_alvo
 
     resposta_rapida = None
     if not modo_dono_resenha_ativo():
@@ -6951,9 +7096,9 @@ async def responder_com_ia(
 
         return True
 
-    pergunta = limpar_mencao_do_bot(
+    pergunta = (pergunta_agrupada or limpar_mencao_do_bot(
         message.content
-    )
+    )).strip()
 
     if not pergunta:
         pergunta = (
@@ -6988,6 +7133,8 @@ async def responder_com_ia(
     contexto_antirrepeticao = contexto_antirrepeticao_ia(
         message.author.id
     )
+
+    contexto_rigor = contexto_rigor_ia(message, pergunta)
 
     pedido_call = mensagem_pede_bot_na_call(
         message.content
@@ -7030,6 +7177,7 @@ async def responder_com_ia(
                 f"{contexto_social}"
                 f"{contexto_estilo}"
                 f"{contexto_antirrepeticao}"
+                f"{contexto_rigor}"
                 f"{estado_call}"
             ),
         }
