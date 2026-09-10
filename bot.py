@@ -48,8 +48,8 @@ CARGOS_FIXOS_CONTA_TESTE = {1532614113346453724, 1536081355711062166}
 TEMPO_CARGO_TESTE_SEGUNDOS = 60 * 60
 CHAVE_CARGOS_TEMPORARIOS_TESTE = "cargos_temporarios_conta_teste_v11"
 
-MINECRAFT_HOST = "Rmax-j8Un.aternos.me"
-MINECRAFT_PORTA = 16184
+MINECRAFT_HOST = "Rmax-gen2.aternos.me"
+MINECRAFT_PORTA = 52147
 MINECRAFT_EDICAO = "bedrock"  # servidor atual é Bedrock
 
 CASTIGO_DIAS = 28
@@ -5725,8 +5725,8 @@ async def avisar_novo_cargo_em_canal(membro: discord.Member, canal_id: int, tipo
         )
     else:
         texto = (
-            f"{membro.mention} você recebeu o cargo de **Minecraft**. "
-            "Use este canal para continuar seu cadastro no servidor. 👆"
+            f"{membro.mention} você recebeu acesso ao **Minecraft**! ⛏️ "
+            "O **IP e a porta** do nosso servidor estão neste canal. Use os dados acima para entrar. 👆"
         )
 
     try:
