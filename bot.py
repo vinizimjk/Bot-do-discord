@@ -43,7 +43,7 @@ CANAL_SERVIDOR_MINECRAFT_ID = 1534644952884183090
 CARGO_DESENVOLVIMENTO_ID = 1533625836874498181
 
 # Painéis de entrada / cargos / candidatura
-CANAL_BOAS_VINDAS_ID = 1532613055505104977
+CANAL_BOAS_VINDAS_ID = 1548057167901237399
 CANAL_ESCOLHA_JOGO_ID = 1545979690815201372
 CANAL_CANDIDATURA_EVENTOS_ID = 1541035337709649990
 CARGO_PING_DEV_JOGO_ID = 1545204241948479569
@@ -51,7 +51,8 @@ FORMULARIO_EVENTOS_URL = "https://forms.gle/h4kt2Cp7fduGG4Pc8"
 
 # Conta de teste: estes dois cargos são permanentes e nunca serão removidos.
 CONTA_TESTE_ID = 1532838576256057557
-CARGOS_FIXOS_CONTA_TESTE = {1532614113346453724, 1536081355711062166}
+CARGO_CONTA_TESTE_ID = 1536081355711062166
+CARGOS_FIXOS_CONTA_TESTE = {1532614113346453724, CARGO_CONTA_TESTE_ID}
 TEMPO_CARGO_TESTE_SEGUNDOS = 60 * 60
 CHAVE_CARGOS_TEMPORARIOS_TESTE = "cargos_temporarios_conta_teste_v11"
 
@@ -5449,6 +5450,11 @@ async def buscar_vinculo_roblox(discord_id):
     )
 
 
+def membro_em_modo_teste(membro):
+    """Libera apenas travas de teste; não ignora permissões/moderação."""
+    return any(cargo.id == CARGO_CONTA_TESTE_ID for cargo in getattr(membro, "roles", []))
+
+
 async def criar_link_vinculo_roblox(membro):
     return await asyncio.to_thread(
         _requisicao_json_roblox,
@@ -5458,6 +5464,7 @@ async def criar_link_vinculo_roblox(membro):
             "discord_id": str(membro.id),
             "guild_id": str(membro.guild.id),
             "discord_nome": str(membro),
+            "modo_teste": membro_em_modo_teste(membro),
         },
     )
 
@@ -5596,8 +5603,9 @@ class RobloxVerificationView(discord.ui.View):
             )
             return
 
+        modo_teste = membro_em_modo_teste(membro)
         atual = await buscar_vinculo_roblox(membro.id)
-        if atual.get("ok") and atual.get("vinculado"):
+        if (not modo_teste) and atual.get("ok") and atual.get("vinculado"):
             vinculo = atual.get("vinculo") or {}
             usuario = (
                 vinculo.get("username")
@@ -5637,9 +5645,16 @@ class RobloxVerificationView(discord.ui.View):
             )
         )
 
-        await interaction.followup.send(
+        texto = (
+            "🧪 **Modo Conta de testes:** as travas de vínculo existente e cooldown de teste foram ignoradas.\n"
+            if modo_teste else ""
+        )
+        texto += (
             "Clique abaixo para entrar no Roblox e concluir o vínculo. "
-            "Este link é pessoal e temporário.",
+            "Este link é pessoal e temporário."
+        )
+        await interaction.followup.send(
+            texto,
             view=view,
             ephemeral=True,
         )
