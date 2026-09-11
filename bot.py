@@ -5790,13 +5790,9 @@ async def on_member_update(before: discord.Member, after: discord.Member):
         )
         await iniciar_cadastro_nick(after)
 
-    if not tinha_roblox and tem_roblox:
-        await avisar_novo_cargo_em_canal(
-            after,
-            CANAL_VERIFICACAO_ROBLOX_ID,
-            "roblox",
-        )
-        await iniciar_cadastro_roblox(after, forcar=True)
+    # Roblox: não envia mensagem/DM automaticamente ao receber o cargo.
+    # A vinculação agora é sempre iniciada pelo próprio membro no painel fixo
+    # do canal de verificação. Isso evita spam e tentativas OAuth desnecessárias.
 
 
 
@@ -9643,6 +9639,35 @@ async def perfilbot(
 
 
 # ==========================================================
+# SITE — ATALHO PARA O PAINEL WEB
+# ==========================================================
+
+@bot.tree.command(
+    name="site",
+    description="Abre o site/painel da Resenha Máxima"
+)
+async def site_resenha(interaction: discord.Interaction):
+    view = discord.ui.View(timeout=60)
+    view.add_item(discord.ui.Button(
+        label="Abrir site",
+        emoji="🌐",
+        style=discord.ButtonStyle.link,
+        url=PAINEL_MENU_URL.rstrip("/"),
+    ))
+    view.add_item(discord.ui.Button(
+        label="IDs do Discord",
+        emoji="🪪",
+        style=discord.ButtonStyle.link,
+        url=PAINEL_MENU_URL.rstrip("/") + "/ids-discord",
+    ))
+    await interaction.response.send_message(
+        "🌐 **Site da Resenha Máxima**\nUse os botões abaixo para abrir o painel.",
+        view=view,
+        ephemeral=True,
+    )
+
+
+# ==========================================================
 # ROBLOX — LIMPEZA DE VÍNCULOS
 # ==========================================================
 
@@ -11440,7 +11465,8 @@ async def on_ready():
     if not getattr(bot, "_correcoes_regressao_v5", False):
         bot._correcoes_regressao_v5 = True
         await remover_castigos_nickname_legados()
-        asyncio.create_task(varrer_membros_roblox_sem_vinculo())
+        # Não varre nem envia DM para membros que já possuem o cargo Roblox.
+        # A verificação é iniciada somente pelo botão do painel fixo.
 
     if not getattr(bot, "_painel_verificacao_roblox_pronto", False):
         bot._painel_verificacao_roblox_pronto = True
