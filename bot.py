@@ -42,6 +42,13 @@ CANAL_NICKNAMES_MINECRAFT_ID = 1534423515183448155
 CANAL_SERVIDOR_MINECRAFT_ID = 1534644952884183090
 CARGO_DESENVOLVIMENTO_ID = 1533625836874498181
 
+# Painéis de entrada / cargos / candidatura
+CANAL_BOAS_VINDAS_ID = 1532613055505104977
+CANAL_ESCOLHA_JOGO_ID = 1545979690815201372
+CANAL_CANDIDATURA_EVENTOS_ID = 1541035337709649990
+CARGO_PING_DEV_JOGO_ID = 1545204241948479569
+FORMULARIO_EVENTOS_URL = "https://forms.gle/h4kt2Cp7fduGG4Pc8"
+
 # Conta de teste: estes dois cargos são permanentes e nunca serão removidos.
 CONTA_TESTE_ID = 1532838576256057557
 CARGOS_FIXOS_CONTA_TESTE = {1532614113346453724, 1536081355711062166}
@@ -11460,8 +11467,127 @@ async def antes_limpar_cargos_temporarios_conta_teste():
     await bot.wait_until_ready()
 
 
+# ==========================================================
+# PAINÉIS FIXOS — BOAS-VINDAS / EVENTOS
+# ==========================================================
+
+class TutorialServidorView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Conhecer o servidor", emoji="🧭", style=discord.ButtonStyle.primary, custom_id="rmax_tutorial_abrir")
+    async def abrir(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="🧭 Guia rápido — RESENHA MÁXIMA",
+            description=(
+                "**📢 Comece por aqui**\n"
+                "Leia <#1533893630417309817> e acompanhe <#1533893231870214205>.\n\n"
+                "**🔥 Resenha**\n"
+                "O chat principal é <#1532792216047849673>. Também temos mídias em "
+                "<#1532613055505104978> e prints em <#1533807723425304649>.\n\n"
+                "**🎮 Escolha suas áreas**\n"
+                "Em <#1545979690815201372> você pode pegar ou remover os cargos **Roblox**, "
+                "**Minecraft** e **Ping DEV Jogo**. O Ping DEV Jogo serve para receber avisos "
+                "quando houver atualização do nosso jogo.\n\n"
+                "**🎮 Roblox**\n"
+                "Depois de pegar o cargo Roblox, a área do Roblox será liberada. Para vincular "
+                "sua conta, use <#1546448551700201482>.\n\n"
+                "**⛏️ Minecraft**\n"
+                "Depois de pegar o cargo Minecraft, a área do Minecraft será liberada, com servidor, "
+                "chat, coordenadas e mídias.\n\n"
+                "**🎉 Eventos**\n"
+                "Acompanhe <#1535124939940823110>. Quer tentar entrar para o Departamento de Eventos? "
+                "Use o painel de prova em <#1541035337709649990>.\n\n"
+                "**🔊 Calls**\n"
+                "<#1533633948721090640> • <#1537673273138085949> • <#1533637780389756928>\n"
+                "A <#1540578640020897862> é visível para todos, mas a entrada é restrita à equipe autorizada.\n\n"
+                "**🎫 Ajuda e cargos**\n"
+                "Suporte: <#1546034492936949841>\n"
+                "Cargos/hierarquia: <#1533932640456015994>"
+            ),
+            color=discord.Color.blurple(),
+        )
+        embed.set_footer(text="RESENHA MÁXIMA • Agora é só ir pra resenha 🔥")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @discord.ui.button(label="Agora não", emoji="❌", style=discord.ButtonStyle.secondary, custom_id="rmax_tutorial_agora_nao")
+    async def agora_nao(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("Tranquilo 😎 O tutorial fica aqui caso você queira ver depois.", ephemeral=True)
+
+
+async def _garantir_painel_fixo(canal_id: int, marcador: str, embed: discord.Embed, view: discord.ui.View):
+    canal = bot.get_channel(canal_id)
+    if canal is None:
+        try:
+            canal = await bot.fetch_channel(canal_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException) as erro:
+            print(f"❌ Painel {marcador}: não consegui localizar o canal {canal_id}: {erro}")
+            return
+
+    if not isinstance(canal, discord.TextChannel):
+        print(f"❌ Painel {marcador}: {canal_id} não é canal de texto.")
+        return
+
+    mensagens = []
+    try:
+        async for msg in canal.history(limit=100):
+            if msg.author.id != bot.user.id:
+                continue
+            if any(marcador in str(getattr(e.footer, 'text', '') or '') for e in msg.embeds):
+                mensagens.append(msg)
+    except (discord.Forbidden, discord.HTTPException):
+        mensagens = []
+
+    if mensagens:
+        principal = mensagens[0]
+        await principal.edit(content=None, embed=embed, view=view)
+        for duplicada in mensagens[1:]:
+            try:
+                await duplicada.delete()
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                pass
+        return
+
+    await canal.send(embed=embed, view=view)
+
+
+async def garantir_paineis_comunidade():
+    boas_vindas = discord.Embed(
+        title="👋 Bem-vindo(a) à RESENHA MÁXIMA!",
+        description=(
+            "Chegou agora e está meio perdido? 😂\n\n"
+            "Aqui tem **resenha, eventos, calls, Roblox, Minecraft e muito mais**.\n"
+            "Clique abaixo e eu te mostro rapidinho as partes mais importantes do servidor."
+        ),
+        color=discord.Color.blurple(),
+    )
+    boas_vindas.set_footer(text="RESENHA MÁXIMA • Boas-vindas")
+    await _garantir_painel_fixo(CANAL_BOAS_VINDAS_ID, "RESENHA MÁXIMA • Boas-vindas", boas_vindas, TutorialServidorView())
+
+    candidatura = discord.Embed(
+        title="📝 Prova — Departamento de Eventos",
+        description=(
+            "Quer tentar entrar para o **Departamento de Eventos**?\n\n"
+            "Clique no botão abaixo para abrir a prova. Depois do envio, siga as orientações do sistema de candidatura."
+        ),
+        color=discord.Color.gold(),
+    )
+    candidatura.set_footer(text="RESENHA MÁXIMA • Departamento de Eventos")
+    view_eventos = discord.ui.View(timeout=None)
+    view_eventos.add_item(discord.ui.Button(label="Fazer a prova", emoji="📝", style=discord.ButtonStyle.link, url=FORMULARIO_EVENTOS_URL))
+    await _garantir_painel_fixo(CANAL_CANDIDATURA_EVENTOS_ID, "RESENHA MÁXIMA • Departamento de Eventos", candidatura, view_eventos)
+
+
 @bot.event
 async def on_ready():
+    if not getattr(bot, "_paineis_comunidade_registrados", False):
+        bot._paineis_comunidade_registrados = True
+        bot.add_view(TutorialServidorView())
+        try:
+            await garantir_paineis_comunidade()
+        except Exception as erro:
+            print(f"❌ Erro ao preparar painéis da comunidade: {type(erro).__name__}: {erro}")
+
     if not getattr(bot, "_correcoes_regressao_v5", False):
         bot._correcoes_regressao_v5 = True
         await remover_castigos_nickname_legados()
