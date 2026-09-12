@@ -1,0 +1,26 @@
+{
+  "id": "2026-09-12-ia-social-assistente-dev-room",
+  "versao": "V26",
+  "data": "12/09/2026",
+  "titulo": "## IA mais inteligente e novo assistente da DEV-ROOM",
+  "novidades": [
+    "🧠 A IA agora desenvolve uma memória social dos membros para entender melhor apelidos, hábitos de conversa e preferência entre chat e call.",
+    "🔧 A DEV-ROOM agora é tratada como espaço de desenvolvimento geral da Resenha Máxima, podendo envolver jogo, bot, Discord ou outras partes do projeto.",
+    "👀 Quando o Vini está na DEV-ROOM, a primeira marcação é observada sem o bot interromper a conversa.",
+    "🤝 Se a mesma pessoa insistir, o bot pode identificar um problema e tentar ajudar quando souber uma solução com confiança.",
+    "📩 Problemas relevantes podem gerar um relatório curto enviado diretamente ao Vini por DM para facilitar a visualização."
+  ],
+  "alteracoes": [
+    "🔇 Quem estiver na mesma DEV-ROOM que o Vini pode marcá-lo sem o bot se intrometer.",
+    "❓ Se alguém apenas insistir em marcar sem explicar o motivo, o bot pode perguntar se é algo importante.",
+    "🛠️ Quando existe um problema claro, a IA tenta resolver diretamente; se não souber uma solução segura, fica quieta.",
+    "🚫 O assistente não pede prints ou informações aleatórias só para responder alguma coisa.",
+    "📝 O relatório informa usuário, canal, resumo do problema, situação da tentativa da IA e link da mensagem quando disponível."
+  ],
+  "correcoes": [
+    "💬 Removidas frases da DEV-ROOM que davam a entender que o Vini estava necessariamente mexendo apenas no bot.",
+    "🧩 O sistema evita interferir em conversas de pessoas que já estão falando com o Vini dentro da DEV-ROOM."
+  ],
+  "problemas_conhecidos": [],
+  "resumo": "A IA ficou mais contextual, passou a aprender informações sociais úteis e ganhou um assistente para filtrar marcações e problemas enquanto o Vini estiver ocupado na DEV-ROOM."
+}

@@ -695,10 +695,222 @@ def criar_banco():
             )
         """)
 
+        # --------------------------------------------------
+        # MEMÓRIA SOCIAL AUTOMÁTICA DA IA
+        # --------------------------------------------------
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ia_perfis_usuario (
+                guild_id INTEGER NOT NULL,
+                usuario_id INTEGER NOT NULL,
+                ultimo_nome TEXT,
+                apelidos_json TEXT NOT NULL DEFAULT '[]',
+                total_mensagens INTEGER NOT NULL DEFAULT 0,
+                total_segundos_call INTEGER NOT NULL DEFAULT 0,
+                atualizado_em TEXT,
+                PRIMARY KEY (guild_id, usuario_id)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ia_atividade_texto (
+                guild_id INTEGER NOT NULL,
+                usuario_id INTEGER NOT NULL,
+                canal_id INTEGER NOT NULL,
+                mensagens INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (guild_id, usuario_id, canal_id)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ia_atividade_call (
+                guild_id INTEGER NOT NULL,
+                usuario_id INTEGER NOT NULL,
+                canal_id INTEGER NOT NULL,
+                segundos INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (guild_id, usuario_id, canal_id)
+            )
+        """)
+
         banco.commit()
 
 
 criar_banco()
+
+
+# ==========================================================
+# MEMÓRIA SOCIAL AUTOMÁTICA DA IA
+# ==========================================================
+
+_ia_call_entradas = {}
+
+def _normalizar_apelido_ia(texto):
+    texto = " ".join(str(texto or "").strip().split())
+    if not (2 <= len(texto) <= 32):
+        return None
+    if texto.startswith(("<@", "http://", "https://")):
+        return None
+    return texto
+
+def _apelidos_perfil_ia(linha):
+    try:
+        dados = json.loads(linha["apelidos_json"] or "[]") if linha else []
+    except Exception:
+        dados = []
+    return [str(x) for x in dados if _normalizar_apelido_ia(x)][:8]
+
+def _salvar_apelidos_perfil_ia(guild_id, usuario_id, nome_atual, novos=()):
+    with conectar_banco() as banco:
+        linha = banco.execute(
+            "SELECT apelidos_json FROM ia_perfis_usuario WHERE guild_id=? AND usuario_id=?",
+            (guild_id, usuario_id),
+        ).fetchone()
+        apelidos = _apelidos_perfil_ia(linha)
+        for bruto in [nome_atual, *novos]:
+            apelido = _normalizar_apelido_ia(bruto)
+            if apelido and apelido.casefold() not in {a.casefold() for a in apelidos}:
+                apelidos.append(apelido)
+        apelidos = apelidos[-8:]
+        agora = datetime.now(timezone.utc).isoformat()
+        banco.execute(
+            """
+            INSERT INTO ia_perfis_usuario
+                (guild_id, usuario_id, ultimo_nome, apelidos_json, atualizado_em)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(guild_id, usuario_id) DO UPDATE SET
+                ultimo_nome=excluded.ultimo_nome,
+                apelidos_json=excluded.apelidos_json,
+                atualizado_em=excluded.atualizado_em
+            """,
+            (guild_id, usuario_id, nome_atual, json.dumps(apelidos, ensure_ascii=False), agora),
+        )
+
+def registrar_atividade_texto_ia(message):
+    if message.guild is None or message.author.bot:
+        return
+    membro = message.author
+    apelidos_explicitos = []
+    texto = str(message.content or "")
+    for padrao in (
+        r"\bme chama de\s+([\wÀ-ÿ][\wÀ-ÿ ._-]{1,30})",
+        r"\bpode me chamar de\s+([\wÀ-ÿ][\wÀ-ÿ ._-]{1,30})",
+        r"\bmeu apelido (?:é|e)\s+([\wÀ-ÿ][\wÀ-ÿ ._-]{1,30})",
+    ):
+        achou = re.search(padrao, texto, flags=re.IGNORECASE)
+        if achou:
+            candidato = re.split(r"[,.!?;\n]", achou.group(1), maxsplit=1)[0].strip()
+            if candidato:
+                apelidos_explicitos.append(candidato)
+
+    nomes = [getattr(membro, "display_name", None), getattr(membro, "global_name", None), getattr(membro, "name", None)]
+    nome_atual = next((x for x in nomes if x), str(membro))
+    _salvar_apelidos_perfil_ia(message.guild.id, membro.id, nome_atual, apelidos_explicitos)
+
+    agora = datetime.now(timezone.utc).isoformat()
+    with conectar_banco() as banco:
+        banco.execute(
+            """
+            INSERT INTO ia_perfis_usuario
+                (guild_id, usuario_id, ultimo_nome, total_mensagens, atualizado_em)
+            VALUES (?, ?, ?, 1, ?)
+            ON CONFLICT(guild_id, usuario_id) DO UPDATE SET
+                ultimo_nome=excluded.ultimo_nome,
+                total_mensagens=ia_perfis_usuario.total_mensagens+1,
+                atualizado_em=excluded.atualizado_em
+            """,
+            (message.guild.id, membro.id, nome_atual, agora),
+        )
+        banco.execute(
+            """
+            INSERT INTO ia_atividade_texto (guild_id, usuario_id, canal_id, mensagens)
+            VALUES (?, ?, ?, 1)
+            ON CONFLICT(guild_id, usuario_id, canal_id) DO UPDATE SET
+                mensagens=ia_atividade_texto.mensagens+1
+            """,
+            (message.guild.id, membro.id, message.channel.id),
+        )
+
+def _registrar_tempo_call_ia(guild_id, usuario_id, canal_id, segundos):
+    segundos = max(0, int(segundos))
+    if segundos < 5:
+        return
+    agora = datetime.now(timezone.utc).isoformat()
+    with conectar_banco() as banco:
+        banco.execute(
+            """
+            INSERT INTO ia_perfis_usuario
+                (guild_id, usuario_id, total_segundos_call, atualizado_em)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(guild_id, usuario_id) DO UPDATE SET
+                total_segundos_call=ia_perfis_usuario.total_segundos_call+excluded.total_segundos_call,
+                atualizado_em=excluded.atualizado_em
+            """,
+            (guild_id, usuario_id, segundos, agora),
+        )
+        banco.execute(
+            """
+            INSERT INTO ia_atividade_call (guild_id, usuario_id, canal_id, segundos)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(guild_id, usuario_id, canal_id) DO UPDATE SET
+                segundos=ia_atividade_call.segundos+excluded.segundos
+            """,
+            (guild_id, usuario_id, canal_id, segundos),
+        )
+
+def registrar_movimento_call_ia(member, before, after):
+    if member.bot or member.guild is None:
+        return
+    chave = (member.guild.id, member.id)
+    agora = time.monotonic()
+    entrada = _ia_call_entradas.pop(chave, None)
+    if entrada is not None:
+        canal_id, inicio = entrada
+        _registrar_tempo_call_ia(member.guild.id, member.id, canal_id, agora - inicio)
+    if after.channel is not None:
+        _ia_call_entradas[chave] = (after.channel.id, agora)
+
+def resumo_perfil_automatico_ia(guild, usuario_id):
+    if guild is None:
+        return ""
+    with conectar_banco() as banco:
+        perfil = banco.execute(
+            "SELECT * FROM ia_perfis_usuario WHERE guild_id=? AND usuario_id=?",
+            (guild.id, usuario_id),
+        ).fetchone()
+        if perfil is None:
+            return ""
+        top_texto = banco.execute(
+            """SELECT canal_id, mensagens FROM ia_atividade_texto
+               WHERE guild_id=? AND usuario_id=? ORDER BY mensagens DESC LIMIT 1""",
+            (guild.id, usuario_id),
+        ).fetchone()
+        top_call = banco.execute(
+            """SELECT canal_id, segundos FROM ia_atividade_call
+               WHERE guild_id=? AND usuario_id=? ORDER BY segundos DESC LIMIT 1""",
+            (guild.id, usuario_id),
+        ).fetchone()
+
+    mensagens = int(perfil["total_mensagens"] or 0)
+    segundos_call = int(perfil["total_segundos_call"] or 0)
+    apelidos = _apelidos_perfil_ia(perfil)
+    partes = []
+    if apelidos:
+        partes.append("apelidos/nomes observados: " + ", ".join(apelidos[-4:]))
+    if top_texto and mensagens >= 10:
+        canal = guild.get_channel(int(top_texto["canal_id"]))
+        if canal is not None:
+            partes.append(f"costuma falar mais em #{canal.name}")
+    if top_call and segundos_call >= 15 * 60:
+        canal = guild.get_channel(int(top_call["canal_id"]))
+        if canal is not None:
+            partes.append(f"costuma ficar mais na call {canal.name}")
+    if mensagens >= 20 or segundos_call >= 30 * 60:
+        # Comparação propositalmente ampla: é contexto social, não estatística exata.
+        if segundos_call >= 60 * 60 and mensagens < 80:
+            partes.append("parece ser mais de call do que de chat")
+        elif mensagens >= 80 and segundos_call < 60 * 60:
+            partes.append("parece ser mais de chat do que de call")
+    return "; ".join(partes)
 
 
 # ==========================================================
@@ -6495,6 +6707,12 @@ def contexto_social_ia(
                 message.author
             )
         )
+        perfil_auto = resumo_perfil_automatico_ia(message.guild, message.author.id)
+        if perfil_auto:
+            linhas.append(
+                "MEMÓRIA AUTOMÁTICA (contexto silencioso; não recite estatísticas): "
+                + perfil_auto
+            )
 
     citados = membros_citados_por_nome(
         message
@@ -7940,70 +8158,69 @@ async def processar_antispam_mencoes(message: discord.Message):
 
 
 # ==========================================================
-# MODO MANUTENÇÃO — CALL DE DESENVOLVIMENTO
+# ASSISTENTE DO VINI — DEV-ROOM / MENÇÕES
 # ==========================================================
 
 _manutencao_ativa = False
 _manutencao_contadores = {}
 _manutencao_punidos = set()
 _manutencao_respostas_recentes = {}
+_manutencao_mensagens = {}
+_manutencao_relatorio_enviado = set()
 
 MANUTENCAO_RESPOSTAS = {
-    1: [
-        "marca não randola, o cara tá me configurando",
-        "deixa o Vini trabalhar, peste, ele tá mexendo em mim",
-        "ô criatura, para de marcar o programador enquanto ele tá me arrumando",
-        "meu parceiro, o homem tá em manutenção comigo. larga ele um minuto kkk",
-        "tu viu que o cara tá trabalhando e pensou: vou marcar ele. gênio demais",
-    ],
     2: [
-        "já te avisei, desgraça kkk deixa o cara configurar o bot",
-        "segunda marcação já? tu tá fazendo speedrun pra tomar castigo?",
-        "irmão, ele tá ocupado comigo. vai arrumar outra pessoa pra perturbar",
-        "tu ignorou o primeiro aviso com uma confiança impressionante",
-        "continua marcando pra tu ver uma coisa rapidinho kkk",
+        "é algo importante? o Vini tá ocupado agora",
+        "tu precisa dele pra algo importante? ele tá na DEV-ROOM agora",
+        "é urgente ou dá pra esperar? o Vini tá ocupado com as coisas da Resenha",
     ],
     3: [
-        "caralho, tu é persistente mesmo. DEIXA O HOMEM TRABALHAR",
-        "terceira vez, animal kkk tua meta é testar meu timeout?",
-        "eu tô contando, viu? depois não mete essa de que não sabia",
-        "tu realmente acordou e escolheu perturbar o programador em manutenção",
-        "mais uma marcação e tua ficha tá ficando bonita aqui, campeão",
+        "se for importante explica o problema de uma vez que eu vejo se consigo ajudar",
+        "se for problema mesmo manda direto o que aconteceu, sem ficar só marcando",
     ],
     4: [
-        "quarta vez. tu tá praticamente preenchendo o formulário do próprio castigo",
-        "meu deus do céu, tu não aprende nem com desenho né kkk",
-        "último aviso moral: para de marcar o Vini enquanto ele tá me configurando",
-        "tu tá a UMA marcação de descobrir se eu tenho permissão de timeout",
-        "continua, vai. confia no teu potencial kkkkk",
+        "já vi que tu tá tentando chamar ele. se eu conseguir resolver eu resolvo, senão deixa ele ver quando puder",
+        "calma aí kkk já entendi que tu quer falar com ele",
     ],
 }
 
 MANUTENCAO_POS_TIMEOUT = [
-    "voltou do castigo e ainda quer atenção? deixa o programador trabalhar kkk",
-    "tu já ganhou teu minuto de reflexão nessa manutenção, não força a continuação",
+    "tu já ganhou teu minuto de reflexão nessa sessão, não força a continuação",
     "o timeout não era trailer não, campeão. para de marcar o homem",
-    "já tomou o castigo da sessão e segue insistindo. dedicação assustadora",
 ]
 
 MANUTENCAO_ZOEIRAS_GERAL = [
-    "{mencao} conseguiu a façanha de tomar 1 minuto de castigo porque não parava de marcar o Vini em manutenção kkkkk",
-    "parabéns {mencao}: 5 marcações no programador em manutenção e um timeout de brinde. promoção encerrada",
-    "{mencao} testou o sistema anti-randola até o fim e descobriu que o botão de timeout funciona kkk",
-    "o cidadão {mencao} foi avisado QUATRO vezes e escolheu a quinta marcação. ganhou 1 minuto pra pensar nas escolhas",
+    "{mencao} conseguiu a façanha de tomar 1 minuto de castigo porque não parava de marcar o Vini na DEV-ROOM kkkkk",
+    "parabéns {mencao}: 5 marcações no Vini e um timeout de brinde. promoção encerrada",
 ]
 
 
 def dono_esta_na_call_manutencao(guild):
     if guild is None:
         return False
-
     dono = guild.get_member(DONO_ID)
-    if dono is None or dono.voice is None:
-        return False
+    return bool(
+        dono is not None
+        and dono.voice is not None
+        and dono.voice.channel is not None
+        and dono.voice.channel.id == CANAL_CALL_MANUTENCAO_ID
+    )
 
-    canal = dono.voice.channel
-    return canal is not None and canal.id == CANAL_CALL_MANUTENCAO_ID
+
+def autor_esta_na_mesma_call_dev_do_dono(message: discord.Message):
+    """Quem já está falando com o Vini na DEV-ROOM não aciona o assistente."""
+    if message.guild is None or not isinstance(message.author, discord.Member):
+        return False
+    dono = message.guild.get_member(DONO_ID)
+    autor = message.author
+    if dono is None or dono.voice is None or autor.voice is None:
+        return False
+    if dono.voice.channel is None or autor.voice.channel is None:
+        return False
+    return (
+        dono.voice.channel.id == CANAL_CALL_MANUTENCAO_ID
+        and autor.voice.channel.id == CANAL_CALL_MANUTENCAO_ID
+    )
 
 
 def resetar_sessao_manutencao():
@@ -8012,25 +8229,21 @@ def resetar_sessao_manutencao():
     _manutencao_contadores.clear()
     _manutencao_punidos.clear()
     _manutencao_respostas_recentes.clear()
+    _manutencao_mensagens.clear()
+    _manutencao_relatorio_enviado.clear()
 
 
 def iniciar_sessao_manutencao():
     global _manutencao_ativa
-    _manutencao_contadores.clear()
-    _manutencao_punidos.clear()
-    _manutencao_respostas_recentes.clear()
+    resetar_sessao_manutencao()
     _manutencao_ativa = True
 
 
 def escolher_resposta_manutencao(usuario_id, opcoes):
     opcoes = list(dict.fromkeys(opcoes))
     if not opcoes:
-        return "deixa o programador trabalhar"
-
-    historico = _manutencao_respostas_recentes.setdefault(
-        usuario_id,
-        deque(maxlen=2)
-    )
+        return "fala o que aconteceu"
+    historico = _manutencao_respostas_recentes.setdefault(usuario_id, deque(maxlen=2))
     disponiveis = [texto for texto in opcoes if texto not in historico] or opcoes
     escolhida = random.choice(disponiveis)
     historico.append(escolhida)
@@ -8038,13 +8251,76 @@ def escolher_resposta_manutencao(usuario_id, opcoes):
 
 
 def mensagem_menciona_dono_diretamente(message):
-    # Exige a menção literal de usuário. Cargo, @everyone, @here, reply e nome escrito não contam.
-    return bool(
-        re.search(
-            rf"<@!?{DONO_ID}>",
-            str(message.content or "")
-        )
+    return bool(re.search(rf"<@!?{DONO_ID}>", str(message.content or "")))
+
+
+def _texto_sem_mencao_dono(message):
+    return re.sub(rf"<@!?{DONO_ID}>", "", str(message.content or ""), flags=re.I).strip()
+
+
+async def _ia_tentar_resolver_problema_dev(message, historico_texto):
+    """Só responde quando a IA considerar que conhece uma solução curta e segura."""
+    if groq_client is None:
+        return ""
+    prompt = (
+        "Você é o assistente da Resenha Máxima. Um membro está tentando chamar o Vini, que está ocupado na DEV-ROOM. "
+        "Analise o relato abaixo. Se houver um problema técnico/operacional CLARO e você souber uma solução curta, segura e com alta confiança, "
+        "responda em português brasileiro começando exatamente com 'AJUDAR:'. Não peça print, não peça logs, não invente passos e não diga para procurar o Vini. "
+        "Se faltar informação, se for assunto administrativo/pessoal, ou se você não souber resolver com confiança, responda exatamente 'SILENCIO'.\n\n"
+        f"Relato:\n{historico_texto[-1800:]}"
     )
+    try:
+        r = await asyncio.wait_for(
+            groq_client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.15,
+                max_completion_tokens=220,
+            ),
+            timeout=IA_GERACAO_TIMEOUT_SEGUNDOS,
+        )
+        texto = (r.choices[0].message.content or "").strip()
+        if texto.upper().startswith("AJUDAR:"):
+            return texto.split(":", 1)[1].strip()
+    except Exception as erro:
+        print(f"Assistente DEV não conseguiu analisar problema | {type(erro).__name__}: {erro}")
+    return ""
+
+
+async def _enviar_relatorio_dev_ao_dono(message, historico_texto, resposta_ia=""):
+    uid = message.author.id
+    if uid in _manutencao_relatorio_enviado:
+        return
+    _manutencao_relatorio_enviado.add(uid)
+    dono = message.guild.get_member(DONO_ID) if message.guild else None
+    if dono is None:
+        try:
+            dono = await bot.fetch_user(DONO_ID)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return
+    canal_nome = getattr(message.channel, "name", str(message.channel.id))
+    link = getattr(message, "jump_url", "")
+    resumo = re.sub(r"\s+", " ", historico_texto).strip()
+    if len(resumo) > 900:
+        resumo = resumo[-900:]
+    status = (
+        "A IA encontrou uma possível solução e respondeu no canal."
+        if resposta_ia else
+        "A IA não encontrou uma solução segura e ficou quieta."
+    )
+    texto = (
+        "⚠️ **Possível problema reportado**\n"
+        f"**Usuário:** {message.author} (`{message.author.id}`)\n"
+        f"**Canal:** #{canal_nome}\n"
+        f"**Resumo:** {resumo or 'A pessoa apenas insistiu em chamar você.'}\n"
+        f"**Situação:** {status}"
+    )
+    if link:
+        texto += f"\n**Mensagem:** {link}"
+    try:
+        await dono.send(texto)
+    except (discord.Forbidden, discord.HTTPException):
+        pass
 
 
 async def obter_chat_geral_fixo(guild):
@@ -8054,111 +8330,106 @@ async def obter_chat_geral_fixo(guild):
             canal = await bot.fetch_channel(CHAT_GERAL_ID)
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
             canal = None
-
     if isinstance(canal, discord.TextChannel):
         return canal
-
     return await obter_chat_geral(guild)
 
 
 async def processar_protecao_manutencao(message: discord.Message):
-    if message.guild is None or message.author.bot:
+    if message.guild is None or message.author.bot or message.author.id == DONO_ID:
         return False
 
-    if message.author.id == DONO_ID:
-        return False
-
-    # Mantém o estado correto mesmo se o bot tiver reconectado durante a sessão.
     global _manutencao_ativa
     esta_na_call = dono_esta_na_call_manutencao(message.guild)
-
     if not esta_na_call:
         if _manutencao_ativa:
             resetar_sessao_manutencao()
         return False
-
     if not _manutencao_ativa:
         iniciar_sessao_manutencao()
-
     if not mensagem_menciona_dono_diretamente(message):
         return False
+
+    # Regra principal: se a pessoa já está com o Vini na DEV-ROOM, o bot não se mete.
+    if autor_esta_na_mesma_call_dev_do_dono(message):
+        return True
 
     usuario_id = message.author.id
     quantidade = _manutencao_contadores.get(usuario_id, 0) + 1
     _manutencao_contadores[usuario_id] = quantidade
+    texto_atual = _texto_sem_mencao_dono(message)
+    hist = _manutencao_mensagens.setdefault(usuario_id, deque(maxlen=6))
+    if texto_atual:
+        hist.append(texto_atual)
+    historico_texto = " | ".join(hist)
+
+    # Primeira marcação: observa e não interrompe a conversa.
+    if quantidade == 1:
+        return True
 
     if usuario_id in _manutencao_punidos:
         await message.reply(
-            escolher_resposta_manutencao(
-                usuario_id,
-                MANUTENCAO_POS_TIMEOUT
-            ),
+            escolher_resposta_manutencao(usuario_id, MANUTENCAO_POS_TIMEOUT),
             mention_author=False,
             allowed_mentions=discord.AllowedMentions.none(),
         )
         return True
 
+    # A partir da segunda, se existe um relato de problema, tenta ajudar.
+    resposta_ia = ""
+    if len(historico_texto) >= 12:
+        resposta_ia = await _ia_tentar_resolver_problema_dev(message, historico_texto)
+        await _enviar_relatorio_dev_ao_dono(message, historico_texto, resposta_ia)
+        if resposta_ia:
+            await message.reply(
+                resposta_ia,
+                mention_author=False,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            return True
+        # Se não souber resolver, fica quieto como combinado.
+        if texto_atual:
+            return True
+
+    # Se a pessoa só está chamando/marcando sem explicar nada, pergunta se é importante.
     if quantidade < 5:
-        nivel = max(1, min(4, quantidade))
+        nivel = max(2, min(4, quantidade))
         await message.reply(
-            escolher_resposta_manutencao(
-                usuario_id,
-                MANUTENCAO_RESPOSTAS[nivel]
-            ),
+            escolher_resposta_manutencao(usuario_id, MANUTENCAO_RESPOSTAS[nivel]),
             mention_author=False,
             allowed_mentions=discord.AllowedMentions.none(),
         )
         return True
 
     _manutencao_punidos.add(usuario_id)
-
     timeout_ok = False
     if isinstance(message.author, discord.Member):
         try:
             await message.author.timeout(
                 timedelta(minutes=1),
-                reason=(
-                    "5 menções diretas ao programador durante "
-                    "sessão de manutenção do bot"
-                )
+                reason="5 menções diretas ao Vini durante sessão na DEV-ROOM",
             )
             timeout_ok = True
         except (discord.Forbidden, discord.HTTPException) as erro:
-            print(
-                "Não foi possível aplicar timeout da manutenção | "
-                f"usuario={usuario_id} | erro={erro}"
-            )
+            print(f"Não foi possível aplicar timeout da DEV-ROOM | usuario={usuario_id} | erro={erro}")
 
-    if timeout_ok:
-        resposta = "cinco. CINCO marcações. ganhou 1 minutinho pra refletir sobre a própria insistência kkkkk"
-    else:
-        resposta = "cinco marcações. eu tentei te dar 1 minuto de castigo, mas o Discord protegeu tua carreira dessa vez kkk"
-
-    await message.reply(
-        resposta,
-        mention_author=False,
-        allowed_mentions=discord.AllowedMentions.none(),
+    resposta = (
+        "cinco marcações. ganhou 1 minutinho pra refletir sobre a insistência kkkkk"
+        if timeout_ok else
+        "cinco marcações. tentei te dar 1 minuto de castigo, mas o Discord salvou tua carreira kkk"
     )
+    await message.reply(resposta, mention_author=False, allowed_mentions=discord.AllowedMentions.none())
 
     canal_geral = await obter_chat_geral_fixo(message.guild)
     if canal_geral is not None:
         try:
-            zoeira = random.choice(MANUTENCAO_ZOEIRAS_GERAL).format(
-                mencao=message.author.mention
-            )
             await canal_geral.send(
-                zoeira,
-                allowed_mentions=discord.AllowedMentions(
-                    users=True,
-                    roles=False,
-                    everyone=False,
-                )
+                random.choice(MANUTENCAO_ZOEIRAS_GERAL).format(mencao=message.author.mention),
+                allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
             )
-        except discord.HTTPException as erro:
-            print(f"Erro ao enviar zoeira da manutenção no chat geral: {erro}")
-
+        except discord.HTTPException:
+            pass
     return True
-
 
 
 
@@ -8197,6 +8468,8 @@ async def entrar_call_dev_automaticamente(guild, canal=None):
 
 @bot.event
 async def on_voice_state_update(member, before, after):
+    registrar_movimento_call_ia(member, before, after)
+
     if member.id != DONO_ID:
         return
 
@@ -8229,6 +8502,12 @@ async def on_message(
 ):
     if message.author.bot:
         return
+
+    if message.guild is not None:
+        try:
+            registrar_atividade_texto_ia(message)
+        except Exception as erro:
+            print(f"Memória automática IA: falha ao registrar mensagem | {type(erro).__name__}: {erro}")
 
     if isinstance(
         message.channel,
@@ -11621,6 +11900,16 @@ async def on_ready():
 
     if not zoeira_call_automatica.is_running():
         zoeira_call_automatica.start()
+
+    # Começa a contar quem já estava em call quando o bot reiniciou.
+    if not getattr(bot, "_memoria_ia_calls_inicializada", False):
+        bot._memoria_ia_calls_inicializada = True
+        agora_call = time.monotonic()
+        for guild in bot.guilds:
+            for canal in guild.voice_channels:
+                for membro in canal.members:
+                    if not membro.bot:
+                        _ia_call_entradas[(guild.id, membro.id)] = (canal.id, agora_call)
 
     # Se o bot reiniciar enquanto o programador já estiver na call de manutenção,
     # inicia uma nova sessão em memória sem emitir aviso público de retorno.
