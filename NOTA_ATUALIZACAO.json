@@ -1,12 +1,26 @@
 {
-  "id": "v19-ids-discord-ia-natural",
-  "versao": "V19",
-  "titulo": "Melhorias no painel e na IA",
-  "descricao": "O painel administrativo recebeu uma nova área para consultar e copiar IDs do Discord. A IA também recebeu melhorias de contexto para conversar de forma mais natural e entender melhor brincadeiras e mensagens em sequência.",
-  "itens": [
-    "Nova central de IDs do Discord no painel administrativo.",
-    "Busca e cópia rápida de cargos, canais, categorias e membros.",
-    "Melhorias de contexto e naturalidade nas conversas da IA.",
-    "Mantidas as proteções do fluxo de verificação Roblox."
-  ]
+  "id": "2026-09-12-v27-ia-social-assistente-e-futuras-atualizacoes",
+  "versao": "V27",
+  "data": "12/09/2026",
+  "titulo": "## IA social, assistente da DEV-ROOM e Futuras Atualizações restauradas",
+  "novidades": [
+    "🧠 A IA passou a criar memória social dos membros, aprendendo apelidos e hábitos úteis de conversa ao longo do tempo.",
+    "💬 A IA consegue perceber se um membro costuma interagir mais por chat ou por call e usa isso apenas como contexto para responder de forma mais natural.",
+    "👀 Quando o Vini está na DEV-ROOM, o bot acompanha marcações repetidas e pode perguntar se o assunto é importante sem interromper toda marcação comum.",
+    "🛠️ Quando alguém relata um problema e a IA sabe uma solução com confiança, ela pode tentar ajudar diretamente.",
+    "📩 Problemas relevantes podem gerar um resumo curto enviado por DM ao Vini para facilitar a visualização."
+  ],
+  "alteracoes": [
+    "🔧 As mensagens sobre a DEV-ROOM agora tratam o local como desenvolvimento geral da Resenha Máxima: jogo, bot, Discord ou outras partes do projeto.",
+    "🔇 Se a pessoa que marca o Vini já estiver na mesma DEV-ROOM com ele, o bot ignora a marcação e não se intromete.",
+    "🤐 Se a IA não souber como resolver um problema com segurança, ela fica quieta em vez de pedir prints ou inventar passos.",
+    "🔮 A área Futuras Atualizações do site voltou a usar o sistema atual de publicação, substituição, remoção e lançamento de prévias no Discord."
+  ],
+  "correcoes": [
+    "🌐 Corrigido o Erro 500 ao abrir a aba Atualizações do painel.",
+    "🧩 O template do site foi sincronizado com as rotas atuais de Futuras Atualizações, evitando referências a funções antigas que não existem mais.",
+    "📝 A nota de atualização voltou ao formato e caminho esperados pelo projeto: bot/NOTA_ATUALIZACAO.json."
+  ],
+  "problemas_conhecidos": [],
+  "resumo": "A IA ficou mais contextual e útil durante a DEV-ROOM, e o painel de Futuras Atualizações do site foi restaurado e sincronizado com o sistema atual."
 }
