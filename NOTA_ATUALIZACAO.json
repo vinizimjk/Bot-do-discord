@@ -1,26 +1,26 @@
 {
-  "id": "2026-09-16-ia-contexto-e-membros-reais",
-  "versao": "V30",
-  "data": "16/09/2026",
-  "titulo": "## IA com contexto melhor e membros reais",
+  "id": "2026-09-17-figurinhas-contextuais-e-mencoes-seguras",
+  "versao": "V32",
+  "data": "17/09/2026",
+  "titulo": "## Figurinhas mais presentes e menções corrigidas",
   "novidades": [
-    "🧠 A IA agora cruza melhor o histórico recente com quem está falando e com o assunto atual da conversa.",
-    "👥 Os membros do servidor passam a ser cadastrados automaticamente no bot.db para a IA reconhecer usuários reais.",
-    "🏷️ O cadastro guarda Discord ID, username, nome de exibição e nomes/apelidos observados necessários para reconhecimento.",
-    "🔄 O cadastro é sincronizado ao iniciar o bot e atualizado quando membros entram, saem ou conversam.",
-    "🎯 Quando pedirem para escolher ou sortear pessoas, a IA pode usar menções reais do cadastro em vez de inventar usuários."
+    "🖼️ O bot agora usa o catálogo real para entender figurinhas recebidas no contexto.",
+    "🎭 Quando pedirem uma figurinha, o bot envia uma figurinha real cadastrada.",
+    "😂 Figurinhas automáticas passam a aparecer mais quando combinarem com a conversa.",
+    "🧠 A IA usa descrição, emoção, tom e palavras-chave do catálogo."
   ],
   "alteracoes": [
-    "💬 A IA dá mais peso à sequência da conversa e tolera melhor frases incompletas ou com erros de digitação.",
-    "🎲 Pedidos como 'escolhe mais 1' ou 'escolhe 2 pessoas' passam a respeitar a quantidade solicitada.",
-    "🚫 Em escolhas de pessoas, bots são excluídos e a IA é orientada a não repetir a mesma pessoa quando houver outras opções.",
-    "🤝 A memória social continua funcionando junto do cadastro de membros."
+    "🎯 A frequência de figurinhas foi aumentada sem transformar o sistema em spam.",
+    "🔁 O bot evita repetir as mesmas figurinhas em sequência.",
+    "🔒 Itens com auto_uso=false continuam fora das respostas automáticas.",
+    "👥 Pedidos como 'marca 15 pessoas' agora são montados pelo código usando IDs reais."
   ],
   "correcoes": [
-    "🗣️ Corrigido o comportamento de responder de forma desconexa mesmo quando já existia uma conversa em andamento.",
-    "👤 Reduzida a tendência de puxar o Vini ou outros membros sem relação com o assunto.",
-    "📋 Corrigidas escolhas de usuários para não depender de nomes inventados ou apenas do histórico recente."
+    "🚫 O bot não inventa mais links de Imgur ou URLs de figurinhas.",
+    "💬 Removida a resposta genérica de que ele não entendeu uma figurinha conhecida.",
+    "🏷️ Menções em listas não são mais cortadas no meio.",
+    "🔢 A quantidade pedida de pessoas passa a ser respeitada diretamente pelo código."
   ],
   "problemas_conhecidos": [],
-  "resumo": "A IA agora entende melhor a continuidade das conversas e possui um cadastro persistente de membros reais para reconhecer, escolher e mencionar usuários corretamente."
+  "resumo": "O bot agora entende e envia figurinhas reais com mais naturalidade e monta listas de menções de usuários com segurança."
 }

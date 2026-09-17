@@ -912,6 +912,172 @@ def contexto_membro_nomeado_ia(message: discord.Message, pergunta: str):
         "não escreva apenas @nome, não invente ID e não peça o ID ao usuário."
     )
 
+
+# ==========================================================
+# FIGURINHAS REAIS + ESCOLHAS DETERMINÍSTICAS DE MEMBROS
+# ==========================================================
+
+_STICKERS_CONTEXTO_CACHE = None
+_ULTIMOS_STICKERS_IA = deque(maxlen=5)
+
+def carregar_stickers_contexto_ia():
+    global _STICKERS_CONTEXTO_CACHE
+    if _STICKERS_CONTEXTO_CACHE is not None:
+        return _STICKERS_CONTEXTO_CACHE
+    caminhos = [
+        Path(__file__).with_name("stickers_contexto.json"),
+        Path("stickers_contexto.json"),
+        Path("bot") / "stickers_contexto.json",
+    ]
+    for caminho in caminhos:
+        try:
+            if caminho.exists():
+                dados = json.loads(caminho.read_text(encoding="utf-8"))
+                _STICKERS_CONTEXTO_CACHE = dados.get("stickers", [])
+                return _STICKERS_CONTEXTO_CACHE
+        except Exception as erro:
+            print(f"IA stickers: falha ao ler {caminho} | {type(erro).__name__}: {erro}")
+    _STICKERS_CONTEXTO_CACHE = []
+    return _STICKERS_CONTEXTO_CACHE
+
+def _sticker_catalogo_por_id(sticker_id):
+    sid = str(sticker_id)
+    for item in carregar_stickers_contexto_ia():
+        if str(item.get("id")) == sid:
+            return item
+    return None
+
+def contexto_stickers_recebidos_ia(message: discord.Message):
+    if not message.stickers:
+        return ""
+    partes = []
+    for sticker in message.stickers:
+        item = _sticker_catalogo_por_id(sticker.id)
+        if item:
+            partes.append(
+                f"Figurinha recebida `{item.get('nome_interno','sticker')}`: "
+                f"{item.get('descricao_visual','')}. Emoção: {', '.join(item.get('emocao', []))}. "
+                f"Tom: {', '.join(item.get('tom', []))}. Texto visível: {item.get('texto_na_imagem') or 'nenhum'}."
+            )
+        else:
+            partes.append(f"Figurinha recebida `{getattr(sticker, 'name', 'desconhecida')}` (ID {sticker.id}), sem descrição no catálogo.")
+    return (
+        "\nCONTEXTO DE FIGURINHA RECEBIDA:\n" + "\n".join(partes) +
+        "\nUse esse significado como parte da conversa. Não diga que não entende a figurinha se ela estiver descrita acima."
+    )
+
+def _pontuar_sticker_contexto(item, texto):
+    normal = _normalizar_busca_membro_ia(texto)
+    if not normal or not item.get("auto_uso", False):
+        return 0
+    pontos = 0
+    for chave in item.get("palavras_chave", []):
+        k = _normalizar_busca_membro_ia(chave)
+        if k and (k in normal or normal in k):
+            pontos += 4
+    for uso in item.get("usar_quando", []):
+        u = _normalizar_busca_membro_ia(uso)
+        for termo in normal.split():
+            if len(termo) >= 4 and termo in u:
+                pontos += 1
+    return pontos
+
+async def enviar_sticker_catalogo_ia(message: discord.Message, *, pedido_explicito=False):
+    if message.guild is None:
+        return False
+    itens = [x for x in carregar_stickers_contexto_ia() if x.get("auto_uso", False)]
+    if not itens:
+        return False
+    texto = limpar_mencao_do_bot(message.content)
+    pontuados = [( _pontuar_sticker_contexto(x, texto), x) for x in itens]
+    melhores = [x for pts, x in pontuados if pts > 0]
+    if not melhores:
+        if not pedido_explicito:
+            return False
+        melhores = itens[:]
+    disponiveis = [x for x in melhores if str(x.get("id")) not in _ULTIMOS_STICKERS_IA] or melhores
+    random.shuffle(disponiveis)
+    for item in disponiveis:
+        sid = int(item["id"])
+        sticker = discord.utils.get(message.guild.stickers, id=sid)
+        if sticker is None:
+            try:
+                stickers = await message.guild.fetch_stickers()
+                sticker = discord.utils.get(stickers, id=sid)
+            except (discord.Forbidden, discord.HTTPException):
+                sticker = None
+        if sticker is None:
+            continue
+        try:
+            await message.reply(
+                stickers=[sticker], mention_author=False,
+                allowed_mentions=discord.AllowedMentions.none()
+            )
+            _ULTIMOS_STICKERS_IA.append(str(sid))
+            return True
+        except (discord.Forbidden, discord.HTTPException, TypeError) as erro:
+            print(f"IA stickers: falha ao enviar {sid} | {type(erro).__name__}: {erro}")
+    return False
+
+def pedido_explicito_sticker_ia(texto):
+    normal = _normalizar_busca_membro_ia(texto)
+    return bool(re.search(r"\b(manda|envia|solta|joga)\b.*\b(figurinha|sticker)\b", normal))
+
+async def talvez_usar_sticker_contextual_ia(message: discord.Message, texto):
+    # Muito mais presente que antes, mas ainda depende de contexto para não virar spam.
+    itens = carregar_stickers_contexto_ia()
+    melhor = max((_pontuar_sticker_contexto(x, texto) for x in itens), default=0)
+    if melhor <= 0:
+        return False
+    chance = 0.52 if melhor >= 4 else 0.32
+    if random.random() > chance:
+        return False
+    return await enviar_sticker_catalogo_ia(message, pedido_explicito=False)
+
+def _quantidade_pedido_membros_ia(texto):
+    normal = _normalizar_busca_membro_ia(texto)
+    if not any(x in normal.split() for x in ("marca","marque","escolhe","escolha","sorteia","seleciona","menciona")):
+        return None
+    if not any(x in normal.split() for x in ("pessoa","pessoas","membro","membros")):
+        return None
+    m = re.search(r"\b(\d{1,2})\b", normal)
+    if not m:
+        return None
+    return max(1, min(30, int(m.group(1))))
+
+async def responder_pedido_varios_membros_ia(message: discord.Message, texto):
+    quantidade = _quantidade_pedido_membros_ia(texto)
+    if quantidade is None or message.guild is None:
+        return False
+    with conectar_banco() as banco:
+        linhas = banco.execute(
+            """SELECT usuario_id FROM ia_membros_servidor
+               WHERE guild_id=? AND ativo=1 AND bot=0 AND usuario_id<>?""",
+            (message.guild.id, message.author.id),
+        ).fetchall()
+    ids = [int(r["usuario_id"]) for r in linhas]
+    if not ids:
+        return False
+    escolhidos = random.sample(ids, min(quantidade, len(ids)))
+    mencoes = [f"<@{uid}>" for uid in escolhidos]
+    # Divide em mensagens seguras sem jamais cortar uma menção ao meio.
+    blocos, atual = [], []
+    for mencao in mencoes:
+        candidato = " ".join(atual + [mencao])
+        if len(candidato) > 1800 and atual:
+            blocos.append(" ".join(atual)); atual = [mencao]
+        else:
+            atual.append(mencao)
+    if atual:
+        blocos.append(" ".join(atual))
+    for i, bloco in enumerate(blocos):
+        prefixo = f"Aqui vão {len(escolhidos)}: " if i == 0 else ""
+        await message.reply(
+            prefixo + bloco, mention_author=False,
+            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False, replied_user=False)
+        )
+    return True
+
 def _normalizar_apelido_ia(texto):
     texto = " ".join(str(texto or "").strip().split())
     if not (2 <= len(texto) <= 32):
@@ -7324,12 +7490,6 @@ def escolher_resposta_rapida_ia(message: discord.Message):
             RESPOSTAS_RAPIDAS_IA["nada_nao"]
         )
 
-    if message.stickers and random.random() < 0.65:
-        return escolher_sem_repetir_ia(
-            message.author.id,
-            RESPOSTAS_RAPIDAS_IA["sticker"]
-        )
-
     if not texto:
         quantidade = contar_mencao_repetida_ia(message)
         if quantidade >= IA_MENCAO_REPETIDA_LIMITE:
@@ -7524,6 +7684,20 @@ async def responder_com_ia(
         message.content
     )).strip()
 
+    # Pedidos objetivos não ficam nas mãos do modelo: o código garante IDs/quantidade reais.
+    if await responder_pedido_varios_membros_ia(message, pergunta):
+        return True
+
+    if pedido_explicito_sticker_ia(pergunta):
+        if await enviar_sticker_catalogo_ia(message, pedido_explicito=True):
+            return True
+        await message.reply("não achei nenhuma figurinha automática disponível agora", mention_author=False)
+        return True
+
+    # Figurinha vira parte normal da personalidade quando houver correspondência clara.
+    if not message.stickers and await talvez_usar_sticker_contextual_ia(message, pergunta):
+        return True
+
     if not pergunta:
         pergunta = (
             "A pessoa apenas chamou você. "
@@ -7561,6 +7735,7 @@ async def responder_com_ia(
     contexto_rigor = contexto_rigor_ia(message, pergunta)
     contexto_membros = contexto_membros_para_escolha_ia(message, pergunta)
     contexto_membro_nomeado = contexto_membro_nomeado_ia(message, pergunta)
+    contexto_sticker = contexto_stickers_recebidos_ia(message)
 
     pedido_call = mensagem_pede_bot_na_call(
         message.content
@@ -7606,7 +7781,9 @@ async def responder_com_ia(
                 f"{contexto_rigor}"
                 f"{contexto_membros}"
                 f"{contexto_membro_nomeado}"
+                f"{contexto_sticker}"
                 f"{estado_call}"
+                "\nNunca invente URL de imagem, Imgur, figurinha ou arquivo. Se pedirem mídia real, só use recursos que o código realmente possui."
             ),
         }
     )
