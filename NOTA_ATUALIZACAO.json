@@ -1,26 +1,25 @@
 {
-  "id": "2026-09-17-figurinhas-contextuais-e-mencoes-seguras",
-  "versao": "V32",
+  "id": "2026-09-17-boas-vindas-contextuais-e-niveis-de-acesso",
+  "versao": "V33",
   "data": "17/09/2026",
-  "titulo": "## Figurinhas mais presentes e menções corrigidas",
+  "titulo": "## Boas-vindas inteligentes e níveis de acesso da IA",
   "novidades": [
-    "🖼️ O bot agora usa o catálogo real para entender figurinhas recebidas no contexto.",
-    "🎭 Quando pedirem uma figurinha, o bot envia uma figurinha real cadastrada.",
-    "😂 Figurinhas automáticas passam a aparecer mais quando combinarem com a conversa.",
-    "🧠 A IA usa descrição, emoção, tom e palavras-chave do catálogo."
+    "👋 O bot agora registra e consulta a última pessoa que entrou no servidor usando dados reais do bot.db.",
+    "🧠 Depois de perguntar quem entrou por último, a conversa mantém essa pessoa como contexto por alguns minutos.",
+    "🔥 Pedidos como 'dá boas-vindas', 'recebe ele', 'fala com ele' ou equivalentes fazem o bot mencionar e receber o membro real.",
+    "🛡️ A IA agora diferencia membros comuns da Equipe de Desenvolvimento/Administração."
   ],
   "alteracoes": [
-    "🎯 A frequência de figurinhas foi aumentada sem transformar o sistema em spam.",
-    "🔁 O bot evita repetir as mesmas figurinhas em sequência.",
-    "🔒 Itens com auto_uso=false continuam fora das respostas automáticas.",
-    "👥 Pedidos como 'marca 15 pessoas' agora são montados pelo código usando IDs reais."
+    "😂 Membros comuns continuam podendo usar o bot para resenha, ajuda pública, boas-vindas, menções e escolhas simples.",
+    "🔧 A Equipe de Desenvolvimento/Administração recebe um nível maior de assistência para organização e administração.",
+    "🔒 Membros comuns não podem usar a IA para moderar/punir pessoas, alterar cargos, permissões, configurações ou acessar funções administrativas.",
+    "⚙️ As ações administrativas reais continuam protegidas pelas verificações de permissão do próprio código."
   ],
   "correcoes": [
-    "🚫 O bot não inventa mais links de Imgur ou URLs de figurinhas.",
-    "💬 Removida a resposta genérica de que ele não entendeu uma figurinha conhecida.",
-    "🏷️ Menções em listas não são mais cortadas no meio.",
-    "🔢 A quantidade pedida de pessoas passa a ser respeitada diretamente pelo código."
+    "👤 Perguntas como 'quem foi a última pessoa a entrar?' não são mais respondidas por adivinhação da IA.",
+    "🎭 O bot não deve mais falar como se tivesse entrado em jogo/call/servidor quando nenhuma ação real aconteceu.",
+    "💬 A continuação da conversa consegue entender referências como 'ele' quando o assunto é o último membro que entrou."
   ],
   "problemas_conhecidos": [],
-  "resumo": "O bot agora entende e envia figurinhas reais com mais naturalidade e monta listas de menções de usuários com segurança."
+  "resumo": "O bot agora ajuda a receber novos membros com contexto real e separa melhor o que membros comuns e a equipe podem pedir à IA."
 }

@@ -7633,6 +7633,106 @@ def contexto_rigor_ia(message: discord.Message, texto: str):
     )
 
 
+_ia_ultimo_membro_entrada_contexto = {}
+
+
+def membro_equipe_desenvolvimento_ia(membro):
+    if not isinstance(membro, discord.Member):
+        return False
+    if membro.id == DONO_ID or membro.guild_permissions.administrator:
+        return True
+    return any(cargo.id == CARGO_DESENVOLVIMENTO_ID for cargo in membro.roles)
+
+
+def contexto_permissao_pedidos_ia(message: discord.Message):
+    if membro_equipe_desenvolvimento_ia(message.author):
+        return (
+            "\nNÍVEL DE ACESSO DE QUEM FALOU: EQUIPE DE DESENVOLVIMENTO/ADMIN. "
+            "Pode ajudar com organização e administração do servidor, consultar dados internos que o próprio bot já possui "
+            "e orientar/usar funções administrativas já implementadas. A IA nunca deve fingir que executou uma ação: "
+            "ações reais continuam dependendo das funções e verificações de permissão do código."
+        )
+    return (
+        "\nNÍVEL DE ACESSO DE QUEM FALOU: MEMBRO COMUM. Continue resenha, natural e útil. "
+        "Pode conversar, explicar coisas públicas do servidor, dar boas-vindas, reconhecer/mencionar membros e fazer escolhas/sorteios simples. "
+        "Não aceite pedidos para moderar/punir membros, alterar cargos/permissões/configurações, acessar dados administrativos, "
+        "controlar sistemas internos ou agir em nome da administração. Se pedirem algo administrativo, diga de forma curta que isso é com a equipe. "
+        "Nunca diga que entrou em jogo/call/servidor, executou ação ou mudou algo se o código não realizou essa ação de verdade."
+    )
+
+
+def _ultima_entrada_real_ia(guild_id: int):
+    with conectar_banco() as banco:
+        return banco.execute(
+            """SELECT usuario_id, usuario_nome, entrou_em FROM entradas_convites
+               WHERE guild_id=? ORDER BY entrou_em DESC LIMIT 1""",
+            (guild_id,),
+        ).fetchone()
+
+
+def _texto_pede_ultima_entrada_ia(texto: str):
+    t = _normalizar_busca_membro_ia(texto)
+    return (
+        ("ultima pessoa" in t or "ultimo membro" in t or "quem foi o ultimo" in t or "quem foi a ultima" in t)
+        and ("entr" in t or "servidor" in t)
+    )
+
+
+def _texto_pede_boas_vindas_contexto_ia(texto: str):
+    t = _normalizar_busca_membro_ia(texto)
+    gatilhos = (
+        "boas vindas", "bem vindo", "bem vinda", "recebe ele", "recebe ela",
+        "recepciona", "fala com ele", "fala com ela", "chama ele", "chama ela",
+        "da boas", "de boas vindas", "entra no servidor",
+    )
+    return any(g in t for g in gatilhos)
+
+
+async def responder_contexto_entrada_ia(message: discord.Message, pergunta: str):
+    if message.guild is None:
+        return False
+    chave = (message.guild.id, message.channel.id, message.author.id)
+    agora = time.monotonic()
+
+    if _texto_pede_ultima_entrada_ia(pergunta):
+        entrada = _ultima_entrada_real_ia(message.guild.id)
+        if not entrada:
+            await message.reply("não tenho nenhuma entrada recente registrada no banco ainda", mention_author=False)
+            return True
+        usuario_id = int(entrada["usuario_id"])
+        membro = message.guild.get_member(usuario_id)
+        if membro is None:
+            try:
+                membro = await message.guild.fetch_member(usuario_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                membro = None
+        nome = membro.mention if membro is not None else f"<@{usuario_id}>"
+        _ia_ultimo_membro_entrada_contexto[chave] = (usuario_id, agora)
+        await message.reply(f"A última pessoa que entrou foi {nome}.", mention_author=False, allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
+        return True
+
+    contexto = _ia_ultimo_membro_entrada_contexto.get(chave)
+    if contexto and agora - contexto[1] <= 300 and _texto_pede_boas_vindas_contexto_ia(pergunta):
+        usuario_id = contexto[0]
+        membro = message.guild.get_member(usuario_id)
+        if membro is None:
+            try:
+                membro = await message.guild.fetch_member(usuario_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                membro = None
+        if membro is None:
+            _ia_ultimo_membro_entrada_contexto.pop(chave, None)
+            return False
+        opcoes = [
+            f"{membro.mention} bem-vindo(a) à Resenha Máxima! 🔥 Chega mais e fica à vontade.",
+            f"Aí {membro.mention}, seja bem-vindo(a)! 😎 Já pode chegar na resenha.",
+            f"{membro.mention} bem-vindo(a) à casa dos malucos 😂🔥 Aproveita a Resenha Máxima!",
+        ]
+        await message.reply(random.choice(opcoes), mention_author=False, allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
+        return True
+    return False
+
+
 async def responder_com_ia(
     message: discord.Message
 ):
@@ -7684,6 +7784,10 @@ async def responder_com_ia(
         message.content
     )).strip()
 
+    # Consultas de entrada e continuação de boas-vindas usam dados reais do bot.db.
+    if await responder_contexto_entrada_ia(message, pergunta):
+        return True
+
     # Pedidos objetivos não ficam nas mãos do modelo: o código garante IDs/quantidade reais.
     if await responder_pedido_varios_membros_ia(message, pergunta):
         return True
@@ -7723,6 +7827,7 @@ async def responder_com_ia(
     contexto_social = contexto_social_ia(
         message
     )
+    contexto_permissoes = contexto_permissao_pedidos_ia(message)
 
     contexto_estilo, usar_abreviacao, usuario_xingou = contexto_estilo_mensagem_ia(
         message
@@ -7776,6 +7881,7 @@ async def responder_com_ia(
                 f"(<@{message.author.id}>)\n"
                 f"Mensagem: {pergunta}"
                 f"{contexto_social}"
+                f"{contexto_permissoes}"
                 f"{contexto_estilo}"
                 f"{contexto_antirrepeticao}"
                 f"{contexto_rigor}"
