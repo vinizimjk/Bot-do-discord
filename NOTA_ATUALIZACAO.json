@@ -1,26 +1,26 @@
 {
-  "id": "2026-09-12-v27-ia-social-assistente-e-futuras-atualizacoes",
-  "versao": "V27",
-  "data": "12/09/2026",
-  "titulo": "## IA social, assistente da DEV-ROOM e Futuras Atualizações restauradas",
+  "id": "2026-09-16-ia-contexto-e-membros-reais",
+  "versao": "V30",
+  "data": "16/09/2026",
+  "titulo": "## IA com contexto melhor e membros reais",
   "novidades": [
-    "🧠 A IA passou a criar memória social dos membros, aprendendo apelidos e hábitos úteis de conversa ao longo do tempo.",
-    "💬 A IA consegue perceber se um membro costuma interagir mais por chat ou por call e usa isso apenas como contexto para responder de forma mais natural.",
-    "👀 Quando o Vini está na DEV-ROOM, o bot acompanha marcações repetidas e pode perguntar se o assunto é importante sem interromper toda marcação comum.",
-    "🛠️ Quando alguém relata um problema e a IA sabe uma solução com confiança, ela pode tentar ajudar diretamente.",
-    "📩 Problemas relevantes podem gerar um resumo curto enviado por DM ao Vini para facilitar a visualização."
+    "🧠 A IA agora cruza melhor o histórico recente com quem está falando e com o assunto atual da conversa.",
+    "👥 Os membros do servidor passam a ser cadastrados automaticamente no bot.db para a IA reconhecer usuários reais.",
+    "🏷️ O cadastro guarda Discord ID, username, nome de exibição e nomes/apelidos observados necessários para reconhecimento.",
+    "🔄 O cadastro é sincronizado ao iniciar o bot e atualizado quando membros entram, saem ou conversam.",
+    "🎯 Quando pedirem para escolher ou sortear pessoas, a IA pode usar menções reais do cadastro em vez de inventar usuários."
   ],
   "alteracoes": [
-    "🔧 As mensagens sobre a DEV-ROOM agora tratam o local como desenvolvimento geral da Resenha Máxima: jogo, bot, Discord ou outras partes do projeto.",
-    "🔇 Se a pessoa que marca o Vini já estiver na mesma DEV-ROOM com ele, o bot ignora a marcação e não se intromete.",
-    "🤐 Se a IA não souber como resolver um problema com segurança, ela fica quieta em vez de pedir prints ou inventar passos.",
-    "🔮 A área Futuras Atualizações do site voltou a usar o sistema atual de publicação, substituição, remoção e lançamento de prévias no Discord."
+    "💬 A IA dá mais peso à sequência da conversa e tolera melhor frases incompletas ou com erros de digitação.",
+    "🎲 Pedidos como 'escolhe mais 1' ou 'escolhe 2 pessoas' passam a respeitar a quantidade solicitada.",
+    "🚫 Em escolhas de pessoas, bots são excluídos e a IA é orientada a não repetir a mesma pessoa quando houver outras opções.",
+    "🤝 A memória social continua funcionando junto do cadastro de membros."
   ],
   "correcoes": [
-    "🌐 Corrigido o Erro 500 ao abrir a aba Atualizações do painel.",
-    "🧩 O template do site foi sincronizado com as rotas atuais de Futuras Atualizações, evitando referências a funções antigas que não existem mais.",
-    "📝 A nota de atualização voltou ao formato e caminho esperados pelo projeto: bot/NOTA_ATUALIZACAO.json."
+    "🗣️ Corrigido o comportamento de responder de forma desconexa mesmo quando já existia uma conversa em andamento.",
+    "👤 Reduzida a tendência de puxar o Vini ou outros membros sem relação com o assunto.",
+    "📋 Corrigidas escolhas de usuários para não depender de nomes inventados ou apenas do histórico recente."
   ],
   "problemas_conhecidos": [],
-  "resumo": "A IA ficou mais contextual e útil durante a DEV-ROOM, e o painel de Futuras Atualizações do site foi restaurado e sincronizado com o sistema atual."
+  "resumo": "A IA agora entende melhor a continuidade das conversas e possui um cadastro persistente de membros reais para reconhecer, escolher e mencionar usuários corretamente."
 }

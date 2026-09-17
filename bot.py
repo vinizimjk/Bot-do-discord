@@ -330,6 +330,10 @@ PERSONALIDADE:
 - ENTENDA DUPLO SENTIDO E MALÍCIA. Quando perceber uma frase com segunda intenção, pode devolver a piada, inverter contra a pessoa ou se salvar com expressões naturais como "lá ele", "aí dentro", "sai fora" e semelhantes. NÃO repita essas expressões mecanicamente.
 - Exemplo de espírito da resposta: se tentarem te pegar numa pergunta de duplo sentido, uma saída natural pode ser "a mesma quantidade que você" em vez de explicar a piada.
 - Considere quem foi mencionado e qual mensagem está sendo respondida para entender quem está falando com quem. Não trate cada mensagem como uma conversa nova.
+- ANTES de interpretar uma frase curta, estranha ou escrita errado, releia as mensagens recentes do canal. Dê prioridade ao assunto que já estava acontecendo e à relação entre os participantes, em vez de montar uma resposta só com as palavras da última mensagem.
+- Se a conversa já estiver em andamento com você (por exemplo: zoeira, discussão, alguém te defendendo ou elogiando), mantenha esse fio. Uma frase como "papai tá cheio de orgulho" durante uma discussão em que você estava se defendendo deve ser entendida como aprovação/orgulho dentro daquela brincadeira, e não como um novo assunto desconectado.
+- Quando houver erro de digitação, palavras faltando ou frase quebrada, infira a intenção usando o histórico recente; não copie a frase errada de volta de forma sem sentido.
+- Não puxe o Vini para a resposta só porque ele é seu programador. Mencione ou fale com ele apenas quando a mensagem/contexto realmente estiver relacionado a ele. Se for o próprio Vini falando com você, responda ao papel dele naquela conversa, sem transformar toda resposta em comentário sobre desenvolvimento ou administração.
 - Se você só entender uma piada depois, pode admitir isso de forma informal e rir; não precisa parecer onisciente.
 - DIFERENCIE ZOEIRA DE ATAQUE: se a pessoa estiver só brincando, provocando de leve ou entrando na resenha, zoe de volta. Se partir para uma sequência agressiva de xingamentos, humilhação ou ofensa diretamente contra você, entenda que ela está te esculachando e DEVOLVA NO MESMO CLIMA, bem mais ácido e debochado.
 - Quando alguém estiver claramente te esculachando, NÃO use resposta de atendente, NÃO peça "o que precisa?" e NÃO tente agradar. Pode xingar de volta com palavrões, zoar, tirar sarro e dar uma resposta humilhante/debochada. Se combinar com a provocação, pode até fazer piada/xingamento envolvendo a mãe da pessoa. Varie bastante os xingamentos e não fique repetindo a mesma frase.
@@ -713,6 +717,21 @@ def criar_banco():
         """)
 
         cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ia_membros_servidor (
+                guild_id INTEGER NOT NULL,
+                usuario_id INTEGER NOT NULL,
+                username TEXT,
+                nome_exibicao TEXT,
+                nome_global TEXT,
+                apelidos_json TEXT NOT NULL DEFAULT '[]',
+                bot INTEGER NOT NULL DEFAULT 0,
+                ativo INTEGER NOT NULL DEFAULT 1,
+                atualizado_em TEXT,
+                PRIMARY KEY (guild_id, usuario_id)
+            )
+        """)
+
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS ia_atividade_texto (
                 guild_id INTEGER NOT NULL,
                 usuario_id INTEGER NOT NULL,
@@ -743,6 +762,83 @@ criar_banco()
 # ==========================================================
 
 _ia_call_entradas = {}
+
+def cadastrar_membro_ia(membro: discord.Member):
+    if membro.guild is None:
+        return
+    nomes = []
+    for valor in (membro.display_name, membro.global_name, membro.name):
+        valor = " ".join(str(valor or "").strip().split())
+        if valor and valor.casefold() not in {x.casefold() for x in nomes}:
+            nomes.append(valor)
+    agora = datetime.now(timezone.utc).isoformat()
+    with conectar_banco() as banco:
+        banco.execute(
+            """
+            INSERT INTO ia_membros_servidor
+                (guild_id, usuario_id, username, nome_exibicao, nome_global, apelidos_json, bot, ativo, atualizado_em)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+            ON CONFLICT(guild_id, usuario_id) DO UPDATE SET
+                username=excluded.username,
+                nome_exibicao=excluded.nome_exibicao,
+                nome_global=excluded.nome_global,
+                apelidos_json=excluded.apelidos_json,
+                bot=excluded.bot,
+                ativo=1,
+                atualizado_em=excluded.atualizado_em
+            """,
+            (membro.guild.id, membro.id, membro.name, membro.display_name, membro.global_name,
+             json.dumps(nomes[:8], ensure_ascii=False), int(membro.bot), agora),
+        )
+
+async def sincronizar_membros_ia(guild: discord.Guild):
+    membros = {m.id: m for m in guild.members}
+    try:
+        async for membro in guild.fetch_members(limit=None):
+            membros[membro.id] = membro
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+    ids_ativos = set()
+    for membro in membros.values():
+        cadastrar_membro_ia(membro)
+        ids_ativos.add(membro.id)
+    with conectar_banco() as banco:
+        if ids_ativos:
+            marcas = ",".join("?" for _ in ids_ativos)
+            banco.execute(
+                f"UPDATE ia_membros_servidor SET ativo=0 WHERE guild_id=? AND usuario_id NOT IN ({marcas})",
+                (guild.id, *ids_ativos),
+            )
+    print(f"IA: {len(ids_ativos)} membros sincronizados no banco | {guild.name}")
+
+def contexto_membros_para_escolha_ia(message: discord.Message, pergunta: str):
+    if message.guild is None:
+        return ""
+    texto = str(pergunta or "").casefold()
+    gatilhos = ("escolhe", "escolha", "seleciona", "selecionar", "sorteia", "sortear", "quem vai", "pessoa", "pessoas", "membro", "membros")
+    if not any(g in texto for g in gatilhos):
+        return ""
+    with conectar_banco() as banco:
+        linhas = banco.execute(
+            """SELECT usuario_id, username, nome_exibicao FROM ia_membros_servidor
+               WHERE guild_id=? AND ativo=1 AND bot=0 ORDER BY usuario_id""",
+            (message.guild.id,),
+        ).fetchall()
+    if not linhas:
+        return ""
+    # Limita o prompt, mas sorteia o recorte para todos terem chance de aparecer.
+    linhas = list(linhas)
+    random.shuffle(linhas)
+    linhas = linhas[:120]
+    itens = [f"<@{r['usuario_id']}> ({r['nome_exibicao'] or r['username']})" for r in linhas]
+    return (
+        "\nCADASTRO REAL DE MEMBROS PARA ESCOLHAS/MENÇÕES:\n"
+        + ", ".join(itens)
+        + "\nSe pedirem para escolher/sortear/mencionar pessoas, use SOMENTE IDs desta lista. "
+          "Não invente usuário, não escolha bot, não repita a mesma pessoa na mesma escolha e respeite a quantidade pedida. "
+          "Se a conversa já escolheu alguém recentemente, evite repetir essa pessoa quando houver outras opções. "
+          "Quando pedirem mais N, escolha exatamente N novos membros."
+    )
 
 def _normalizar_apelido_ia(texto):
     texto = " ".join(str(texto or "").strip().split())
@@ -789,6 +885,7 @@ def registrar_atividade_texto_ia(message):
     if message.guild is None or message.author.bot:
         return
     membro = message.author
+    cadastrar_membro_ia(membro)
     apelidos_explicitos = []
     texto = str(message.content or "")
     for padrao in (
@@ -5564,6 +5661,11 @@ async def on_invite_delete(
 
 @bot.event
 async def on_member_join(member: discord.Member):
+    try:
+        cadastrar_membro_ia(member)
+    except Exception as erro:
+        print(f"IA: falha ao cadastrar novo membro | {type(erro).__name__}: {erro}")
+
     if not member.bot:
         try:
             await registrar_entrada_membro(
@@ -5591,6 +5693,15 @@ async def on_member_join(member: discord.Member):
 
 @bot.event
 async def on_member_remove(member: discord.Member):
+    try:
+        with conectar_banco() as banco:
+            banco.execute(
+                "UPDATE ia_membros_servidor SET ativo=0, atualizado_em=? WHERE guild_id=? AND usuario_id=?",
+                (datetime.now(timezone.utc).isoformat(), member.guild.id, member.id),
+            )
+    except Exception as erro:
+        print(f"IA: falha ao marcar membro ausente | {type(erro).__name__}: {erro}")
+
     cadastro = buscar_cadastro_nick(member.guild.id, member.id)
     if cadastro:
         atualizar_cadastro_nick(
@@ -7376,6 +7487,7 @@ async def responder_com_ia(
     )
 
     contexto_rigor = contexto_rigor_ia(message, pergunta)
+    contexto_membros = contexto_membros_para_escolha_ia(message, pergunta)
 
     pedido_call = mensagem_pede_bot_na_call(
         message.content
@@ -7419,6 +7531,7 @@ async def responder_com_ia(
                 f"{contexto_estilo}"
                 f"{contexto_antirrepeticao}"
                 f"{contexto_rigor}"
+                f"{contexto_membros}"
                 f"{estado_call}"
             ),
         }
@@ -8167,6 +8280,7 @@ _manutencao_punidos = set()
 _manutencao_respostas_recentes = {}
 _manutencao_mensagens = {}
 _manutencao_relatorio_enviado = set()
+_manutencao_fluxo_assistente = {}
 
 MANUTENCAO_RESPOSTAS = {
     2: [
@@ -8231,6 +8345,7 @@ def resetar_sessao_manutencao():
     _manutencao_respostas_recentes.clear()
     _manutencao_mensagens.clear()
     _manutencao_relatorio_enviado.clear()
+    _manutencao_fluxo_assistente.clear()
 
 
 def iniciar_sessao_manutencao():
@@ -8336,6 +8451,7 @@ async def obter_chat_geral_fixo(guild):
 
 
 async def processar_protecao_manutencao(message: discord.Message):
+    """Filtra chamadas ao Vini durante a DEV-ROOM sem fingir ser o próprio Vini."""
     if message.guild is None or message.author.bot or message.author.id == DONO_ID:
         return False
 
@@ -8347,23 +8463,85 @@ async def processar_protecao_manutencao(message: discord.Message):
         return False
     if not _manutencao_ativa:
         iniciar_sessao_manutencao()
+
+    # Quem já está na DEV-ROOM com o Vini pode falar/marcar normalmente.
+    if autor_esta_na_mesma_call_dev_do_dono(message):
+        return mensagem_menciona_dono_diretamente(message)
+
+    usuario_id = message.author.id
+    agora = time.monotonic()
+    fluxo = _manutencao_fluxo_assistente.get(usuario_id)
+
+    # Expira conversas pendentes para o assistente não capturar mensagens antigas.
+    if fluxo and (agora - fluxo.get("quando", agora) > 180 or fluxo.get("canal_id") != message.channel.id):
+        _manutencao_fluxo_assistente.pop(usuario_id, None)
+        fluxo = None
+
+    texto_limpo = _texto_sem_mencao_dono(message).strip()
+    texto_norm = re.sub(r"[^a-zà-ÿ0-9 ]+", " ", texto_limpo.lower())
+    texto_norm = re.sub(r"\s+", " ", texto_norm).strip()
+
+    # Continuação do atendimento: estas mensagens não precisam marcar o Vini.
+    if fluxo:
+        fase = fluxo.get("fase")
+        hist = _manutencao_mensagens.setdefault(usuario_id, deque(maxlen=6))
+        if texto_limpo:
+            hist.append(texto_limpo)
+        historico_texto = " | ".join(hist)
+
+        confirmacoes = {
+            "sim", "ss", "s", "é", "e", "muito", "urgente", "sim é", "sim e",
+            "é importante", "e importante", "muito importante", "sim importante"
+        }
+        negacoes = {"não", "nao", "n", "nn", "não é", "nao e", "deixa", "de boa"}
+
+        if fase == "aguardando_importancia":
+            if texto_norm in confirmacoes or any(x in texto_norm for x in ("urgente", "importante")):
+                _manutencao_fluxo_assistente[usuario_id] = {
+                    "fase": "aguardando_relato", "quando": agora, "canal_id": message.channel.id
+                }
+                await message.reply(
+                    "O que houve?",
+                    mention_author=False,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+                return True
+            if texto_norm in negacoes:
+                _manutencao_fluxo_assistente.pop(usuario_id, None)
+                return True
+            # Se a pessoa já explicou em vez de responder sim/não, trata como relato.
+            if len(texto_limpo) < 6:
+                return True
+            fase = "aguardando_relato"
+
+        if fase == "aguardando_relato":
+            if len(texto_limpo) < 4:
+                return True
+            resposta_ia = await _ia_tentar_resolver_problema_dev(message, historico_texto)
+            _manutencao_fluxo_assistente.pop(usuario_id, None)
+            if resposta_ia:
+                await message.reply(
+                    resposta_ia,
+                    mention_author=False,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+            else:
+                # Se não sabe resolver, não inventa resposta: apenas avisa o Vini por DM.
+                await _enviar_relatorio_dev_ao_dono(message, historico_texto, "")
+            return True
+
+    # Fora de um fluxo pendente, só entra em ação quando o Vini é marcado.
     if not mensagem_menciona_dono_diretamente(message):
         return False
 
-    # Regra principal: se a pessoa já está com o Vini na DEV-ROOM, o bot não se mete.
-    if autor_esta_na_mesma_call_dev_do_dono(message):
-        return True
-
-    usuario_id = message.author.id
     quantidade = _manutencao_contadores.get(usuario_id, 0) + 1
     _manutencao_contadores[usuario_id] = quantidade
-    texto_atual = _texto_sem_mencao_dono(message)
     hist = _manutencao_mensagens.setdefault(usuario_id, deque(maxlen=6))
-    if texto_atual:
-        hist.append(texto_atual)
+    if texto_limpo:
+        hist.append(texto_limpo)
     historico_texto = " | ".join(hist)
 
-    # Primeira marcação: observa e não interrompe a conversa.
+    # Primeira marcação: apenas observa.
     if quantidade == 1:
         return True
 
@@ -8375,27 +8553,26 @@ async def processar_protecao_manutencao(message: discord.Message):
         )
         return True
 
-    # A partir da segunda, se existe um relato de problema, tenta ajudar.
-    resposta_ia = ""
-    if len(historico_texto) >= 12:
+    # Se a pessoa já explicou o problema junto da marcação, tenta ajudar direto.
+    if len(texto_limpo) >= 12:
         resposta_ia = await _ia_tentar_resolver_problema_dev(message, historico_texto)
-        await _enviar_relatorio_dev_ao_dono(message, historico_texto, resposta_ia)
         if resposta_ia:
             await message.reply(
                 resposta_ia,
                 mention_author=False,
                 allowed_mentions=discord.AllowedMentions.none(),
             )
-            return True
-        # Se não souber resolver, fica quieto como combinado.
-        if texto_atual:
-            return True
+        else:
+            await _enviar_relatorio_dev_ao_dono(message, historico_texto, "")
+        return True
 
-    # Se a pessoa só está chamando/marcando sem explicar nada, pergunta se é importante.
+    # Segunda/terceira marcação sem explicação: pergunta e aguarda a resposta natural.
     if quantidade < 5:
-        nivel = max(2, min(4, quantidade))
+        _manutencao_fluxo_assistente[usuario_id] = {
+            "fase": "aguardando_importancia", "quando": agora, "canal_id": message.channel.id
+        }
         await message.reply(
-            escolher_resposta_manutencao(usuario_id, MANUTENCAO_RESPOSTAS[nivel]),
+            escolher_resposta_manutencao(usuario_id, MANUTENCAO_RESPOSTAS[2]),
             mention_author=False,
             allowed_mentions=discord.AllowedMentions.none(),
         )
@@ -8427,11 +8604,9 @@ async def processar_protecao_manutencao(message: discord.Message):
                 random.choice(MANUTENCAO_ZOEIRAS_GERAL).format(mencao=message.author.mention),
                 allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
             )
-        except discord.HTTPException:
+        except (discord.Forbidden, discord.HTTPException):
             pass
     return True
-
-
 
 async def entrar_call_dev_automaticamente(guild, canal=None):
     canal = canal or guild.get_channel(CANAL_CALL_MANUTENCAO_ID)
@@ -11900,6 +12075,16 @@ async def on_ready():
 
     if not zoeira_call_automatica.is_running():
         zoeira_call_automatica.start()
+
+    # Mantém no bot.db um cadastro real dos membros para a IA poder reconhecer
+    # nomes e gerar menções válidas sem inventar usuários.
+    if not getattr(bot, "_cadastro_membros_ia_inicializado", False):
+        bot._cadastro_membros_ia_inicializado = True
+        for guild in bot.guilds:
+            try:
+                await sincronizar_membros_ia(guild)
+            except Exception as erro:
+                print(f"IA: falha ao sincronizar membros | {guild.name} | {type(erro).__name__}: {erro}")
 
     # Começa a contar quem já estava em call quando o bot reiniciou.
     if not getattr(bot, "_memoria_ia_calls_inicializada", False):
