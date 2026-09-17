@@ -1,6 +1,8 @@
 import asyncio
 import time
 import json
+import unicodedata
+import re
 import os
 import random
 import re
@@ -838,6 +840,76 @@ def contexto_membros_para_escolha_ia(message: discord.Message, pergunta: str):
           "Não invente usuário, não escolha bot, não repita a mesma pessoa na mesma escolha e respeite a quantidade pedida. "
           "Se a conversa já escolheu alguém recentemente, evite repetir essa pessoa quando houver outras opções. "
           "Quando pedirem mais N, escolha exatamente N novos membros."
+    )
+
+
+
+def _normalizar_busca_membro_ia(texto):
+    texto = unicodedata.normalize("NFKD", str(texto or ""))
+    texto = "".join(ch for ch in texto if not unicodedata.combining(ch))
+    texto = texto.casefold()
+    texto = re.sub(r"[^a-z0-9]+", " ", texto)
+    return " ".join(texto.split())
+
+def contexto_membro_nomeado_ia(message: discord.Message, pergunta: str):
+    """Resolve pedidos como 'marca o delet' usando todos os membros reais do banco."""
+    if message.guild is None:
+        return ""
+    bruto = str(pergunta or "").strip()
+    normal = _normalizar_busca_membro_ia(bruto)
+    gatilhos = ("marca", "marque", "menciona", "mencione", "chama", "tag", "ping")
+    if not any(g in normal.split() for g in gatilhos):
+        return ""
+
+    # Remove palavras de comando para sobrar principalmente o nome procurado.
+    termos_ignorar = {"marca","marque","menciona","mencione","chama","tag","ping","o","a","os","as","um","uma","ai","ae","por","favor"}
+    alvo = " ".join(t for t in normal.split() if t not in termos_ignorar).strip()
+    if len(alvo) < 2:
+        return ""
+
+    with conectar_banco() as banco:
+        linhas = banco.execute(
+            """SELECT usuario_id, username, nome_exibicao, nome_global, apelidos_json
+               FROM ia_membros_servidor
+               WHERE guild_id=? AND ativo=1 AND bot=0""",
+            (message.guild.id,),
+        ).fetchall()
+
+    candidatos = []
+    for r in linhas:
+        nomes = [r["username"], r["nome_exibicao"], r["nome_global"]]
+        try:
+            nomes.extend(json.loads(r["apelidos_json"] or "[]"))
+        except Exception:
+            pass
+        melhor = 0
+        for nome in nomes:
+            n = _normalizar_busca_membro_ia(nome)
+            if not n:
+                continue
+            if n == alvo:
+                melhor = max(melhor, 100)
+            elif alvo in n:
+                melhor = max(melhor, 90 - min(30, len(n) - len(alvo)))
+            elif all(t in n.split() for t in alvo.split()):
+                melhor = max(melhor, 75)
+        if melhor:
+            candidatos.append((melhor, r))
+
+    candidatos.sort(key=lambda x: (-x[0], len(str(x[1]["nome_exibicao"] or x[1]["username"] or ""))))
+    candidatos = candidatos[:5]
+    if not candidatos:
+        return (
+            f"\nBUSCA DE MEMBRO: ninguém do cadastro real corresponde com segurança a `{alvo}`. "
+            "Não invente usuário e NÃO peça ID; apenas diga de forma curta que não reconheceu quem é."
+        )
+
+    itens = [f'<@{r["usuario_id"]}> ({r["nome_exibicao"] or r["username"]})' for _, r in candidatos]
+    return (
+        f"\nBUSCA DE MEMBRO PARA MENÇÃO — texto procurado: `{alvo}`. "
+        "Correspondências reais do banco: " + ", ".join(itens) + ". "
+        "Use a melhor correspondência. Para marcar, escreva EXATAMENTE a menção <@ID> fornecida; "
+        "não escreva apenas @nome, não invente ID e não peça o ID ao usuário."
     )
 
 def _normalizar_apelido_ia(texto):
@@ -7488,6 +7560,7 @@ async def responder_com_ia(
 
     contexto_rigor = contexto_rigor_ia(message, pergunta)
     contexto_membros = contexto_membros_para_escolha_ia(message, pergunta)
+    contexto_membro_nomeado = contexto_membro_nomeado_ia(message, pergunta)
 
     pedido_call = mensagem_pede_bot_na_call(
         message.content
@@ -7532,6 +7605,7 @@ async def responder_com_ia(
                 f"{contexto_antirrepeticao}"
                 f"{contexto_rigor}"
                 f"{contexto_membros}"
+                f"{contexto_membro_nomeado}"
                 f"{estado_call}"
             ),
         }
