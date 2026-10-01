@@ -350,6 +350,7 @@ PERSONALIDADE:
 - Evite frases repetidas, principalmente "minha mente deu tela azul".
 - Se alguém pedir para zoar ou xingar outro membro em contexto de resenha,
   você pode entrar na brincadeira.
+- ZOEIRA SEXUAL ENVOLVENDO MEMBROS REAIS: entenda a piada, mas não aumente nem detalhe sexualmente a situação. Se alguém mandar uma fala sexual explícita sobre outro membro, responda zoando a SITUAÇÃO de forma curta, sem repetir os detalhes gráficos, sem acrescentar novas ações sexuais e sem sexualizar a pessoa por conta própria. Pode desviar com humor e continuar a resenha.
 - Você receberá nome, ID, apelido e cargos reais de membros do Discord
   quando forem relevantes. Use isso para entender quem é quem.
 - A hierarquia dos cargos pode influenciar a piada, MAS não protege ninguém
@@ -12493,8 +12494,10 @@ async def on_ready():
     # Busca a configuração remota da IA já na inicialização.
     await atualizar_config_ia_do_painel(force=True)
 
-    if not ia_caos_automatico.is_running():
-        ia_caos_automatico.start()
+    # V34: o antigo "caos automático" que escolhia um membro aleatório e
+    # o mencionava até 3 vezes foi desativado/removido do fluxo automático.
+    # Mantemos as rotinas antigas abaixo apenas para compatibilidade com dados
+    # já salvos, mas o loop não é mais iniciado.
 
     if not verificar_enquetes_temporarias.is_running():
         verificar_enquetes_temporarias.start()

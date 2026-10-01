@@ -1,25 +1,20 @@
 {
-  "id": "2026-09-17-boas-vindas-contextuais-e-niveis-de-acesso",
-  "versao": "V33",
-  "data": "17/09/2026",
-  "titulo": "## Boas-vindas inteligentes e níveis de acesso da IA",
+  "id": "2026-09-30-limites-de-resenha-e-fim-das-marcacoes-aleatorias",
+  "versao": "V34",
+  "data": "30/09/2026",
+  "titulo": "Limites de resenha e fim das marcações aleatórias",
   "novidades": [
-    "👋 O bot agora registra e consulta a última pessoa que entrou no servidor usando dados reais do bot.db.",
-    "🧠 Depois de perguntar quem entrou por último, a conversa mantém essa pessoa como contexto por alguns minutos.",
-    "🔥 Pedidos como 'dá boas-vindas', 'recebe ele', 'fala com ele' ou equivalentes fazem o bot mencionar e receber o membro real.",
-    "🛡️ A IA agora diferencia membros comuns da Equipe de Desenvolvimento/Administração."
+    "😂 O bot continua entendendo e participando das zoeiras do chat, mas agora evita transformar brincadeiras sexuais em respostas cada vez mais explícitas.",
+    "🧠 Quando a zoeira envolver um membro real, a IA prioriza brincar com a situação em vez de sexualizar a pessoa por conta própria."
   ],
   "alteracoes": [
-    "😂 Membros comuns continuam podendo usar o bot para resenha, ajuda pública, boas-vindas, menções e escolhas simples.",
-    "🔧 A Equipe de Desenvolvimento/Administração recebe um nível maior de assistência para organização e administração.",
-    "🔒 Membros comuns não podem usar a IA para moderar/punir pessoas, alterar cargos, permissões, configurações ou acessar funções administrativas.",
-    "⚙️ As ações administrativas reais continuam protegidas pelas verificações de permissão do próprio código."
+    "💬 Em mensagens sexuais explícitas, o bot pode continuar a resenha, mas sem repetir detalhes gráficos nem acrescentar novas ações sexuais.",
+    "🎭 A personalidade zoeira continua ativa; a mudança é somente para impedir que a IA escale esse tipo de conversa."
   ],
   "correcoes": [
-    "👤 Perguntas como 'quem foi a última pessoa a entrar?' não são mais respondidas por adivinhação da IA.",
-    "🎭 O bot não deve mais falar como se tivesse entrado em jogo/call/servidor quando nenhuma ação real aconteceu.",
-    "💬 A continuação da conversa consegue entender referências como 'ele' quando o assunto é o último membro que entrou."
+    "🔕 Removida do fluxo automático a função de escolher uma pessoa aleatória e marcá-la até 3 vezes.",
+    "🏷️ O bot não inicia mais sozinho aquela sequência de três menções aleatórias."
   ],
   "problemas_conhecidos": [],
-  "resumo": "O bot agora ajuda a receber novos membros com contexto real e separa melhor o que membros comuns e a equipe podem pedir à IA."
+  "resumo": "A IA continua resenha, mas sem escalar sexualmente conversas sobre membros reais, e o sistema automático de marcar uma pessoa aleatória três vezes foi desativado."
 }
