@@ -375,6 +375,8 @@ PERSONALIDADE:
 - Memória social serve SOMENTE como contexto. Não transforme fatos, apelidos ou piadas internas cadastradas em pauta por conta própria.
 - Reconhecer uma pessoa não é motivo para repetir a piada associada a ela. Responda primeiro ao conteúdo da mensagem atual.
 - Evite reutilizar a mesma estrutura, bordão ou piada em respostas próximas; mude a abordagem de verdade.
+- SAIBA ENCERRAR CONVERSAS: mensagens como "fechou", "beleza", "blz", "ok", "vlw", "ss", "aviso ss" e confirmações curtas normalmente encerram o assunto. Se não houver pergunta nem informação útil para acrescentar, prefira ficar em silêncio ou apenas reagir. NÃO tente ter a última palavra.
+- ATIVIDADES DO DISCORD são contexto social, não gatilho: quando o contexto informar jogo, Spotify ou outra atividade pública de alguém, você pode usar isso numa resposta se encaixar naturalmente. Não anuncie toda mudança de atividade e não invente atividade ausente.
 
 LIMITES DE PERSONALIDADE:
 - Não faça ameaças reais de violência.
@@ -5949,9 +5951,7 @@ async def on_member_remove(member: discord.Member):
             status='ausente',
             saiu_em=datetime.now(timezone.utc).isoformat()
         )
-        await enviar_log_dono(
-            f'🚪 {member} ({member.id}) saiu. O nickname será removido se não voltar em 48h.'
-        )
+        print(f'🚪 {member} ({member.id}) saiu. O nickname será removido se não voltar em 48h. (sem DM ao dono)')
 
 
 # ==========================================================
@@ -7039,6 +7039,38 @@ def membros_citados_por_nome(
     return encontrados
 
 
+
+def atividades_publicas_membro_ia(membro):
+    if not isinstance(membro, discord.Member):
+        return []
+    itens = []
+    for atividade in getattr(membro, "activities", []) or []:
+        nome = getattr(atividade, "name", None)
+        if isinstance(atividade, discord.Spotify):
+            titulo = getattr(atividade, "title", None)
+            artista = getattr(atividade, "artist", None)
+            if titulo:
+                itens.append(f"Spotify: {titulo}" + (f" — {artista}" if artista else ""))
+        elif nome and nome != "Custom Status":
+            itens.append(f"{nome}")
+    return itens[:4]
+
+
+def contexto_atividades_ia(message):
+    linhas = []
+    membros = [message.author] + membros_citados_por_nome(message)
+    vistos = set()
+    for membro in membros:
+        if getattr(membro, "id", None) in vistos:
+            continue
+        vistos.add(getattr(membro, "id", None))
+        atividades = atividades_publicas_membro_ia(membro)
+        if atividades:
+            linhas.append(f"- {membro.display_name}: " + "; ".join(atividades))
+    if not linhas:
+        return ""
+    return "\nATIVIDADES PÚBLICAS ATUAIS DO DISCORD (use só se combinar naturalmente com a conversa):\n" + "\n".join(linhas)
+
 def contexto_social_ia(
     message: discord.Message
 ):
@@ -7828,6 +7860,7 @@ async def responder_com_ia(
     contexto_social = contexto_social_ia(
         message
     )
+    contexto_atividades = contexto_atividades_ia(message)
     contexto_permissoes = contexto_permissao_pedidos_ia(message)
 
     contexto_estilo, usar_abreviacao, usuario_xingou = contexto_estilo_mensagem_ia(
@@ -7882,6 +7915,7 @@ async def responder_com_ia(
                 f"(<@{message.author.id}>)\n"
                 f"Mensagem: {pergunta}"
                 f"{contexto_social}"
+                f"{contexto_atividades}"
                 f"{contexto_permissoes}"
                 f"{contexto_estilo}"
                 f"{contexto_antirrepeticao}"
@@ -8997,6 +9031,28 @@ async def entrar_call_dev_automaticamente(guild, canal=None):
         return True, None
     except Exception as erro:
         return False, f"{type(erro).__name__}: {erro}"
+
+
+_ultima_atividade_espelhada = None
+
+@bot.event
+async def on_presence_update(before: discord.Member, after: discord.Member):
+    global _ultima_atividade_espelhada
+    if after.id != DONO_ID:
+        return
+    atividades = atividades_publicas_membro_ia(after)
+    nome = atividades[0] if atividades else None
+    if nome == _ultima_atividade_espelhada:
+        return
+    _ultima_atividade_espelhada = nome
+    try:
+        if nome:
+            texto = nome.replace("Spotify: ", "🎵 ")[:120]
+            await bot.change_presence(activity=discord.CustomActivity(name=texto))
+        else:
+            await bot.change_presence(activity=discord.CustomActivity(name="Resenha Máxima"))
+    except Exception as erro:
+        print(f"Presence: não consegui espelhar atividade do dono: {erro}")
 
 
 @bot.event
