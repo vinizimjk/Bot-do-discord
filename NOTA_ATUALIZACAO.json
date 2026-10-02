@@ -1,25 +1,18 @@
 {
-  "id": "V39",
-  "versao": "V39",
+  "id": "V41-NOTA-BOT-ROTA-E-ATIVIDADES",
+  "versao": "V41",
   "data": "02/10/2026",
-  "titulo": "Cadastro seguro, hierarquia e atividades do bot",
+  "titulo": "Nota do Bot e atividades corrigidas",
   "novidades": [
-    "O cadastro do painel agora confirma a identidade por DM do Discord e token temporário de 25 caracteres.",
-    "A hierarquia do painel passa a seguir: Departamento de Eventos, Moderador, Administrador, Equipe de Desenvolvimento e ADM-G.",
-    "Contas verificadas sem cargo administrativo entram em uma área restrita em vez de receber erro de acesso."
+    "A página Nota do Bot agora abre sua própria área no painel."
   ],
   "correcoes": [
-    "O login deixa de exibir o fluxo antigo de Solicitar acesso e passa a oferecer Criar conta.",
-    "O espelhamento do perfil do bot usa atividades nativas do Discord: jogos aparecem como Jogando e Spotify pode aparecer como Ouvindo.",
-    "Status personalizado do Vini não é copiado como atividade do bot."
+    "Corrigida a navegação que enviava Nota do Bot para o menu geral do bot.",
+    "Mantido o espelhamento nativo de atividades do Vini: jogos aparecem como Jogando e Spotify como Ouvindo quando não houver jogo."
   ],
   "alteracoes": [
-    "Jogos têm prioridade sobre Spotify no espelhamento automático.",
-    "Tokens expiram em 10 minutos, são de uso único e bloqueiam após tentativas inválidas repetidas.",
-    "A Nota do Bot continua separada e tem prioridade quando ativada manualmente."
+    "Jogos continuam tendo prioridade sobre Spotify no perfil do bot.",
+    "Status personalizado do Vini continua fora do espelhamento automático."
   ],
-  "problemas_conhecidos": [
-    "O Discord não oferece a bots um botão universal que copie texto diretamente para a área de transferência; o token é enviado em bloco de código para facilitar a cópia.",
-    "Para o botão Entrar no Discord da área restrita funcionar, configure DISCORD_INVITE_URL no Railway com o convite oficial do servidor."
-  ]
+  "problemas_conhecidos": []
 }
