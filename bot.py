@@ -12461,8 +12461,65 @@ async def garantir_paineis_comunidade():
     await _garantir_painel_fixo(CANAL_CANDIDATURA_EVENTOS_ID, "RESENHA MÁXIMA • Departamento de Eventos", candidatura, view_eventos)
 
 
+
+CANAL_PERFIS_ROBLOX_ID = 1555562449137307789
+
+async def sincronizar_perfis_roblox_discord():
+    """Mantém uma ficha por vínculo no canal oficial de perfis Roblox."""
+    guild = bot.get_guild(1532613054703997012)
+    if guild is None:
+        return
+    canal = guild.get_channel(CANAL_PERFIS_ROBLOX_ID)
+    if not isinstance(canal, discord.TextChannel):
+        try:
+            canal = await guild.fetch_channel(CANAL_PERFIS_ROBLOX_ID)
+        except Exception as erro:
+            print(f"Perfis Roblox: canal indisponível: {erro}")
+            return
+    dados = await asyncio.to_thread(_requisicao_json_roblox, "/api/roblox/vinculos")
+    if not dados.get("ok"):
+        print(f"Perfis Roblox: não consegui obter vínculos: {dados.get('erro')}")
+        return
+    existentes = {}
+    try:
+        async for msg in canal.history(limit=500):
+            if msg.author.id != bot.user.id or not msg.embeds:
+                continue
+            rodape = msg.embeds[0].footer.text or ""
+            if rodape.startswith("RESENHA MÁXIMA • Discord ID "):
+                existentes[rodape.rsplit(" ", 1)[-1]] = msg
+    except Exception:
+        pass
+    for v in dados.get("vinculos", []):
+        did = str(v.get("discord_id") or "")
+        if not did.isdigit():
+            continue
+        membro = guild.get_member(int(did))
+        nome_discord = membro.display_name if membro else (v.get("discord_nome") or "Não encontrado")
+        usuario_discord = str(membro) if membro else (v.get("discord_nome") or "")
+        embed = discord.Embed(title="👤 Perfil • RESENHA MÁXIMA", color=discord.Color.gold())
+        embed.add_field(name="Discord", value=f"**Nome:** {nome_discord}\n**Usuário:** {usuario_discord}\n**ID:** `{did}`", inline=False)
+        embed.add_field(name="Roblox", value=f"**Nome:** {v.get('display_name') or v.get('username') or '—'}\n**Usuário:** @{v.get('username') or '—'}\n**ID:** `{v.get('roblox_id') or '—'}`", inline=False)
+        pic = str(v.get("picture") or "")
+        if pic.startswith("http"):
+            embed.set_thumbnail(url=pic)
+        embed.set_footer(text=f"RESENHA MÁXIMA • Discord ID {did}")
+        try:
+            if did in existentes:
+                await existentes[did].edit(embed=embed)
+            else:
+                await canal.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        except Exception as erro:
+            print(f"Perfis Roblox: falha ao publicar {did}: {erro}")
+
 @bot.event
 async def on_ready():
+    if not getattr(bot, "_perfis_roblox_v36", False):
+        bot._perfis_roblox_v36 = True
+        try:
+            await sincronizar_perfis_roblox_discord()
+        except Exception as erro:
+            print(f"Perfis Roblox: erro na sincronização inicial: {erro}")
     if not getattr(bot, "_paineis_comunidade_registrados", False):
         bot._paineis_comunidade_registrados = True
         bot.add_view(TutorialServidorView())
