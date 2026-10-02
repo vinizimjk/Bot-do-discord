@@ -1,20 +1,5 @@
 {
-  "id": "2026-09-30-limites-de-resenha-e-fim-das-marcacoes-aleatorias",
-  "versao": "V34",
-  "data": "30/09/2026",
-  "titulo": "Limites de resenha e fim das marcações aleatórias",
-  "novidades": [
-    "😂 O bot continua entendendo e participando das zoeiras do chat, mas agora evita transformar brincadeiras sexuais em respostas cada vez mais explícitas.",
-    "🧠 Quando a zoeira envolver um membro real, a IA prioriza brincar com a situação em vez de sexualizar a pessoa por conta própria."
-  ],
-  "alteracoes": [
-    "💬 Em mensagens sexuais explícitas, o bot pode continuar a resenha, mas sem repetir detalhes gráficos nem acrescentar novas ações sexuais.",
-    "🎭 A personalidade zoeira continua ativa; a mudança é somente para impedir que a IA escale esse tipo de conversa."
-  ],
-  "correcoes": [
-    "🔕 Removida do fluxo automático a função de escolher uma pessoa aleatória e marcá-la até 3 vezes.",
-    "🏷️ O bot não inicia mais sozinho aquela sequência de três menções aleatórias."
-  ],
-  "problemas_conhecidos": [],
-  "resumo": "A IA continua resenha, mas sem escalar sexualmente conversas sobre membros reais, e o sistema automático de marcar uma pessoa aleatória três vezes foi desativado."
+  "titulo": "Nota do Bot, visual do painel e atividades",
+  "versao": "V37",
+  "conteudo": "## Nota personalizada do bot\n\nA Administração agora pode definir pelo painel uma nota temporária para o perfil da RESENHA MÁXIMA, escolher a duração e removê-la manualmente. Enquanto uma nota manual estiver ativa, ela tem prioridade sobre o espelhamento automático.\n\n## Atividades do Vini\n\nO espelhamento foi reforçado para funcionar também após reinícios e é verificado periodicamente, sem depender apenas do evento de mudança de presença. Jogos e Spotify públicos podem aparecer como atividade do bot. A nota/status personalizado do Vini não é copiado.\n\n## Visual mais profissional\n\nOs emojis foram reduzidos nas áreas administrativas, principalmente na navegação, títulos, cards e ações rápidas. A identidade escura e dourada da RESENHA MÁXIMA foi mantida."
 }

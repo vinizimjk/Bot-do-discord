@@ -9035,22 +9035,75 @@ async def entrar_call_dev_automaticamente(guild, canal=None):
 
 _ultima_atividade_espelhada = None
 
+
+def _nota_manual_config(config):
+    import time as _time
+    if not isinstance(config, dict) or not config.get("bot_nota_manual"):
+        return None
+    texto = str(config.get("bot_nota") or "").strip()
+    ate = int(config.get("bot_nota_ate") or 0)
+    if not texto:
+        return None
+    if ate and _time.time() >= ate:
+        return None
+    return texto[:120]
+
+
+def _atividade_principal_dono(membro):
+    if not isinstance(membro, discord.Member):
+        return None
+    # Nunca copia Custom Status/nota pessoal do Vini.
+    atividades = list(getattr(membro, "activities", []) or [])
+    for atividade in atividades:
+        if isinstance(atividade, discord.Spotify):
+            titulo = getattr(atividade, "title", None)
+            artista = getattr(atividade, "artist", None)
+            if titulo:
+                return (f"Ouvindo {titulo}" + (f" — {artista}" if artista else ""))[:120]
+    for atividade in atividades:
+        nome = str(getattr(atividade, "name", "") or "").strip()
+        if nome and nome.lower() != "custom status" and not isinstance(atividade, discord.CustomActivity):
+            return f"Jogando {nome}"[:120]
+    return None
+
+
+async def atualizar_presenca_espelhada(force=False):
+    global _ultima_atividade_espelhada
+    config = await atualizar_config_ia_do_painel(force=force)
+    nota = _nota_manual_config(config)
+    if nota:
+        chave = "nota:" + nota
+        if force or chave != _ultima_atividade_espelhada:
+            _ultima_atividade_espelhada = chave
+            await bot.change_presence(activity=discord.CustomActivity(name=nota))
+        return
+
+    dono = None
+    for guild in bot.guilds:
+        dono = guild.get_member(DONO_ID)
+        if dono is not None:
+            break
+    texto = _atividade_principal_dono(dono) if dono else None
+    chave = "atividade:" + (texto or "Resenha Máxima")
+    if force or chave != _ultima_atividade_espelhada:
+        _ultima_atividade_espelhada = chave
+        await bot.change_presence(activity=discord.CustomActivity(name=texto or "Resenha Máxima"))
+
+
+@tasks.loop(seconds=30)
+async def sincronizar_presenca_dono():
+    try:
+        await atualizar_presenca_espelhada(force=False)
+    except Exception as erro:
+        print(f"Presence: falha na sincronização periódica: {erro}")
+
+
 @bot.event
 async def on_presence_update(before: discord.Member, after: discord.Member):
-    global _ultima_atividade_espelhada
     if after.id != DONO_ID:
         return
-    atividades = atividades_publicas_membro_ia(after)
-    nome = atividades[0] if atividades else None
-    if nome == _ultima_atividade_espelhada:
-        return
-    _ultima_atividade_espelhada = nome
     try:
-        if nome:
-            texto = nome.replace("Spotify: ", "🎵 ")[:120]
-            await bot.change_presence(activity=discord.CustomActivity(name=texto))
-        else:
-            await bot.change_presence(activity=discord.CustomActivity(name="Resenha Máxima"))
+        await atualizar_presenca_espelhada(force=True)
     except Exception as erro:
         print(f"Presence: não consegui espelhar atividade do dono: {erro}")
 
@@ -12514,6 +12567,12 @@ async def sincronizar_perfis_roblox_discord():
 
 @bot.event
 async def on_ready():
+    if not sincronizar_presenca_dono.is_running():
+        sincronizar_presenca_dono.start()
+    try:
+        await atualizar_presenca_espelhada(force=True)
+    except Exception as erro:
+        print(f"Presence: falha na sincronização inicial: {erro}")
     if not getattr(bot, "_perfis_roblox_v36", False):
         bot._perfis_roblox_v36 = True
         try:
