@@ -5062,6 +5062,13 @@ async def _localizar_tabelas_nicknames(
     return encontrados
 
 
+def _quantidade_nicks_no_embed(embed):
+    if embed is None:
+        return 0
+    descricao = str(getattr(embed, "description", "") or "")
+    return sum(1 for linha in descricao.splitlines() if " — `" in linha)
+
+
 async def atualizar_tabela_nicknames(
     guild
 ):
@@ -5127,9 +5134,26 @@ async def atualizar_tabela_nicknames(
         )
 
     else:
-        await mensagem.edit(
-            embed=embed
+        # V43: proteção contra sincronização parcial. O banco/Discord pode
+        # ficar momentaneamente incompleto durante uma sincronização. Nesse
+        # caso não derrubamos uma tabela grande para 1 ou poucos registros.
+        atual = mensagem.embeds[0] if mensagem.embeds else None
+        qtd_atual = _quantidade_nicks_no_embed(atual)
+        qtd_nova = _quantidade_nicks_no_embed(embed)
+
+        queda_suspeita = (
+            qtd_atual >= 5
+            and qtd_nova < qtd_atual
+            and qtd_nova <= max(1, int(qtd_atual * 0.60))
         )
+
+        if queda_suspeita:
+            print(
+                "Nicknames V43: atualização parcial bloqueada | "
+                f"atual={qtd_atual} novo={qtd_nova}"
+            )
+        else:
+            await mensagem.edit(embed=embed)
 
     if not tabelas:
         tabelas = await _localizar_tabelas_nicknames(
@@ -9080,30 +9104,40 @@ def _atividade_principal_dono(membro):
 
 async def atualizar_presenca_espelhada(force=False):
     global _ultima_atividade_espelhada
+
+    # V43: a atividade real do dono tem prioridade para garantir que o
+    # Discord mostre "Jogando" / "Ouvindo" no perfil do bot. A Nota do Bot
+    # continua sendo usada quando o dono não possui uma atividade pública.
+    # O gateway padrão do discord.py publica uma atividade por presença;
+    # portanto não sobrescrevemos um jogo/Spotify com a nota manual.
     config = await atualizar_config_ia_do_painel(force=force)
-    nota = _nota_manual_config(config)
-    if nota:
-        chave = "nota:" + nota
-        if force or chave != _ultima_atividade_espelhada:
-            _ultima_atividade_espelhada = chave
-            await bot.change_presence(activity=discord.CustomActivity(name=nota))
-        return
 
     dono = None
     for guild in bot.guilds:
         dono = guild.get_member(DONO_ID)
         if dono is not None:
             break
+
     atividade = _atividade_principal_dono(dono) if dono else None
-    if isinstance(atividade, discord.Game):
+    nota = _nota_manual_config(config)
+
+    if atividade is None and nota:
+        atividade = discord.CustomActivity(name=nota)
+        chave = "nota:" + nota
+    elif isinstance(atividade, discord.Game):
         chave = "playing:" + str(atividade.name)
     elif atividade is not None:
-        chave = "activity:" + str(getattr(atividade, "name", "")) + ":" + str(getattr(atividade, "type", ""))
+        chave = (
+            "activity:" + str(getattr(atividade, "name", ""))
+            + ":" + str(getattr(atividade, "type", ""))
+        )
     else:
         chave = "sem_atividade"
+
     if force or chave != _ultima_atividade_espelhada:
-        _ultima_atividade_espelhada = chave
         await bot.change_presence(activity=atividade)
+        _ultima_atividade_espelhada = chave
+        print(f"Presence V43: {chave}")
 
 
 @tasks.loop(seconds=30)
