@@ -1,5 +1,25 @@
 {
-  "titulo": "Nota do Bot, visual do painel e atividades",
-  "versao": "V37",
-  "conteudo": "## Nota personalizada do bot\n\nA Administração agora pode definir pelo painel uma nota temporária para o perfil da RESENHA MÁXIMA, escolher a duração e removê-la manualmente. Enquanto uma nota manual estiver ativa, ela tem prioridade sobre o espelhamento automático.\n\n## Atividades do Vini\n\nO espelhamento foi reforçado para funcionar também após reinícios e é verificado periodicamente, sem depender apenas do evento de mudança de presença. Jogos e Spotify públicos podem aparecer como atividade do bot. A nota/status personalizado do Vini não é copiado.\n\n## Visual mais profissional\n\nOs emojis foram reduzidos nas áreas administrativas, principalmente na navegação, títulos, cards e ações rápidas. A identidade escura e dourada da RESENHA MÁXIMA foi mantida."
+  "id": "V39",
+  "versao": "V39",
+  "data": "02/10/2026",
+  "titulo": "Cadastro seguro, hierarquia e atividades do bot",
+  "novidades": [
+    "O cadastro do painel agora confirma a identidade por DM do Discord e token temporário de 25 caracteres.",
+    "A hierarquia do painel passa a seguir: Departamento de Eventos, Moderador, Administrador, Equipe de Desenvolvimento e ADM-G.",
+    "Contas verificadas sem cargo administrativo entram em uma área restrita em vez de receber erro de acesso."
+  ],
+  "correcoes": [
+    "O login deixa de exibir o fluxo antigo de Solicitar acesso e passa a oferecer Criar conta.",
+    "O espelhamento do perfil do bot usa atividades nativas do Discord: jogos aparecem como Jogando e Spotify pode aparecer como Ouvindo.",
+    "Status personalizado do Vini não é copiado como atividade do bot."
+  ],
+  "alteracoes": [
+    "Jogos têm prioridade sobre Spotify no espelhamento automático.",
+    "Tokens expiram em 10 minutos, são de uso único e bloqueiam após tentativas inválidas repetidas.",
+    "A Nota do Bot continua separada e tem prioridade quando ativada manualmente."
+  ],
+  "problemas_conhecidos": [
+    "O Discord não oferece a bots um botão universal que copie texto diretamente para a área de transferência; o token é enviado em bloco de código para facilitar a cópia.",
+    "Para o botão Entrar no Discord da área restrita funcionar, configure DISCORD_INVITE_URL no Railway com o convite oficial do servidor."
+  ]
 }

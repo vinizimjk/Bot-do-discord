@@ -9050,20 +9050,31 @@ def _nota_manual_config(config):
 
 
 def _atividade_principal_dono(membro):
+    """Retorna a Activity nativa que o bot deve espelhar.
+
+    Prioridade: jogo/aplicativo > Spotify. Custom Status nunca é copiado.
+    """
     if not isinstance(membro, discord.Member):
         return None
-    # Nunca copia Custom Status/nota pessoal do Vini.
     atividades = list(getattr(membro, "activities", []) or [])
+
+    # Primeiro procura jogos/aplicativos para aparecer como "Jogando X".
+    for atividade in atividades:
+        if isinstance(atividade, (discord.CustomActivity, discord.Spotify)):
+            continue
+        nome = str(getattr(atividade, "name", "") or "").strip()
+        tipo = getattr(atividade, "type", None)
+        if nome and tipo in {discord.ActivityType.playing, None}:
+            return discord.Game(name=nome[:128])
+
+    # Se não houver jogo, Spotify aparece no bloco nativo "Ouvindo".
     for atividade in atividades:
         if isinstance(atividade, discord.Spotify):
-            titulo = getattr(atividade, "title", None)
-            artista = getattr(atividade, "artist", None)
-            if titulo:
-                return (f"Ouvindo {titulo}" + (f" — {artista}" if artista else ""))[:120]
-    for atividade in atividades:
-        nome = str(getattr(atividade, "name", "") or "").strip()
-        if nome and nome.lower() != "custom status" and not isinstance(atividade, discord.CustomActivity):
-            return f"Jogando {nome}"[:120]
+            titulo = str(getattr(atividade, "title", "") or "").strip()
+            artista = str(getattr(atividade, "artist", "") or "").strip()
+            nome = titulo + (f" — {artista}" if artista else "")
+            if nome:
+                return discord.Activity(type=discord.ActivityType.listening, name=nome[:128])
     return None
 
 
@@ -9083,11 +9094,16 @@ async def atualizar_presenca_espelhada(force=False):
         dono = guild.get_member(DONO_ID)
         if dono is not None:
             break
-    texto = _atividade_principal_dono(dono) if dono else None
-    chave = "atividade:" + (texto or "Resenha Máxima")
+    atividade = _atividade_principal_dono(dono) if dono else None
+    if isinstance(atividade, discord.Game):
+        chave = "playing:" + str(atividade.name)
+    elif atividade is not None:
+        chave = "activity:" + str(getattr(atividade, "name", "")) + ":" + str(getattr(atividade, "type", ""))
+    else:
+        chave = "sem_atividade"
     if force or chave != _ultima_atividade_espelhada:
         _ultima_atividade_espelhada = chave
-        await bot.change_presence(activity=discord.CustomActivity(name=texto or "Resenha Máxima"))
+        await bot.change_presence(activity=atividade)
 
 
 @tasks.loop(seconds=30)
