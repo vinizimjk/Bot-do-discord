@@ -9076,7 +9076,7 @@ def _nota_manual_config(config):
 def _atividade_principal_dono(membro):
     """Espelha a atividade pública principal do dono.
 
-    V46 (teste Rich Presence): quando o Discord entregar uma Activity rica,
+    V47 (teste imagem + contador): quando o Discord entregar uma Activity rica,
     preservamos nome, detalhes, estado, timestamps e assets em vez de
     converter tudo para discord.Game. Isso permite testar o card completo
     (imagem + "Tela principal" + tempo) no perfil do bot.
@@ -9119,24 +9119,46 @@ def _atividade_principal_dono(membro):
         if details:
             kwargs["details"] = str(details)[:128]
         elif nome == "MTA San Andreas":
-            # Fallback visual do teste quando o Presence do MTA não entregar
-            # o detalhe, mantendo o formato aprovado pelo usuário.
             kwargs["details"] = "Tela principal"
         if state:
             kwargs["state"] = str(state)[:128]
-        if isinstance(timestamps, dict) and timestamps:
-            kwargs["timestamps"] = dict(timestamps)
-        if isinstance(assets, dict) and assets:
-            kwargs["assets"] = dict(assets)
-        if application_id:
-            kwargs["application_id"] = application_id
+
+        # V47: no MTA, tentamos publicar o card como atividade do PRÓPRIO
+        # aplicativo RESENHA MAXIMA. Assets de outro aplicativo não são
+        # reutilizáveis de forma confiável pelo Discord. Para testar a imagem,
+        # envie uma Rich Presence Asset no Developer Portal com a chave
+        # definida em MTA_RICH_PRESENCE_IMAGE_KEY (padrão: mta).
+        if nome == "MTA San Andreas":
+            import time as _presence_time
+            chave_imagem = str(os.getenv("MTA_RICH_PRESENCE_IMAGE_KEY", "mta") or "mta").strip()
+            kwargs["application_id"] = getattr(getattr(bot, "user", None), "id", None) or application_id
+            if chave_imagem:
+                kwargs["assets"] = {
+                    "large_image": chave_imagem,
+                    "large_text": "MTA San Andreas",
+                }
+
+            # Reaproveita o início original quando ele vier do gateway. Se não
+            # vier, inicia um contador local para verificar se o cliente do
+            # Discord renderiza elapsed time em Presence de bot.
+            if isinstance(timestamps, dict) and timestamps.get("start"):
+                kwargs["timestamps"] = {"start": timestamps["start"]}
+            else:
+                kwargs["timestamps"] = {"start": int(_presence_time.time() * 1000)}
+        else:
+            if isinstance(timestamps, dict) and timestamps:
+                kwargs["timestamps"] = dict(timestamps)
+            if isinstance(assets, dict) and assets:
+                kwargs["assets"] = dict(assets)
+            if application_id:
+                kwargs["application_id"] = application_id
 
         try:
             return discord.Activity(**kwargs)
         except Exception as erro:
             # Se a versão do discord.py/Railway rejeitar algum campo rico,
             # não derruba o bot: volta automaticamente ao Presence simples.
-            print(f"Presence V46: Rich Presence não aceito ({type(erro).__name__}: {erro}); usando simples")
+            print(f"Presence V47: Rich Presence não aceito ({type(erro).__name__}: {erro}); usando simples")
             return discord.Game(name=nome[:128])
 
     # Sem jogo: mantém Spotify como atividade nativa "Ouvindo".
@@ -9189,7 +9211,7 @@ async def atualizar_presenca_espelhada(force=False):
     if force or chave != _ultima_atividade_espelhada:
         await bot.change_presence(activity=atividade)
         _ultima_atividade_espelhada = chave
-        print(f"Presence V46: {chave}")
+        print(f"Presence V47: {chave}")
 
 
 @tasks.loop(seconds=30)

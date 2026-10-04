@@ -1,14 +1,15 @@
 {
-  "versao": "V46",
-  "titulo": "Teste Rich Presence do MTA",
+  "versao": "V47",
+  "titulo": "Teste de imagem e contador no Rich Presence do MTA",
   "alteracoes": [
-    "Tenta preservar os dados ricos da atividade pública do owner: nome, detalhes, estado, tempo e assets/imagem.",
-    "Normaliza Grand Theft Auto: San Andreas para MTA San Andreas no espelho do bot.",
-    "Usa Tela principal como detalhe de fallback do MTA quando esse campo não vier no Presence.",
-    "Remove o emoji de controle do nome do jogo; o indicador/tempo fica a cargo do card nativo do Discord.",
-    "Se a versão do Discord/discord.py rejeitar os campos ricos, o bot volta automaticamente ao Presence simples sem parar.",
-    "Mantém a prioridade jogo sobre Spotify, Nota do Bot e todas as funções da V45."
+    "Mantém MTA San Andreas e Tela principal, que já funcionaram na V46.",
+    "Tenta publicar a atividade do MTA usando o application_id do próprio bot RESENHA MAXIMA, evitando reutilizar assets pertencentes ao aplicativo do MTA.",
+    "Adiciona suporte ao asset MTA_RICH_PRESENCE_IMAGE_KEY; o valor padrão é mta.",
+    "Tenta preservar o horário inicial recebido do MTA e, quando ele não existir, inicia um timestamp local para testar o contador de tempo do card.",
+    "Mantém fallback para Presence simples se o Discord ou discord.py rejeitar os campos ricos.",
+    "Preserva todas as demais funções da V46/V45."
   ],
   "arquivos_alterados": ["bot/bot.py"],
-  "observacao": "Este é um teste: o Discord pode limitar Rich Presence completo em contas bot. A V46 tenta os campos disponíveis sem prometer que o cliente renderizará imagem/detalhes como em uma conta de usuário."
+  "configuracao_para_imagem": "No Discord Developer Portal do aplicativo RESENHA MAXIMA, cadastre uma Rich Presence Asset com a chave mta; se usar outra chave, defina MTA_RICH_PRESENCE_IMAGE_KEY no Railway.",
+  "observacao": "O Discord pode continuar ocultando imagem e/ou contador em Presence de bot. Esta versão testa a abordagem com asset pertencente ao próprio aplicativo do bot."
 }
