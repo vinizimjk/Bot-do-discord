@@ -9074,7 +9074,12 @@ def _nota_manual_config(config):
 
 
 def _atividade_principal_dono(membro):
-    """Retorna a Activity nativa que o bot deve espelhar.
+    """Espelha a atividade pública principal do dono.
+
+    V46 (teste Rich Presence): quando o Discord entregar uma Activity rica,
+    preservamos nome, detalhes, estado, timestamps e assets em vez de
+    converter tudo para discord.Game. Isso permite testar o card completo
+    (imagem + "Tela principal" + tempo) no perfil do bot.
 
     Prioridade: jogo/aplicativo > Spotify. Custom Status nunca é copiado.
     """
@@ -9082,23 +9087,66 @@ def _atividade_principal_dono(membro):
         return None
     atividades = list(getattr(membro, "activities", []) or [])
 
-    # Primeiro procura jogos/aplicativos para aparecer como "Jogando X".
     for atividade in atividades:
         if isinstance(atividade, (discord.CustomActivity, discord.Spotify)):
             continue
         nome = str(getattr(atividade, "name", "") or "").strip()
         tipo = getattr(atividade, "type", None)
-        if nome and tipo in {discord.ActivityType.playing, None}:
-            return discord.Game(name=("🎮 " + nome)[:128])
+        if not nome or tipo not in {discord.ActivityType.playing, None}:
+            continue
 
-    # Se não houver jogo, Spotify aparece no bloco nativo "Ouvindo".
+        # O MTA às vezes chega pelo Discord com o executável/jogo-base como
+        # "Grand Theft Auto: San Andreas". Para o espelho usamos o nome que
+        # queremos exibir no perfil da Resenha Máxima.
+        nome_lower = nome.casefold()
+        if "grand theft auto" in nome_lower and "san andreas" in nome_lower:
+            nome = "MTA San Andreas"
+
+        # discord.Activity aceita os campos de Rich Presence recebidos pelo
+        # gateway. Mantemos apenas campos públicos da atividade; não copiamos
+        # Custom Status nem segredos de join/spectate.
+        kwargs = {
+            "name": nome[:128],
+            "type": discord.ActivityType.playing,
+        }
+
+        details = getattr(atividade, "details", None)
+        state = getattr(atividade, "state", None)
+        timestamps = getattr(atividade, "timestamps", None)
+        assets = getattr(atividade, "assets", None)
+        application_id = getattr(atividade, "application_id", None)
+
+        if details:
+            kwargs["details"] = str(details)[:128]
+        elif nome == "MTA San Andreas":
+            # Fallback visual do teste quando o Presence do MTA não entregar
+            # o detalhe, mantendo o formato aprovado pelo usuário.
+            kwargs["details"] = "Tela principal"
+        if state:
+            kwargs["state"] = str(state)[:128]
+        if isinstance(timestamps, dict) and timestamps:
+            kwargs["timestamps"] = dict(timestamps)
+        if isinstance(assets, dict) and assets:
+            kwargs["assets"] = dict(assets)
+        if application_id:
+            kwargs["application_id"] = application_id
+
+        try:
+            return discord.Activity(**kwargs)
+        except Exception as erro:
+            # Se a versão do discord.py/Railway rejeitar algum campo rico,
+            # não derruba o bot: volta automaticamente ao Presence simples.
+            print(f"Presence V46: Rich Presence não aceito ({type(erro).__name__}: {erro}); usando simples")
+            return discord.Game(name=nome[:128])
+
+    # Sem jogo: mantém Spotify como atividade nativa "Ouvindo".
     for atividade in atividades:
         if isinstance(atividade, discord.Spotify):
             titulo = str(getattr(atividade, "title", "") or "").strip()
             artista = str(getattr(atividade, "artist", "") or "").strip()
             nome = titulo + (f" — {artista}" if artista else "")
             if nome:
-                return discord.Activity(type=discord.ActivityType.listening, name=("🎵 " + nome)[:128])
+                return discord.Activity(type=discord.ActivityType.listening, name=nome[:128])
     return None
 
 
@@ -9130,6 +9178,10 @@ async def atualizar_presenca_espelhada(force=False):
         chave = (
             "activity:" + str(getattr(atividade, "name", ""))
             + ":" + str(getattr(atividade, "type", ""))
+            + ":" + str(getattr(atividade, "details", ""))
+            + ":" + str(getattr(atividade, "state", ""))
+            + ":" + str(getattr(atividade, "timestamps", ""))
+            + ":" + str(getattr(atividade, "assets", ""))
         )
     else:
         chave = "sem_atividade"
@@ -9137,7 +9189,7 @@ async def atualizar_presenca_espelhada(force=False):
     if force or chave != _ultima_atividade_espelhada:
         await bot.change_presence(activity=atividade)
         _ultima_atividade_espelhada = chave
-        print(f"Presence V45: {chave}")
+        print(f"Presence V46: {chave}")
 
 
 @tasks.loop(seconds=30)

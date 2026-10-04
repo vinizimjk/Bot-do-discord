@@ -1,18 +1,14 @@
 {
-  "id": "V41-NOTA-BOT-ROTA-E-ATIVIDADES",
-  "versao": "V41",
-  "data": "02/10/2026",
-  "titulo": "Nota do Bot e atividades corrigidas",
-  "novidades": [
-    "A página Nota do Bot agora abre sua própria área no painel."
-  ],
-  "correcoes": [
-    "Corrigida a navegação que enviava Nota do Bot para o menu geral do bot.",
-    "Mantido o espelhamento nativo de atividades do Vini: jogos aparecem como Jogando e Spotify como Ouvindo quando não houver jogo."
-  ],
+  "versao": "V46",
+  "titulo": "Teste Rich Presence do MTA",
   "alteracoes": [
-    "Jogos continuam tendo prioridade sobre Spotify no perfil do bot.",
-    "Status personalizado do Vini continua fora do espelhamento automático."
+    "Tenta preservar os dados ricos da atividade pública do owner: nome, detalhes, estado, tempo e assets/imagem.",
+    "Normaliza Grand Theft Auto: San Andreas para MTA San Andreas no espelho do bot.",
+    "Usa Tela principal como detalhe de fallback do MTA quando esse campo não vier no Presence.",
+    "Remove o emoji de controle do nome do jogo; o indicador/tempo fica a cargo do card nativo do Discord.",
+    "Se a versão do Discord/discord.py rejeitar os campos ricos, o bot volta automaticamente ao Presence simples sem parar.",
+    "Mantém a prioridade jogo sobre Spotify, Nota do Bot e todas as funções da V45."
   ],
-  "problemas_conhecidos": []
+  "arquivos_alterados": ["bot/bot.py"],
+  "observacao": "Este é um teste: o Discord pode limitar Rich Presence completo em contas bot. A V46 tenta os campos disponíveis sem prometer que o cliente renderizará imagem/detalhes como em uma conta de usuário."
 }
