@@ -225,7 +225,7 @@ IA_GERACAO_TIMEOUT_SEGUNDOS = 18
 # Configuração remota da IA pelo painel web.
 # Se o painel estiver indisponível, o bot continua usando os valores locais.
 IA_PAINEL_URL = os.getenv("IA_PAINEL_URL", "https://painel-menu-bot-production.up.railway.app").rstrip("/")
-IA_CONFIG_ENDPOINT = f"{IA_PAINEL_URL}/api/ia-config"
+IA_CONFIG_ENDPOINT = f"{IA_PAINEL_URL}/api/bot-config-public"
 IA_CONFIG_REFRESH_SEGUNDOS = 60
 
 # ==========================================================
@@ -329,8 +329,8 @@ PERSONALIDADE:
   interpretar a intenção pelo contexto em vez de corrigir a pessoa.
 - Pode usar gírias e provocações entre membros quando o contexto claramente for brincadeira.
 - Tente conversar como uma pessoa real do servidor: varie entre respostas curtas, médias, só risada, reação, deboche ou silêncio quando couber; não tente produzir uma resposta perfeita toda vez.
-- ENTENDA DUPLO SENTIDO E MALÍCIA. Quando perceber uma frase com segunda intenção, pode devolver a piada, inverter contra a pessoa ou se salvar com expressões naturais como "lá ele", "aí dentro", "sai fora" e semelhantes. NÃO repita essas expressões mecanicamente.
-- Exemplo de espírito da resposta: se tentarem te pegar numa pergunta de duplo sentido, uma saída natural pode ser "a mesma quantidade que você" em vez de explicar a piada.
+- ENTENDA DUPLO SENTIDO E MALÍCIA. Quando perceber uma frase com segunda intenção, priorize uma reação CURTA, espontânea e engraçada em vez de explicar a piada. Exemplos de clima: "LA ELE KKKK", "AI DENTRO KKKK", "IXI? KKKK", "sai fora" ou uma invertida curta. Varie de verdade e NÃO repita bordões mecanicamente.
+- Se a graça estiver justamente no duplo sentido, NÃO explique o que ficou ambíguo e NÃO transforme a resposta em uma frase longa. Uma reação de 2 a 6 palavras pode ser melhor. Se tentarem te pegar numa pergunta, também pode inverter naturalmente, por exemplo "a mesma quantidade que você".
 - Considere quem foi mencionado e qual mensagem está sendo respondida para entender quem está falando com quem. Não trate cada mensagem como uma conversa nova.
 - ANTES de interpretar uma frase curta, estranha ou escrita errado, releia as mensagens recentes do canal. Dê prioridade ao assunto que já estava acontecendo e à relação entre os participantes, em vez de montar uma resposta só com as palavras da última mensagem.
 - Se a conversa já estiver em andamento com você (por exemplo: zoeira, discussão, alguém te defendendo ou elogiando), mantenha esse fio. Uma frase como "papai tá cheio de orgulho" durante uma discussão em que você estava se defendendo deve ser entendida como aprovação/orgulho dentro daquela brincadeira, e não como um novo assunto desconectado.
@@ -376,7 +376,7 @@ PERSONALIDADE:
 - Reconhecer uma pessoa não é motivo para repetir a piada associada a ela. Responda primeiro ao conteúdo da mensagem atual.
 - Evite reutilizar a mesma estrutura, bordão ou piada em respostas próximas; mude a abordagem de verdade.
 - SAIBA ENCERRAR CONVERSAS: mensagens como "fechou", "beleza", "blz", "ok", "vlw", "ss", "aviso ss" e confirmações curtas normalmente encerram o assunto. Se não houver pergunta nem informação útil para acrescentar, prefira ficar em silêncio ou apenas reagir. NÃO tente ter a última palavra.
-- ATIVIDADES DO DISCORD são contexto social, não gatilho: quando o contexto informar jogo, Spotify ou outra atividade pública de alguém, você pode usar isso numa resposta se encaixar naturalmente. Não anuncie toda mudança de atividade e não invente atividade ausente.
+- ATIVIDADES DO DISCORD são contexto social, não gatilho: quando o contexto informar jogo, Spotify ou outra atividade pública de alguém, você pode usar isso numa resposta se encaixar naturalmente. Trate 🎮 como jogo e 🎵 como música/Spotify. Não anuncie toda mudança de atividade e não invente atividade ausente.
 
 LIMITES DE PERSONALIDADE:
 - Não faça ameaças reais de violência.
@@ -7074,9 +7074,9 @@ def atividades_publicas_membro_ia(membro):
             titulo = getattr(atividade, "title", None)
             artista = getattr(atividade, "artist", None)
             if titulo:
-                itens.append(f"Spotify: {titulo}" + (f" — {artista}" if artista else ""))
+                itens.append(f"🎵 Spotify: {titulo}" + (f" — {artista}" if artista else ""))
         elif nome and nome != "Custom Status":
-            itens.append(f"{nome}")
+            itens.append(f"🎮 {nome}")
     return itens[:4]
 
 
@@ -9089,7 +9089,7 @@ def _atividade_principal_dono(membro):
         nome = str(getattr(atividade, "name", "") or "").strip()
         tipo = getattr(atividade, "type", None)
         if nome and tipo in {discord.ActivityType.playing, None}:
-            return discord.Game(name=nome[:128])
+            return discord.Game(name=("🎮 " + nome)[:128])
 
     # Se não houver jogo, Spotify aparece no bloco nativo "Ouvindo".
     for atividade in atividades:
@@ -9098,7 +9098,7 @@ def _atividade_principal_dono(membro):
             artista = str(getattr(atividade, "artist", "") or "").strip()
             nome = titulo + (f" — {artista}" if artista else "")
             if nome:
-                return discord.Activity(type=discord.ActivityType.listening, name=nome[:128])
+                return discord.Activity(type=discord.ActivityType.listening, name=("🎵 " + nome)[:128])
     return None
 
 
@@ -9137,7 +9137,7 @@ async def atualizar_presenca_espelhada(force=False):
     if force or chave != _ultima_atividade_espelhada:
         await bot.change_presence(activity=atividade)
         _ultima_atividade_espelhada = chave
-        print(f"Presence V43: {chave}")
+        print(f"Presence V45: {chave}")
 
 
 @tasks.loop(seconds=30)
